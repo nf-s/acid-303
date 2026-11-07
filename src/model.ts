@@ -47,20 +47,20 @@ export const keysSchema = z.object({
   steps: z.array(keysStepSchema).length(STEP_COUNT),
 });
 export type KeysTrack = z.infer<typeof keysSchema>;
-export const KEYS_SOUNDS = ["Velvet", "Pluck", "Tape"];
+export const KEYS_SOUNDS = ["Impact", "Haze", "Stab"];
 export function createKeys(preset = 0): KeysTrack {
   const root = preset === 2 ? 60 : 57;
-  const intervals = [0, 7, 12, 7, 3, 7, 12, 11, 7, 12, 15, 12, 3, 7, 11, 7];
+  const intervals = [0, 0, 7, 0, 0, 12, 0, 3, 0, 7, 0, 0, 12, 0, 3, 7];
   return {
     sound: 0,
-    tone: 0.48,
-    decay: 0.55,
-    space: 0.22,
-    volume: 0.38,
+    tone: 0.38,
+    decay: 0.28,
+    space: 0.35,
+    volume: 0.35,
     muted: false,
     steps: intervals.map((interval, index) => ({
       note: root + interval,
-      on: [0, 3, 6, 8, 12, 14].includes(index),
+      on: [2, 5, 8, 11, 14].includes(index),
       accent: false,
       slide: false,
     })),
@@ -287,7 +287,7 @@ export function remixProject(
     slide: false,
   }));
   const keyRoot = project.name === "Broken circuit" ? 60 : 57;
-  const keyIntervals = [0, 3, 7, 11, 12, 15];
+  const keyIntervals = [0, 0, 0, 7, 12];
   remix.keys.steps = remix.keys.steps.map((_, index) => ({
     note:
       keyRoot + (keyIntervals[Math.floor(random() * keyIntervals.length)] ?? 0),

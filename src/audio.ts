@@ -14,6 +14,7 @@ interface AudioGraph {
   master: GainNode;
   analyser: AnalyserNode;
   noise: AudioBuffer;
+  textureRoom: AudioBuffer | null;
   sources: Set<ScheduledSource>;
   drive: number;
   bpm: number;
@@ -120,6 +121,7 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
     master,
     analyser,
     noise,
+    textureRoom: null,
     sources: new Set(),
     drive: project.drive,
     bpm: project.bpm,
@@ -146,6 +148,7 @@ function scheduleSources(
   nodes: AudioNode[],
   start: number,
   end: number,
+  bufferOffset = 0,
 ): void {
   let remaining = sources.length;
   for (const source of sources) {
@@ -156,7 +159,8 @@ function scheduleSources(
       remaining -= 1;
       if (remaining === 0) for (const node of nodes) node.disconnect();
     };
-    source.start(start);
+    if ("buffer" in source) source.start(start, bufferOffset);
+    else source.start(start);
     source.stop(end);
   }
 }
@@ -420,7 +424,9 @@ class BassVoice {
 }
 
 function keysEchoTail(track: KeysTrack, bpm: number): number {
-  return track.space > 0 ? (60 / bpm) * 1.5 : 0;
+  return track.space > 0
+    ? Math.max((60 / bpm) * 1.5, track.sound === 1 ? 0.9 : 0)
+    : 0;
 }
 
 export function exportTailDuration(project: Project): number {
@@ -449,26 +455,68 @@ interface KeysTone {
 function keysTones(sound: number): KeysTone[] {
   if (sound === 0)
     return [
-      { type: "sine", multiplier: 1, level: 0.76, detune: 0 },
-      { type: "triangle", multiplier: 1, level: 0.2, detune: 2 },
-      { type: "sine", multiplier: 2, level: 0.04, detune: 0 },
+      { type: "sine", multiplier: 1, level: 0.3, detune: 0 },
+      { type: "triangle", multiplier: 2, level: 0.12, detune: 0 },
+      { type: "sine", multiplier: 3, level: 0.04, detune: 0 },
     ];
   if (sound === 1)
     return [
-      { type: "triangle", multiplier: 1, level: 0.65, detune: 0 },
-      { type: "sine", multiplier: 1, level: 0.25, detune: 0 },
-      { type: "sine", multiplier: 2, level: 0.1, detune: 0 },
+      { type: "sine", multiplier: 1, level: 0.08, detune: -4 },
+      { type: "triangle", multiplier: 1, level: 0.06, detune: 4 },
+      { type: "sine", multiplier: 2, level: 0.02, detune: 0 },
     ];
   return [
-    { type: "sine", multiplier: 1, level: 0.47, detune: -3 },
-    { type: "triangle", multiplier: 1, level: 0.47, detune: 3 },
-    { type: "sawtooth", multiplier: 1, level: 0.06, detune: 0 },
+    { type: "sawtooth", multiplier: 1, level: 0.38, detune: -7 },
+    { type: "sawtooth", multiplier: 2 ** (3 / 12), level: 0.31, detune: 5 },
+    { type: "sawtooth", multiplier: 2 ** (7 / 12), level: 0.25, detune: -3 },
   ];
+}
+
+function textureNoiseCurve(sound: number): Float32Array<ArrayBuffer> {
+  if (sound === 1) return new Float32Array([-1, 1]);
+  const curve = new Float32Array(2048);
+  for (let index = 0; index < curve.length; index += 1) {
+    const value = (index / (curve.length - 1)) * 2 - 1;
+    const shaped = Math.tanh(value * 2.2) / 2.2;
+    curve[index] = sound === 0 ? Math.round(shaped * 48) / 48 : shaped;
+  }
+  return curve;
+}
+
+function textureRoom(graph: AudioGraph): AudioBuffer {
+  if (graph.textureRoom) return graph.textureRoom;
+  const room = graph.context.createBuffer(
+    2,
+    Math.ceil(graph.context.sampleRate * 0.9),
+    graph.context.sampleRate,
+  );
+  for (let channel = 0; channel < room.numberOfChannels; channel += 1) {
+    const samples = room.getChannelData(channel);
+    let filtered = 0;
+    for (let index = 0; index < samples.length; index += 1) {
+      const time = index / graph.context.sampleRate;
+      filtered = filtered * 0.7 + (Math.random() * 2 - 1) * 0.3;
+      samples[index] =
+        time < 0.018
+          ? 0
+          : filtered *
+            Math.min(1, (time - 0.018) / 0.025) *
+            (1 - index / samples.length) ** 3;
+    }
+  }
+  graph.textureRoom = room;
+  return room;
 }
 
 class KeysVoice {
   private readonly filter: BiquadFilterNode;
   private readonly envelope: GainNode;
+  private readonly noise: AudioBufferSourceNode;
+  private readonly noiseFilter: BiquadFilterNode;
+  private readonly noiseGain: GainNode;
+  private readonly noiseColor: WaveShaperNode;
+  private readonly nodes: AudioNode[] = [];
+  private roomGain: GainNode | null = null;
   private readonly tones: Array<{
     oscillator: OscillatorNode;
     gain: GainNode;
@@ -479,6 +527,7 @@ class KeysVoice {
     gain: GainNode;
   }> = [];
   private echoTail = 0;
+  private sound: number;
   finished = false;
 
   constructor(
@@ -494,8 +543,25 @@ class KeysVoice {
     this.envelope.gain.value = 0;
     this.filter.connect(this.envelope);
     this.envelope.connect(graph.cleanInput);
-    const nodes: AudioNode[] = [this.filter, this.envelope];
-    const sources: OscillatorNode[] = [];
+    const nodes = this.nodes;
+    nodes.push(this.filter, this.envelope);
+    const sources: ScheduledSource[] = [];
+    this.sound = track.sound;
+    this.noise = context.createBufferSource();
+    this.noise.buffer = graph.noise;
+    this.noise.loop = true;
+    this.noiseFilter = context.createBiquadFilter();
+    this.noiseFilter.type = "bandpass";
+    this.noiseGain = context.createGain();
+    this.noiseGain.gain.value = 0;
+    this.noiseColor = context.createWaveShaper();
+    this.noiseColor.curve = textureNoiseCurve(track.sound);
+    this.noise.connect(this.noiseFilter);
+    this.noiseFilter.connect(this.noiseColor);
+    this.noiseColor.connect(this.noiseGain);
+    this.noiseGain.connect(this.filter);
+    sources.push(this.noise);
+    nodes.push(this.noiseFilter, this.noiseGain, this.noiseColor);
     for (const tone of keysTones(track.sound)) {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
@@ -538,6 +604,7 @@ class KeysVoice {
       nodes,
       time,
       time + track.decay + keysEchoTail(track, graph.bpm) + 0.05,
+      Math.random() * graph.noise.duration * 0.8,
     );
   }
 
@@ -551,6 +618,10 @@ class KeysVoice {
     outgoingSlide: boolean,
   ): void {
     const frequency = midiFrequency(note);
+    if (track.sound !== this.sound) {
+      this.noiseColor.curve = textureNoiseCurve(track.sound);
+      this.sound = track.sound;
+    }
     const configurations = keysTones(track.sound);
     this.tones.forEach((tone, index) => {
       const configuration = configurations[index];
@@ -573,17 +644,21 @@ class KeysVoice {
     const attack =
       Math.min(
         track.decay * 0.2,
-        track.sound === 1 ? 0.003 : track.sound === 2 ? 0.022 : 0.012,
+        track.sound === 1 ? 0.035 : track.sound === 2 ? 0.0035 : 0.0015,
       ) * (accent ? 0.7 : 1);
     const amplitude = Math.max(
       MIN_GAIN,
-      track.volume * (track.sound === 1 ? 0.34 : 0.38) * (accent ? 1.28 : 1),
+      track.volume *
+        (track.sound === 1 ? 0.56 : track.sound === 2 ? 0.42 : 0.58) *
+        (accent ? 1.28 : 1),
     );
     const cutoff = Math.min(
       15000,
       Math.max(
-        frequency * 2,
-        (750 + track.tone ** 1.4 * 10000) * (accent ? 1.18 : 1),
+        frequency * (track.sound === 1 ? 3 : 1.8),
+        ((track.sound === 1 ? 1400 : track.sound === 2 ? 450 : 700) +
+          track.tone ** 1.2 * (track.sound === 1 ? 7800 : 6000)) *
+          (accent ? 1.18 : 1),
       ),
     );
     const envelope = this.envelope.gain;
@@ -603,8 +678,14 @@ class KeysVoice {
       );
     else {
       envelope.exponentialRampToValueAtTime(
-        Math.max(MIN_GAIN, amplitude * (track.sound === 1 ? 0.18 : 0.38)),
-        time + track.decay * 0.55,
+        Math.max(
+          MIN_GAIN,
+          amplitude *
+            (track.sound === 1 ? 0.42 : track.sound === 2 ? 0.2 : 0.08),
+        ),
+        time +
+          track.decay *
+            (track.sound === 1 ? 0.7 : track.sound === 2 ? 0.38 : 0.32),
       );
       envelope.exponentialRampToValueAtTime(MIN_GAIN, time + track.decay);
       envelope.linearRampToValueAtTime(0, time + track.decay + 0.01);
@@ -614,18 +695,79 @@ class KeysVoice {
       this.filter.frequency.exponentialRampToValueAtTime(cutoff, time + 0.025);
     else this.filter.frequency.setValueAtTime(cutoff, time);
     this.filter.frequency.exponentialRampToValueAtTime(
-      Math.max(frequency * 1.4, 500 + track.tone * 4200),
+      Math.max(
+        frequency * (track.sound === 1 ? 1.8 : 1),
+        (track.sound === 1 ? 1100 : 220) +
+          track.tone * (track.sound === 1 ? 4200 : 2000),
+      ),
       time + track.decay,
     );
+    const noiseFrequency = Math.min(
+      18000,
+      frequency *
+        (track.sound === 1 ? 4 + track.tone * 5 : 2.5 + track.tone * 3),
+    );
+    this.noiseFilter.frequency.cancelAndHoldAtTime(time);
+    this.noise.playbackRate.cancelAndHoldAtTime(time);
+    if (incomingSlide) {
+      this.noiseFilter.frequency.exponentialRampToValueAtTime(
+        noiseFrequency,
+        time + Math.min(0.08, duration * 0.65),
+      );
+      this.noise.playbackRate.exponentialRampToValueAtTime(
+        frequency / 220,
+        time + Math.min(0.08, duration * 0.65),
+      );
+    } else {
+      this.noiseFilter.frequency.setValueAtTime(noiseFrequency, time);
+      this.noise.playbackRate.setValueAtTime(frequency / 220, time);
+    }
+    this.noiseFilter.Q.setValueAtTime(
+      track.sound === 1
+        ? 0.45
+        : track.sound === 2
+          ? 0.7
+          : 1.4 + track.tone * 1.2,
+      time,
+    );
+    const noiseLevel =
+      track.sound === 1 ? 1.35 : track.sound === 2 ? 0.18 : 0.85;
+    this.noiseGain.gain.cancelAndHoldAtTime(time);
+    if (!incomingSlide || accent) {
+      this.noiseGain.gain.setValueAtTime(noiseLevel, time);
+      if (track.sound !== 1)
+        this.noiseGain.gain.exponentialRampToValueAtTime(
+          track.sound === 0 ? 0.04 : 0.015,
+          time + Math.min(0.035, track.decay * 0.4),
+        );
+    } else if (track.sound === 1)
+      this.noiseGain.gain.setTargetAtTime(noiseLevel, time, 0.02);
     const beat = 60 / this.graph.bpm;
     this.echoes.forEach((echo, index) => {
       echo.delay.delayTime.setValueAtTime(beat * (index + 1) * 0.5, time);
       echo.damping.frequency.setValueAtTime(1200 + track.tone * 3000, time);
       echo.gain.gain.setValueAtTime(
-        track.space * (index === 0 ? 0.2 : index === 1 ? 0.12 : 0.07),
+        track.space *
+          (index === 0 ? 0.2 : index === 1 ? 0.12 : 0.07) *
+          (track.sound === 1 ? 0.3 : 1),
         time,
       );
     });
+    if (track.sound === 1 && track.space > 0 && !this.roomGain) {
+      const room = this.graph.context.createConvolver();
+      room.buffer = textureRoom(this.graph);
+      const gain = this.graph.context.createGain();
+      gain.gain.value = 0;
+      this.envelope.connect(room);
+      room.connect(gain);
+      gain.connect(this.graph.cleanInput);
+      this.nodes.push(room, gain);
+      this.roomGain = gain;
+    }
+    this.roomGain?.gain.setValueAtTime(
+      track.sound === 1 ? track.space * 0.32 : 0,
+      time,
+    );
     this.echoTail = Math.max(
       this.echoTail,
       keysEchoTail(track, this.graph.bpm),
@@ -649,6 +791,7 @@ class KeysVoice {
 
   private scheduleStop(time: number): void {
     for (const tone of this.tones) tone.oscillator.stop(time);
+    this.noise.stop(time);
   }
 }
 

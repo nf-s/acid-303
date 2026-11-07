@@ -11,12 +11,12 @@ interface DragState {
   startY: number;
   started: number;
   dragged: boolean;
+  lastX: number;
   lastY: number;
   rawValue: number;
   emittedValue: number;
-  axis: "pending" | "pitch" | "slide" | "held";
+  axis: "pending" | "pitch" | "scroll" | "held";
   holdTimer: ReturnType<typeof setTimeout> | null;
-  slideDirection: "join" | "separate" | null;
 }
 
 export type NoteAction = "gate" | "accent" | "join" | "separate";
@@ -68,7 +68,7 @@ function showValue(
   );
 }
 
-/** Vertical controls plus tap, sideways slide and hold gestures on note pads. */
+/** Vertical controls and note expression, leaving horizontal touch scrolling native. */
 export function installGestures(
   root: HTMLElement,
   onChange: (element: HTMLElement, value: number) => void,
@@ -127,7 +127,7 @@ export function installGestures(
         (pointer) => pointer.element === state.element,
       )
     )
-      state.element.classList.remove("dragging", "holding", "held", "sliding");
+      state.element.classList.remove("dragging", "holding", "held");
     if (root.hasPointerCapture(pointerId))
       root.releasePointerCapture(pointerId);
   };
@@ -147,7 +147,8 @@ export function installGestures(
       Array.from(pointers.values()).some((state) => state.element === element)
     )
       return;
-    event.preventDefault();
+    if (!element.dataset.notePad || event.pointerType !== "touch")
+      event.preventDefault();
     element.focus({ preventScroll: true });
     const state: DragState = {
       element,
@@ -155,12 +156,12 @@ export function installGestures(
       startY: event.clientY,
       started: performance.now(),
       dragged: false,
+      lastX: event.clientX,
       lastY: event.clientY,
       rawValue: range.value,
       emittedValue: range.value,
       axis: "pending",
       holdTimer: null,
-      slideDirection: null,
     };
     pointers.set(event.pointerId, state);
     if (element.dataset.notePad && onNoteAction) {
@@ -197,7 +198,6 @@ export function installGestures(
       finish(event.pointerId);
       return;
     }
-    event.preventDefault();
     if (state.element.dataset.notePad && onNoteAction) {
       const dx = event.clientX - state.startX;
       const dy = event.clientY - state.startY;
@@ -205,23 +205,24 @@ export function installGestures(
         (state.axis === "pending" || state.axis === "held") &&
         Math.max(Math.abs(dx), Math.abs(dy)) > 8
       ) {
-        state.axis = Math.abs(dx) > Math.abs(dy) * 1.2 ? "slide" : "pitch";
+        state.axis = Math.abs(dx) > Math.abs(dy) * 1.2 ? "scroll" : "pitch";
         state.dragged = true;
         if (state.holdTimer) clearTimeout(state.holdTimer);
         state.holdTimer = null;
         state.element.classList.remove("holding");
       }
-      if (state.axis === "slide") {
-        state.element.classList.add("sliding");
-        const direction = dx >= 20 ? "join" : dx <= -20 ? "separate" : null;
-        if (direction && direction !== state.slideDirection) {
-          state.slideDirection = direction;
-          onNoteAction(state.element, direction);
+      if (state.axis === "scroll") {
+        if (event.pointerType !== "touch") {
+          const strip = state.element.closest(".sequence-scroll");
+          if (strip instanceof HTMLElement)
+            strip.scrollLeft += state.lastX - event.clientX;
+          state.lastX = event.clientX;
         }
         return;
       }
       if (state.axis !== "pitch") return;
     }
+    event.preventDefault();
     if (
       Math.abs(event.clientX - state.startX) > 4 ||
       Math.abs(event.clientY - state.startY) > 4

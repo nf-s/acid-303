@@ -131,7 +131,9 @@ test("plays and edits notes with vertical gestures and keyboard", async ({
   await expect(
     page.getByRole("slider", { name: "Tempo in BPM", exact: true }),
   ).toHaveAttribute("aria-valuenow", "127");
-  await expect(page.getByRole("button", { name: /Bass slide/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Bass slide/ })).toHaveCount(
+    16,
+  );
   await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
   await expect(page.locator("#audio-status")).toHaveText("AUDIO IDLE");
   await expect(page.locator(".current")).toHaveCount(0);
@@ -215,6 +217,16 @@ test("visualizer pauses, respects reduced motion, and fills phone viewport", asy
   const reduced = await frame();
   await page.waitForTimeout(350);
   expect(await frame()).toBe(reduced);
+  await page
+    .getByRole("button", { name: "Enable visualizer motion", exact: true })
+    .click();
+  await expect.poll(frame).not.toBe(reduced);
+  await page
+    .getByRole("button", { name: "Pause visualizer motion", exact: true })
+    .click();
+  const explicitlyPaused = await frame();
+  await page.waitForTimeout(350);
+  expect(await frame()).toBe(explicitlyPaused);
   await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
   await page.setViewportSize({ width: 375, height: 812 });
   await page.screenshot({ path: "test-results/mobile.png" });
@@ -306,7 +318,7 @@ test("recovers from corrupted saved data", async ({ page }) => {
   await expect(page.locator("[data-drum-step]")).toHaveCount(80);
 });
 
-test("Keys has expressive notes and sound controls below the bass", async ({
+test("Texture has expressive notes and sound controls below the bass", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -314,31 +326,33 @@ test("Keys has expressive notes and sound controls below the bass", async ({
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/");
   await expect(page.getByRole("button", { name: /Cowbell/ })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /Bass slide/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Bass slide/ })).toHaveCount(
+    16,
+  );
   await page.getByRole("button", { name: "Play pattern", exact: true }).click();
-  const keys = page.getByRole("region", { name: "Keys", exact: true });
-  await keys.getByRole("button", { name: "Pluck", exact: true }).click();
+  const keys = page.getByRole("region", { name: "Texture", exact: true });
+  await keys.getByRole("button", { name: "Haze", exact: true }).click();
   await expect(
-    keys.getByRole("button", { name: "Pluck", exact: true }),
+    keys.getByRole("button", { name: "Haze", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   const note = keys.getByRole("slider", {
-    name: "Keys note step 1",
+    name: "Texture note step 1",
     exact: true,
   });
   await dragUp(page, note, 80);
   await expect(note).toHaveAttribute("aria-valuenow", "69");
   await expect(note).toHaveAttribute("aria-valuetext", "A4");
   await keys
-    .getByRole("slider", { name: "Keys space", exact: true })
+    .getByRole("slider", { name: "Texture space", exact: true })
     .press("PageUp");
   await expect(
-    keys.getByRole("slider", { name: "Keys space", exact: true }),
-  ).toHaveAttribute("aria-valuenow", "32");
+    keys.getByRole("slider", { name: "Texture space", exact: true }),
+  ).toHaveAttribute("aria-valuenow", "45");
   await keys
-    .getByRole("button", { name: "Keys gate step 2", exact: true })
+    .getByRole("button", { name: "Texture gate step 2", exact: true })
     .click();
   await expect(
-    keys.getByRole("button", { name: "Keys gate step 2", exact: true }),
+    keys.getByRole("button", { name: "Texture gate step 2", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByRole("button", { name: "Stop pattern", exact: true }),
@@ -351,10 +365,10 @@ test("Keys has expressive notes and sound controls below the bass", async ({
     .poll(() =>
       page.evaluate(() => localStorage.getItem("acid-303-project-v1")),
     )
-    .toContain('"space":0.32');
+    .toContain('"space":0.45');
   await page.reload();
   await expect(
-    page.getByRole("slider", { name: "Keys note step 1", exact: true }),
+    page.getByRole("slider", { name: "Texture note step 1", exact: true }),
   ).toHaveAttribute("aria-valuenow", "69");
   expect(errors).toEqual([]);
 });
@@ -397,9 +411,11 @@ test("upgrades saved cowbell and slide patterns without losing user steps", asyn
   await expect(
     page.getByRole("gridcell", { name: "Rimshot step 4", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: /Bass slide/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Bass slide/ })).toHaveCount(
+    16,
+  );
   await expect(
-    page.getByRole("slider", { name: "Keys note step 1", exact: true }),
+    page.getByRole("slider", { name: "Texture note step 1", exact: true }),
   ).toHaveAttribute("aria-valuenow", "57");
   await page
     .getByRole("slider", { name: "Rimshot pitch", exact: true })
@@ -418,7 +434,7 @@ test("note pads separate pitch, slide, accent and gate gestures", async ({
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
   await page.getByRole("button", { name: "Play pattern", exact: true }).click();
-  for (const track of ["Bass", "Keys"]) {
+  for (const track of ["Bass", "Texture"]) {
     const pad = page.getByRole("slider", {
       name: `${track} note step 2`,
       exact: true,
@@ -441,10 +457,11 @@ test("note pads separate pitch, slide, accent and gate gestures", async ({
     await expect(pad).toHaveAttribute("data-accent", "true");
     await page.mouse.up();
     await expect(gate).toHaveAttribute("aria-pressed", "true");
-    await page.mouse.move(x, y);
-    await page.mouse.down();
-    await page.mouse.move(x + 34, y + 2, { steps: 4 });
-    await page.mouse.up();
+    const slide = page.getByRole("button", {
+      name: `${track} slide step 2`,
+      exact: true,
+    });
+    await slide.click();
     await expect(pad).toHaveAttribute("data-slide", "true");
     await expect(pad).toHaveClass(/joined/);
     await expect(pad).toHaveAttribute("aria-valuenow", String(originalPitch));
@@ -455,6 +472,8 @@ test("note pads separate pitch, slide, accent and gate gestures", async ({
     await page.mouse.down();
     await page.mouse.move(x - 34, y - 2, { steps: 4 });
     await page.mouse.up();
+    await expect(pad).toHaveAttribute("data-slide", "true");
+    await slide.click();
     await expect(pad).toHaveAttribute("data-slide", "false");
     await dragUp(page, pad, 80);
     await expect(pad).toHaveAttribute(
@@ -470,17 +489,22 @@ test("note pads separate pitch, slide, accent and gate gestures", async ({
     await expect(pad).toHaveAttribute("data-slide", "false");
   }
   const first = page.getByRole("slider", {
-    name: "Keys note step 1",
+    name: "Texture note step 1",
     exact: true,
   });
-  await first.press("Enter");
+  const firstGate = page.getByRole("button", {
+    name: "Texture gate step 1",
+    exact: true,
+  });
+  if ((await firstGate.getAttribute("aria-pressed")) === "true")
+    await first.press("Enter");
   const last = page.getByRole("slider", {
-    name: "Keys note step 16",
+    name: "Texture note step 16",
     exact: true,
   });
   await last.press("ArrowRight");
   await expect(
-    page.getByRole("button", { name: "Keys gate step 1", exact: true }),
+    page.getByRole("button", { name: "Texture gate step 1", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(last).toHaveAttribute("data-slide", "true");
   await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
@@ -494,7 +518,7 @@ test("note pads separate pitch, slide, accent and gate gestures", async ({
   expect(errors).toEqual([]);
 });
 
-test("two fingers hold one Keys accent while bending another note and cancel safely", async ({
+test("two fingers hold one Texture accent while bending another note and cancel safely", async ({
   browser,
 }) => {
   const context = await browser.newContext({
@@ -506,17 +530,18 @@ test("two fingers hold one Keys accent while bending another note and cancel saf
   await page.goto("/");
   await page.getByRole("button", { name: "Play pattern", exact: true }).tap();
   const first = page.getByRole("slider", {
-    name: "Keys note step 1",
+    name: "Texture note step 1",
     exact: true,
   });
   const second = page.getByRole("slider", {
-    name: "Keys note step 2",
+    name: "Texture note step 2",
     exact: true,
   });
   await first.scrollIntoViewIfNeeded();
+  await first.tap();
   const a = await first.boundingBox(),
     b = await second.boundingBox();
-  if (!a || !b) throw new Error("Keys pads are missing.");
+  if (!a || !b) throw new Error("Texture pads are missing.");
   const fingerA = { id: 1, x: a.x + a.width / 2, y: a.y + a.height / 2 };
   const fingerB = { id: 2, x: b.x + b.width / 2, y: b.y + b.height / 2 };
   const session = await context.newCDPSession(page);
@@ -534,7 +559,7 @@ test("two fingers hold one Keys accent while bending another note and cancel saf
   });
   await page.waitForTimeout(470);
   await expect(first).toHaveAttribute("data-accent", "true");
-  await expect(second).toHaveAttribute("aria-valuenow", "70");
+  await expect(second).toHaveAttribute("aria-valuenow", "63");
   await expect(second).toHaveAttribute("data-accent", "false");
   await session.send("Input.dispatchTouchEvent", {
     type: "touchMove",
@@ -550,7 +575,7 @@ test("two fingers hold one Keys accent while bending another note and cancel saf
     touchPoints: [],
   });
   await expect(
-    page.getByRole("button", { name: "Keys gate step 1", exact: true }),
+    page.getByRole("button", { name: "Texture gate step 1", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await session.send("Input.dispatchTouchEvent", {
     type: "touchStart",
@@ -567,4 +592,145 @@ test("two fingers hold one Keys accent while bending another note and cancel saf
     375,
   );
   await context.close();
+});
+
+test("visualizer intensity controls opacity while drum-driven motion works with silent audio", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.evaluate(() => document.fonts.ready);
+  const stage = page.locator("#visualizer-panel");
+  const intensity = page.getByRole("slider", {
+    name: "Visualizer intensity",
+    exact: true,
+  });
+  const frame = () =>
+    page
+      .locator("#fluid-canvas")
+      .evaluate((canvas) =>
+        canvas instanceof HTMLCanvasElement ? canvas.toDataURL() : "",
+      );
+  await page
+    .getByRole("button", { name: "Pause visualizer motion", exact: true })
+    .click();
+  const paused = await frame();
+  await intensity.press("Home");
+  await expect(stage).toHaveCSS("opacity", "0");
+  await expect(stage).toHaveCSS("visibility", "hidden");
+  await intensity.press("End");
+  await expect(stage).toHaveCSS("opacity", "1");
+  await expect(stage).toHaveCSS("visibility", "visible");
+  expect(await frame()).toBe(paused);
+  await page
+    .getByRole("slider", { name: "Master volume", exact: true })
+    .press("Home");
+  await page.getByRole("button", { name: "Play pattern", exact: true }).click();
+  await intensity.press("Home");
+  await intensity.press("PageUp");
+  await expect(stage).toHaveCSS("opacity", "0.1");
+  await page
+    .getByRole("button", { name: "Enable visualizer motion", exact: true })
+    .click();
+  await expect.poll(frame).not.toBe(paused);
+  const moving = await frame();
+  await page.waitForTimeout(250);
+  expect(await frame()).not.toBe(moving);
+  await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
+  const stopped = await frame();
+  await page.waitForTimeout(250);
+  expect(await frame()).toBe(stopped);
+});
+
+test("horizontal touch scrolling never edits note expression", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 375, height: 812 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const page = await context.newPage();
+  await page.goto("/");
+  const session = await context.newCDPSession(page);
+  for (const track of ["Bass", "Texture"]) {
+    const pad = page.getByRole("slider", {
+      name: `${track} note step 4`,
+      exact: true,
+    });
+    await pad.scrollIntoViewIfNeeded();
+    await page
+      .getByRole("button", { name: `${track} slide step 4`, exact: true })
+      .tap();
+    const note = await pad.getAttribute("aria-valuenow");
+    const accent = await pad.getAttribute("data-accent");
+    const scrollPosition = () =>
+      pad.evaluate(
+        (element) => element.closest(".sequence-scroll")?.scrollLeft ?? 0,
+      );
+    const before = await scrollPosition();
+    const box = await pad.boundingBox();
+    if (!box) throw new Error("Note pad is missing.");
+    const x = box.x + box.width / 2,
+      y = box.y + box.height / 2;
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ id: 1, x, y }],
+    });
+    for (let step = 1; step <= 6; step++)
+      await session.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ id: 1, x: x - step * 20, y }],
+      });
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    });
+    await expect.poll(scrollPosition).toBeGreaterThan(before + 50);
+    await page.waitForTimeout(350);
+    await expect(pad).toHaveAttribute("data-slide", "true");
+    await expect(pad).toHaveAttribute("aria-valuenow", note ?? "");
+    await expect(pad).toHaveAttribute("data-accent", accent ?? "");
+  }
+  await context.close();
+});
+
+test("horizontal wheel and mouse drag scroll across note pads without editing them", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/");
+  for (const track of ["Bass", "Texture"]) {
+    const pad = page.getByRole("slider", {
+      name: `${track} note step 4`,
+      exact: true,
+    });
+    await pad.scrollIntoViewIfNeeded();
+    await page
+      .getByRole("button", { name: `${track} slide step 4`, exact: true })
+      .click();
+    const pitch = await pad.getAttribute("aria-valuenow");
+    const scrollPosition = () =>
+      pad.evaluate(
+        (element) => element.closest(".sequence-scroll")?.scrollLeft ?? 0,
+      );
+    let box = await pad.boundingBox();
+    if (!box) throw new Error("Note pad is missing.");
+    const beforeWheel = await scrollPosition();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(150, 0);
+    await expect.poll(scrollPosition).toBeGreaterThan(beforeWheel + 50);
+    await pad.scrollIntoViewIfNeeded();
+    box = await pad.boundingBox();
+    if (!box) throw new Error("Note pad is missing after scrolling.");
+    const beforeMouse = await scrollPosition();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 - 40, box.y + box.height / 2, {
+      steps: 5,
+    });
+    await page.mouse.up();
+    await expect.poll(scrollPosition).toBeGreaterThan(beforeMouse + 20);
+    await expect(pad).toHaveAttribute("data-slide", "true");
+    await expect(pad).toHaveAttribute("aria-valuenow", pitch ?? "");
+  }
 });

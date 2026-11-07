@@ -81,6 +81,15 @@ describe("WAV export", () => {
     expect(exportTailDuration(project)).toBeGreaterThanOrEqual(2.55);
   });
 
+  it("retains the diffuse Haze room at fast tempos", () => {
+    const project = createProject();
+    project.bpm = 180;
+    project.keys.sound = 1;
+    project.keys.space = 1;
+    project.keys.decay = 2;
+    expect(exportTailDuration(project)).toBeGreaterThanOrEqual(2.95);
+  });
+
   it("writes an interleaved stereo PCM file with correctly clamped samples", async () => {
     const blob = encodeWav(
       [new Float32Array([-2, 0.5, NaN]), new Float32Array([2, -0.5, Infinity])],

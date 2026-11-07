@@ -54,8 +54,8 @@ const icon = (name: string) =>
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Application container is missing.");
 app.innerHTML = `
-    <section id="visualizer-panel" class="visualizer-panel" aria-label="Prismatic audio visualizer"><canvas id="fluid-canvas" aria-label="Audio-reactive prismatic distortion"></canvas></section>
-  <header class="app-header"><a class="brand" href="/" aria-label="ACID 303 home"><span class="brand-icon">${icon("audio-lines")}</span><span>ACID<span class="brand-number">303</span></span><span class="brand-divider"></span><span class="brand-detail">BEAT MACHINE</span></a><div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div></header>
+    <section id="visualizer-panel" class="visualizer-panel" aria-label="Drum pattern visualizer"><canvas id="fluid-canvas" aria-label="Drum-reactive fluid shapes"></canvas></section>
+  <header class="app-header"><a class="brand" href="/" aria-label="Grain home"><span class="brand-icon">${icon("audio-lines")}</span><span>GRAIN</span><span class="brand-divider"></span><span class="brand-detail">BEAT MACHINE</span></a><div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div></header>
   <main class="workspace">
     <section class="transport panel" aria-label="Playback controls">
       <div class="playback"><button class="play-button" id="play" aria-label="Play pattern">${icon("play")}<span>Play</span></button><button class="icon-button restart" id="restart" aria-label="Restart pattern" title="Restart pattern">${icon("rotate-ccw")}</button></div>
@@ -77,18 +77,18 @@ app.innerHTML = `
         <div class="section-header"><div class="section-title"><span class="section-number">02</span><h2 id="bass-title">Acid bass</h2><span class="small-tag">303</span></div><div class="bass-actions"><button id="bass-mute" class="mute-button" aria-label="Mute acid bass" aria-pressed="${project.bass.muted}">M</button><button id="generate" class="text-button">${icon("shuffle")} Generate</button></div></div>
         <div class="bass-meta"><div class="waveform-switch" role="group" aria-label="Bass waveform"><button data-waveform="sawtooth">${icon("audio-lines")} Saw</button><button data-waveform="square">${icon("waves")} Square</button></div><span class="bass-key">A MINOR <span>·</span> 1 BAR</span></div>
         <div class="acid-controls">${slider("cutoff", "Cutoff", 0, 100, Math.round((Math.log(project.bass.cutoff / 80) / Math.log(100)) * 100), formatFrequency(project.bass.cutoff))}${slider("resonance", "Resonance", 0, 22, project.bass.resonance, `${Math.round((project.bass.resonance / 22) * 100)}%`, "0.1")}${slider("envelope", "Envelope", 0, 100, project.bass.envelope * 100, `${Math.round(project.bass.envelope * 100)}%`)}${slider("bass-decay", "Decay", 50, 1500, project.bass.decay * 1000, `${Math.round(project.bass.decay * 1000)} ms`, "10")}${slider("bass-volume", "Level", 0, 100, project.bass.volume * 100, `${Math.round(project.bass.volume * 100)}%`)}</div><div class="sequence-scroll"><div class="bass-grid" id="bass-grid"></div></div>
-        <div class="section-footer note-help" id="bass-note-help"><span>↕ Pitch · Tap to play · Hold for accent</span><span>← Separate · Join next →</span></div>
+        <div class="section-footer note-help" id="bass-note-help"><span>↕ Pitch · Tap to play · Hold for accent</span><span>↔ Scroll · ↗ Slide to next</span></div>
       </section>
       <section class="panel bass-panel keys-panel" aria-labelledby="keys-title">
-        <div class="section-header"><div class="section-title"><span class="section-number">03</span><h2 id="keys-title">Keys</h2></div><div class="bass-actions"><button id="keys-mute" class="mute-button" aria-label="Mute Keys" aria-pressed="${project.keys.muted}">M</button><button id="keys-generate" class="text-button">${icon("shuffle")} New melody</button></div></div>
-        <div class="bass-meta"><div class="waveform-switch keys-sounds" role="group" aria-label="Keys sound">${KEYS_SOUNDS.map((sound, index) => `<button data-key-sound="${index}">${sound}</button>`).join("")}</div><span class="bass-key keys-key">A MINOR</span></div>
+        <div class="section-header"><div class="section-title"><span class="section-number">03</span><h2 id="keys-title">Texture</h2></div><div class="bass-actions"><button id="keys-mute" class="mute-button" aria-label="Mute Texture" aria-pressed="${project.keys.muted}">M</button><button id="keys-generate" class="text-button">${icon("shuffle")} New pattern</button></div></div>
+        <div class="bass-meta"><div class="waveform-switch keys-sounds" role="group" aria-label="Texture sound">${KEYS_SOUNDS.map((sound, index) => `<button data-key-sound="${index}">${sound}</button>`).join("")}</div><span class="bass-key keys-key">A MINOR</span></div>
         <div class="acid-controls">${slider("keys-tone", "Tone", 0, 100, project.keys.tone * 100, `${Math.round(project.keys.tone * 100)}%`)}${slider("keys-decay", "Decay", 80, 2000, project.keys.decay * 1000, `${Math.round(project.keys.decay * 1000)} ms`, "10")}${slider("keys-space", "Space", 0, 100, project.keys.space * 100, `${Math.round(project.keys.space * 100)}%`)}${slider("keys-volume", "Level", 0, 100, project.keys.volume * 100, `${Math.round(project.keys.volume * 100)}%`)}</div>
         <div class="sequence-scroll"><div class="bass-grid" id="keys-grid"></div></div>
-        <div class="section-footer note-help" id="keys-note-help"><span>↕ Pitch · Tap to play · Hold for accent</span><span>← Separate · Join next →</span></div>
+        <div class="section-footer note-help" id="keys-note-help"><span>↕ Pitch · Tap to play · Hold for accent</span><span>↔ Scroll · ↗ Slide to next</span></div>
       </section>
     </div>
 </div>
-<div class="visualizer-toolbar"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><span class="visualizer-mode"><span class="visualizer-dot"></span>PRISM</span><div class="visualizer-controls">${slider("intensity", "Intensity", 0, 100, 65, "65%")}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div></div>
+<div class="visualizer-toolbar"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><span class="visualizer-mode"><span class="visualizer-dot"></span>FLUID</span><div class="visualizer-controls">${slider("intensity", "Intensity", 0, 100, 65, "65%")}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div></div>
     <footer class="app-footer"><span><kbd>SPACE</kbd> Play / stop</span><span>16 STEPS <span>·</span> 4/4</span><span id="project-name"></span></footer>
   </main><div id="toast" role="status" class="toast" hidden></div>`;
 
@@ -114,7 +114,7 @@ function slider(
             : id === "intensity"
               ? "Visualizer intensity"
               : "Swing"
-        : `${id.startsWith("keys-") ? "Keys" : "Bass"} ${label.toLowerCase()}`);
+        : `${id.startsWith("keys-") ? "Texture" : "Bass"} ${label.toLowerCase()}`);
   return `<div class="dial-control"><span class="dial-label">${label}</span><div class="gesture-control" id="${id}" role="slider" tabindex="0" title="Drag up/down · Shift for fine control · Double-tap to reset" aria-label="${name}" aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}" aria-valuetext="${display}" aria-orientation="vertical" data-step="${step}" data-reset="${value}" style="--knob-angle:${-135 + ((value - min) / (max - min)) * 270}deg"><span class="knob-face" aria-hidden="true"><span></span></span><output id="${id}-value">${display}</output></div></div>`;
 }
 function formatFrequency(value: number): string {
@@ -174,8 +174,8 @@ function renderDrums(): void {
 type NoteTrack = "bass" | "keys";
 function notePad(track: NoteTrack, step: BassStep, index: number): string {
   const id = track === "bass" ? `note-${index}` : `keys-note-${index}`;
-  const label = track === "bass" ? "Bass" : "Keys";
-  return `<div class="bass-step ${index % 4 === 0 ? "group-start" : ""}" data-${track}-index="${index}"><div class="note-cell gesture-control ${step.on ? "on" : ""} ${step.accent ? "accented" : ""} ${step.slide && step.on ? "joined" : ""}" id="${id}" data-note-pad="${track}" data-note-index="${index}" data-accent="${step.accent}" data-slide="${step.slide}" role="slider" tabindex="0" aria-label="${label} note step ${index + 1}" aria-describedby="${track}-note-help" aria-description="${noteDescription(step)}" aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight A Enter Space" aria-valuemin="${track === "bass" ? 24 : 48}" aria-valuemax="${track === "bass" ? 60 : 84}" aria-valuenow="${step.note}" aria-valuetext="${noteName(step.note)}" aria-orientation="vertical" data-step="1"><span class="note-index">${String(index + 1).padStart(2, "0")}</span><output id="${id}-value">${noteName(step.note)}</output><span class="note-expression" aria-hidden="true"><i class="accent-mark">◆</i><i class="slide-mark">${index === 15 ? "↩" : "↗"}</i></span><span class="hold-progress" aria-hidden="true"></span><span class="slide-link" aria-hidden="true"></span></div><button class="bass-toggle gate ${step.on ? "on" : ""}" ${track === "bass" ? `data-bass-toggle="on" data-step="${index}"` : `data-keys-gate="${index}"`} aria-label="${label} gate step ${index + 1}" aria-pressed="${step.on}"><span></span></button></div>`;
+  const label = track === "bass" ? "Bass" : "Texture";
+  return `<div class="bass-step ${index % 4 === 0 ? "group-start" : ""}" data-${track}-index="${index}"><div class="note-cell gesture-control ${step.on ? "on" : ""} ${step.accent ? "accented" : ""} ${step.slide && step.on ? "joined" : ""}" id="${id}" data-note-pad="${track}" data-note-index="${index}" data-accent="${step.accent}" data-slide="${step.slide}" role="slider" tabindex="0" aria-label="${label} note step ${index + 1}" aria-describedby="${track}-note-help" aria-description="${noteDescription(step)}" aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight A Enter Space" aria-valuemin="${track === "bass" ? 24 : 48}" aria-valuemax="${track === "bass" ? 60 : 84}" aria-valuenow="${step.note}" aria-valuetext="${noteName(step.note)}" aria-orientation="vertical" data-step="1"><span class="note-index">${String(index + 1).padStart(2, "0")}</span><output id="${id}-value">${noteName(step.note)}</output><span class="note-expression" aria-hidden="true"><i class="accent-mark">◆</i></span><span class="hold-progress" aria-hidden="true"></span><span class="slide-link" aria-hidden="true"></span></div><button class="note-slide-toggle ${step.slide ? "active" : ""}" data-note-slide="${track}" data-note-index="${index}" aria-label="${label} slide step ${index + 1}" aria-pressed="${step.slide}" title="Join to next note">${index === 15 ? "↩" : "↗"}</button><button class="bass-toggle gate ${step.on ? "on" : ""}" ${track === "bass" ? `data-bass-toggle="on" data-step="${index}"` : `data-keys-gate="${index}"`} aria-label="${label} gate step ${index + 1}" aria-pressed="${step.on}"><span></span></button></div>`;
 }
 function noteDescription(step: BassStep): string {
   return `${step.on ? "Playing" : "Rest"}. Accent ${step.accent ? "on" : "off"}. Slide ${step.slide ? "on" : "off"}. Up/down: pitch. Right: join next. Left: separate. A: accent. Enter: gate.`;
@@ -197,6 +197,9 @@ function refreshNoteStates(track: NoteTrack): void {
     pad.dataset.accent = String(step.accent);
     pad.dataset.slide = String(step.slide);
     pad.setAttribute("aria-description", noteDescription(step));
+    const slide = pad.parentElement?.querySelector(".note-slide-toggle");
+    slide?.classList.toggle("active", step.slide);
+    slide?.setAttribute("aria-pressed", String(step.slide));
     const gate = pad.parentElement?.querySelector(".gate");
     gate?.classList.toggle("on", step.on);
     gate?.setAttribute("aria-pressed", String(step.on));
@@ -226,7 +229,6 @@ async function previewNote(track: NoteTrack, step: BassStep): Promise<void> {
     if (track === "bass")
       await engine.auditionBass(project.bass, step.note, step.accent);
     else await engine.auditionKeys(project.keys, step.note, step.accent);
-    visualizer.setAnalyser(engine.getAnalyser());
   } catch {
     toast("Note preview could not start.");
   }
@@ -273,9 +275,8 @@ function renderKeys(): void {
 async function previewKeys(note: number): Promise<void> {
   try {
     await engine.auditionKeys(project.keys, note);
-    visualizer.setAnalyser(engine.getAnalyser());
   } catch {
-    toast("Keys preview could not start.");
+    toast("Texture preview could not start.");
   }
 }
 function setOutput(id: string, value: string): void {
@@ -351,6 +352,7 @@ function refreshProject(): void {
 }
 const engine = new AudioEngine((step) => {
   beatCanvas.setStep(step);
+  if (step >= 0) visualizer.triggerStep(project.drums, step);
   document
     .querySelectorAll(".current")
     .forEach((element) => element.classList.remove("current"));
@@ -372,7 +374,6 @@ if (!(canvas instanceof HTMLCanvasElement))
   throw new Error("Visualizer canvas is missing.");
 const visualizer = new FluidVisualizer(canvas);
 engine.update(project);
-visualizer.setIntensity(0.65);
 visualizer.setMotion(motion);
 
 const paintCanvas = document.querySelector("#beat-canvas");
@@ -458,7 +459,6 @@ function updatePlayback(): void {
     );
     play.classList.toggle("playing", engine.isPlaying);
   }
-  visualizer.setAnalyser(engine.getAnalyser());
   visualizer.setPlaying(engine.isPlaying);
   const status = document.querySelector("#audio-status");
   if (status)
@@ -493,7 +493,6 @@ async function audition(id: DrumId = selectedDrum): Promise<void> {
   if (!track) return;
   try {
     await engine.audition(track);
-    visualizer.setAnalyser(engine.getAnalyser());
   } catch {
     toast("Audio preview could not start.");
   }
@@ -596,6 +595,16 @@ document.addEventListener("click", async (event) => {
     renderBass();
     persist();
   }
+  if (dataset.noteSlide === "bass" || dataset.noteSlide === "keys") {
+    const track = dataset.noteSlide;
+    const index = Number(dataset.noteIndex);
+    const step = project[track].steps[index];
+    const pad = document.getElementById(
+      track === "bass" ? `note-${index}` : `keys-note-${index}`,
+    );
+    if (step && pad instanceof HTMLElement)
+      performNoteAction(pad, step.slide ? "separate" : "join");
+  }
   if (dataset.bassToggle) {
     const step = project.bass.steps[Number(dataset.step)];
     if (step) {
@@ -676,7 +685,7 @@ document.addEventListener("click", async (event) => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `acid-303-${project.bpm}bpm.wav`;
+      link.download = `grain-${project.bpm}bpm.wav`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
       toast("WAV exported.");
@@ -780,11 +789,12 @@ function updateControl(id: string, value: number): void {
     }
   }
   if (id === "intensity") {
-    visualizer.setIntensity(value / 100);
     setOutput(id, `${value}%`);
     const stage = document.querySelector("#visualizer-panel");
-    if (stage instanceof HTMLElement)
+    if (stage instanceof HTMLElement) {
+      stage.style.opacity = String(value / 100);
       stage.style.visibility = value === 0 ? "hidden" : "visible";
+    }
     return;
   }
   persist();

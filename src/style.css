@@ -99,11 +99,7 @@ button:active {
   width: 18px;
   height: 18px;
 }
-.brand-number {
-  color: #bbb;
-  margin-left: 4px;
-  text-shadow: 2px 1px #555;
-}
+
 .brand-divider {
   width: 1px;
   height: 16px;
@@ -757,7 +753,7 @@ h2 {
   background: transparent;
   border: 0;
   margin: 0;
-  opacity: 1;
+  opacity: 0.65;
   overflow: hidden;
 }
 .visualizer-panel canvas {
@@ -1327,6 +1323,7 @@ kbd {
 }
 
 .note-cell {
+  touch-action: pan-x;
   -webkit-touch-callout: none;
   cursor: grab;
   padding: 8px 3px;
@@ -1355,15 +1352,11 @@ kbd {
   border-top-width: 3px;
   padding-top: 6px;
 }
-.note-cell.accented .accent-mark,
-.note-cell.joined .slide-mark {
+.note-cell.accented .accent-mark {
   opacity: 1;
   color: #fff;
 }
-.note-cell.joined .slide-mark {
-  font-size: 15px;
-  line-height: 11px;
-}
+
 .slide-link {
   display: none;
   position: absolute;
@@ -1399,11 +1392,7 @@ kbd {
 .note-cell.held {
   box-shadow: inset 0 0 0 2px #fff;
 }
-.note-cell.sliding {
-  box-shadow:
-    inset 3px 0 #aaa,
-    inset -3px 0 #aaa;
-}
+
 .note-help {
   position: relative;
   z-index: 21;
@@ -1416,4 +1405,28 @@ kbd {
   to {
     transform: scaleX(1);
   }
+}
+
+.bass-step {
+  position: relative;
+}
+.note-slide-toggle {
+  position: absolute;
+  z-index: 22;
+  top: 52px;
+  right: 1px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 16px;
+  color: #777;
+  touch-action: pan-x;
+}
+.note-slide-toggle.active {
+  color: #fff;
+  background: #ffffff18;
+}
+.sequence-scroll {
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
 }
