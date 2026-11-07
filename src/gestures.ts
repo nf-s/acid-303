@@ -17,6 +17,16 @@ interface DragState {
   emittedValue: number;
 }
 
+interface GestureActions {
+  activate?: (element: HTMLElement) => void;
+  begin?: (element: HTMLElement) => void;
+  end?: (element: HTMLElement) => void;
+}
+interface GestureControls {
+  twist: (normalizedDelta: number) => void;
+  destroy: () => void;
+}
+
 function numberAttribute(element: HTMLElement, name: string): number | null {
   const attribute = element.getAttribute(name);
   if (attribute === null || attribute.trim() === "") return null;
@@ -79,7 +89,8 @@ function showValue(
 export function installGestures(
   root: HTMLElement,
   onChange: (element: HTMLElement, value: number) => void,
-): () => void {
+  actions: GestureActions = {},
+): GestureControls {
   const pointers = new Map<number, DragState>();
   let destroyed = false;
   let lastTap: {
@@ -131,8 +142,10 @@ export function installGestures(
       !Array.from(pointers.values()).some(
         (pointer) => pointer.element === state.element,
       )
-    )
+    ) {
       state.element.classList.remove("dragging");
+      actions.end?.(state.element);
+    }
     if (root.hasPointerCapture(pointerId))
       root.releasePointerCapture(pointerId);
   };
@@ -161,6 +174,7 @@ export function installGestures(
       emittedValue: range.value,
     });
     element.classList.add("dragging");
+    actions.begin?.(element);
     // Capture on the stable root so replacing an inspector does not strand a drag.
     try {
       root.setPointerCapture(event.pointerId);
@@ -211,13 +225,15 @@ export function installGestures(
         const reset = numberAttribute(state.element, "data-reset");
         if (reset !== null) change(state.element, reset);
         lastTap = null;
-      } else
+      } else {
         lastTap = {
           element: state.element,
           time: now,
           x: event.clientX,
           y: event.clientY,
         };
+        actions.activate?.(state.element);
+      }
     } else lastTap = null;
     finish(event.pointerId);
   };
@@ -231,6 +247,15 @@ export function installGestures(
     if (!element) return;
     const range = readRange(element);
     if (!range) return;
+    if (
+      (event.key === "Enter" || event.key === " ") &&
+      element.dataset.automationControl &&
+      actions.activate
+    ) {
+      event.preventDefault();
+      if (!event.repeat) actions.activate(element);
+      return;
+    }
     let next: number;
     if (
       range.values?.length &&
@@ -313,7 +338,36 @@ export function installGestures(
   window.addEventListener("blur", cancelAll);
   document.addEventListener("visibilitychange", visibilityChange);
 
-  return () => {
+  const twist = (normalizedDelta: number): void => {
+    if (destroyed || !Number.isFinite(normalizedDelta) || normalizedDelta === 0)
+      return;
+    const changed = new Set<HTMLElement>();
+    for (const [pointerId, state] of pointers) {
+      const range = readRange(state.element);
+      if (!root.contains(state.element) || !range) {
+        finish(pointerId);
+        continue;
+      }
+      if (changed.has(state.element)) {
+        state.dragged = true;
+        continue;
+      }
+      if (performance.now() - state.started < 150) continue;
+      changed.add(state.element);
+      state.dragged = true;
+      if (range.value !== state.emittedValue) state.rawValue = range.value;
+      state.rawValue = Math.max(
+        range.min,
+        Math.min(
+          range.max,
+          state.rawValue + normalizedDelta * (range.max - range.min),
+        ),
+      );
+      const value = change(state.element, state.rawValue);
+      if (value !== null) state.emittedValue = value;
+    }
+  };
+  const destroy = (): void => {
     if (destroyed) return;
     destroyed = true;
     cancelAll();
@@ -328,4 +382,5 @@ export function installGestures(
     window.removeEventListener("blur", cancelAll);
     document.removeEventListener("visibilitychange", visibilityChange);
   };
+  return { twist, destroy };
 }

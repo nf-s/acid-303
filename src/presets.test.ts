@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PRESETS, createPreset } from "./presets";
 import {
   DRUM_META,
+  BASS_SOUNDS,
   KEYS_SOUNDS,
   projectSchema,
   scaleNotes,
@@ -51,6 +52,28 @@ describe("genre examples", () => {
       ).size,
     ).toBe(9);
     expect(new Set(projects.map((project) => project.keys.sound)).size).toBe(6);
+    expect(projects.map((project) => project.bass.sound)).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 7, 8,
+    ]);
+    expect(projects.map((project) => BASS_SOUNDS[project.bass.sound])).toEqual([
+      "Round",
+      "Knock",
+      "Acid",
+      "Drive",
+      "Bloom",
+      "Fog",
+      "Rubber",
+      "Reese",
+      "Pressure",
+    ]);
+    for (const project of projects) {
+      expect(
+        Object.values(project.bass.automation).every((lane) => lane === null),
+      ).toBe(true);
+      expect(
+        Object.values(project.keys.automation).every((lane) => lane === null),
+      ).toBe(true);
+    }
     expect(createPreset("jungle").bpm).toBeGreaterThan(
       createPreset("garage").bpm,
     );

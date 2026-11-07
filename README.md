@@ -15,6 +15,7 @@ Run `npm install`, then `npm run dev`. `npm run build` checks TypeScript and cre
 - `src/beat-canvas.ts`: multi-pointer beat painting and rendering.
 - `src/note-matrix.ts`: scale-locked pitch curves and gate/accent/glide drawing.
 - `src/gestures.ts`: vertical drag, keyboard and double-tap controls.
+- `src/motion-controls.ts`: phone sensor permission and relative twist control.
 - `src/main.ts` and `src/style.css`: interface and interaction.
 
 Use strict TypeScript without type assertions or non-null assertions. Validate persisted data at its boundary using the shared schema. Keep rendering, audio and visualizer responsibilities separate. The design follows the operator’s monochrome retro direction: bevelled chrome, black/white surfaces and full-page reactive inversion. Keep sound controls beside the beat canvas. Use direct sound buttons and vertical gestures rather than dropdowns. Do not add slogans or decorative copy.
@@ -23,17 +24,23 @@ Use strict TypeScript without type assertions or non-null assertions. Validate p
 
 Press Play or Space to start and stop. Remix generates a new drum pattern, bass line and Texture pattern, starts playback, and can be reversed with Undo.
 
-Drag across the drum canvas to paint steps. Begin on a filled cell to erase; fast strokes interpolate across every crossed cell. Multiple fingers can paint and adjust a dial simultaneously. Tapping a lane or instrument tab brings that drum’s sound buttons, pitch, decay and level beside the canvas. Painting while stopped previews the drum sound.
+Drag across the drum canvas to paint steps. Begin on a filled cell to erase; fast strokes interpolate across every crossed cell. Multiple fingers can paint and adjust a dial simultaneously. Tapping a lane or instrument tab brings that drum’s sound buttons, pitch, decay, level, tone and drive beside the canvas. Painting while stopped previews the drum sound.
 
 The root and scale controls at the top lock bass notes, Texture notes and pitched drum tuning to the selected scale. Choose Major, Minor, Dorian, Phrygian or Pentatonic. Changing scale moves existing notes to the nearest allowed pitch. Loading an example preserves your selected scale; Remix and new-pattern actions remain in scale too. Tonal Stab and Dub chords follow the scale's degrees.
 
 Drag dials upward/downward to raise/lower their value. Hold Shift for finer movement. Double-tap to reset. Keyboard controls use arrows, Page Up/Down and Home/End. Drum pitch advances through allowed scale intervals. Drum-grid keyboard navigation uses arrow keys and Enter/Space.
 
+On a phone, enable Motion and allow sensor access if requested. Hold a knob, then twist the phone to adjust it; release to keep the value. Finger dragging still works at the same time. Motion changes only held knobs, including automated controls, and stops when disabled or the page is left. Devices without motion data keep the regular controls. Sensor access uses the browser’s [DeviceMotion permission API](https://developer.mozilla.org/en-US/docs/Web/API/DeviceMotionEvent/requestPermission_static).
+
 Bass and Texture each have a taller 16-step matrix. Choose Pitch, Gate, Accent or Glide, then draw across the steps. Pitch draws notes in scale and enables their gates. In the other modes, drawing above the middle enables values and drawing below disables them. Glide enables and joins the immediately following step, including the loop boundary. Line draws a straight contour from the start to the release point; dragging back restores values outside the final line. Undo restores the previous stroke. Generating a new pattern clears drawing Undo. The parameter-lane approach follows the [Reason Matrix interaction](https://docs.reasonstudios.com/reason13/matrix-pattern-sequencer).
+
+All note attributes remain visible together: pitch contours, gate bars, accent diamonds and curved glide ties. The selected attribute is brighter and thicker. The fluid visualizer also passes over both matrices.
+
+Tap a Bass or Texture knob, or focus it and press Enter/Space, to draw its automation in that instrument’s matrix. All seven Bass controls and all six Texture controls support independent 16-step curves. Draw and Line work without changing notes or gates. Clear curve returns to the knob’s base value; Undo restores the previous curve, including an empty lane. Dragging an automated knob shifts the whole curve, bounded by its range. Automated knobs have a small marker. Curves are saved with the pattern and used during playback and WAV export. Drum controls remain manual.
 
 The entire matrix fits on a phone. Multiple fingers can draw independent curves. Drag outside a drawing surface to scroll the page. Keyboard focus moves between matrix steps with Left/Right; Up/Down edits the selected parameter, Home/End chooses its limits, and Enter/Space toggles its gate.
 
-Texture includes Impact, Haze, Stab, Scatter, Dub and Frost: pitched strikes, atmospheric noise, chord percussion and granular textures. Each drum has five sounds. All voices retain pitch, decay, tone and/or level controls appropriate to the instrument. Crunch uses compensated parallel saturation. WAV export includes two bars and the full sound/reverb/delay tail.
+Bass includes Round, Knock, Acid, Drive, Bloom, Fog, Rubber, Reese and Pressure, with a different profile assigned to each genre example. Shape changes each profile’s harmonic character, and Drive adds local saturation. Texture includes Impact, Haze, Stab, Scatter, Dub and Frost: pitched strikes, atmospheric noise, chord percussion and granular textures. Grit adds crunch and Motion adds modulation. Each drum has five sounds, with Tone and Drive beside its pitch, decay and level. Crunch uses compensated parallel saturation. WAV export includes two bars and the full sound/reverb/delay tail.
 
 Genre examples:
 

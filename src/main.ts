@@ -18,22 +18,116 @@ import {
   noteName,
   readProject,
   KEYS_SOUNDS,
+  BASS_SOUNDS,
+  normalizedBassValue,
+  normalizedKeysValue,
   remixProject,
   SCALE_MODES,
   withScale,
   snapNote,
   scaleNotes,
 } from "./model";
-import type { BassStep, DrumId } from "./model";
+import type {
+  BassStep,
+  DrumId,
+  BassAutomation,
+  KeysAutomation,
+  BassAutomationParameter,
+  KeysAutomationParameter,
+} from "./model";
 import { AudioEngine } from "./audio";
 import { FluidVisualizer } from "./visualizer";
 import { BeatCanvas } from "./beat-canvas";
 import { installGestures } from "./gestures";
+import { MotionControls } from "./motion-controls";
 import { NoteMatrix } from "./note-matrix";
-import type { MatrixChange } from "./note-matrix";
+import type { MatrixChange, MatrixParameter } from "./note-matrix";
 import { PRESETS, createPreset } from "./presets";
 import "./style.css";
 
+type AutomationTarget =
+  | { track: "bass"; parameter: BassAutomationParameter }
+  | { track: "keys"; parameter: KeysAutomationParameter };
+interface AutomationControl {
+  id: string;
+  label: string;
+  target: AutomationTarget;
+}
+const automationControls: AutomationControl[] = [
+  {
+    id: "cutoff",
+    label: "Cutoff",
+    target: { track: "bass", parameter: "cutoff" },
+  },
+  {
+    id: "resonance",
+    label: "Resonance",
+    target: { track: "bass", parameter: "resonance" },
+  },
+  {
+    id: "envelope",
+    label: "Envelope",
+    target: { track: "bass", parameter: "envelope" },
+  },
+  {
+    id: "bass-decay",
+    label: "Decay",
+    target: { track: "bass", parameter: "decay" },
+  },
+  {
+    id: "bass-volume",
+    label: "Level",
+    target: { track: "bass", parameter: "volume" },
+  },
+  {
+    id: "bass-shape",
+    label: "Shape",
+    target: { track: "bass", parameter: "shape" },
+  },
+  {
+    id: "bass-drive",
+    label: "Drive",
+    target: { track: "bass", parameter: "drive" },
+  },
+  {
+    id: "keys-tone",
+    label: "Tone",
+    target: { track: "keys", parameter: "tone" },
+  },
+  {
+    id: "keys-decay",
+    label: "Decay",
+    target: { track: "keys", parameter: "decay" },
+  },
+  {
+    id: "keys-space",
+    label: "Space",
+    target: { track: "keys", parameter: "space" },
+  },
+  {
+    id: "keys-volume",
+    label: "Level",
+    target: { track: "keys", parameter: "volume" },
+  },
+  {
+    id: "keys-grit",
+    label: "Grit",
+    target: { track: "keys", parameter: "grit" },
+  },
+  {
+    id: "keys-motion",
+    label: "Motion",
+    target: { track: "keys", parameter: "motion" },
+  },
+];
+type MatrixSnapshot =
+  | { track: "bass"; steps: BassStep[]; automation: BassAutomation }
+  | { track: "keys"; steps: BassStep[]; automation: KeysAutomation };
+const selectedAutomation: Record<NoteTrack, string | null> = {
+  bass: null,
+  keys: null,
+};
+const automationSweeps = new Map<string, { base: number; values: number[] }>();
 const storageKey = "acid-303-project-v1";
 let project = createProject();
 let storageAvailable = true;
@@ -52,7 +146,7 @@ let starting = false;
 let pendingDrum: DrumId | null = null;
 let lastPaintPreview = 0;
 let motion = true;
-const matrixUndo: Record<NoteTrack, BassStep[] | null> = {
+const matrixUndo: Record<NoteTrack, MatrixSnapshot | null> = {
   bass: null,
   keys: null,
 };
@@ -66,7 +160,7 @@ const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Application container is missing.");
 app.innerHTML = `
     <section id="visualizer-panel" class="visualizer-panel" aria-label="Drum pattern visualizer"><canvas id="fluid-canvas" aria-label="Drum-reactive fluid shapes"></canvas></section>
-  <header class="app-header"><a class="brand" href="/" aria-label="Grain home"><span class="brand-icon">${icon("audio-lines")}</span><span>GRAIN</span><span class="brand-divider"></span><span class="brand-detail">BEAT MACHINE</span></a><div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div></header>
+  <header class="app-header"><a class="brand" href="/" aria-label="Grain home"><span class="brand-icon">${icon("audio-lines")}</span><span>GRAIN</span><span class="brand-divider"></span><span class="brand-detail">BEAT MACHINE</span></a><div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="phone-motion" aria-label="Enable phone twist control" aria-pressed="false" title="Hold a knob and twist your phone">Motion</button><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div></header>
   <main class="workspace">
     <section class="transport panel" aria-label="Playback controls">
       <div class="playback"><button class="play-button" id="play" aria-label="Play pattern">${icon("play")}<span>Play</span></button><button class="icon-button restart" id="restart" aria-label="Restart pattern" title="Restart pattern">${icon("rotate-ccw")}</button></div>
@@ -87,13 +181,13 @@ app.innerHTML = `
       </section>
       <section class="panel bass-panel" aria-labelledby="bass-title">
         <div class="section-header"><div class="section-title"><span class="section-number">02</span><h2 id="bass-title">Acid bass</h2><span class="small-tag">303</span></div><div class="bass-actions"><button id="bass-mute" class="mute-button" aria-label="Mute acid bass" aria-pressed="${project.bass.muted}">M</button><button id="generate" class="text-button">${icon("shuffle")} Generate</button></div></div>
-        <div class="bass-meta"><div class="waveform-switch" role="group" aria-label="Bass waveform"><button data-waveform="sawtooth">${icon("audio-lines")} Saw</button><button data-waveform="square">${icon("waves")} Square</button></div><span class="bass-key">A MINOR <span>·</span> 1 BAR</span></div>
-        <div class="acid-controls">${slider("cutoff", "Cutoff", 0, 100, Math.round((Math.log(project.bass.cutoff / 80) / Math.log(100)) * 100), formatFrequency(project.bass.cutoff))}${slider("resonance", "Resonance", 0, 22, project.bass.resonance, `${Math.round((project.bass.resonance / 22) * 100)}%`, "0.1")}${slider("envelope", "Envelope", 0, 100, project.bass.envelope * 100, `${Math.round(project.bass.envelope * 100)}%`)}${slider("bass-decay", "Decay", 50, 1500, project.bass.decay * 1000, `${Math.round(project.bass.decay * 1000)} ms`, "10")}${slider("bass-volume", "Level", 0, 100, project.bass.volume * 100, `${Math.round(project.bass.volume * 100)}%`)}</div>${matrixMarkup("bass", "Bass")}
+        <div class="bass-meta"><div class="waveform-switch bass-sounds" role="group" aria-label="Bass sound">${BASS_SOUNDS.map((sound, index) => `<button data-bass-sound="${index}">${sound}</button>`).join("")}</div><span class="bass-key">A MINOR <span>·</span> 1 BAR</span></div>
+        <div class="acid-controls">${slider("cutoff", "Cutoff", 0, 100, Math.round((Math.log(project.bass.cutoff / 80) / Math.log(100)) * 100), formatFrequency(project.bass.cutoff))}${slider("resonance", "Resonance", 0, 22, project.bass.resonance, `${Math.round((project.bass.resonance / 22) * 100)}%`, "0.1")}${slider("envelope", "Envelope", 0, 100, project.bass.envelope * 100, `${Math.round(project.bass.envelope * 100)}%`)}${slider("bass-decay", "Decay", 50, 1500, project.bass.decay * 1000, `${Math.round(project.bass.decay * 1000)} ms`, "10")}${slider("bass-volume", "Level", 0, 100, project.bass.volume * 100, `${Math.round(project.bass.volume * 100)}%`)}${slider("bass-shape", "Shape", 0, 100, project.bass.shape * 100, `${Math.round(project.bass.shape * 100)}%`)}${slider("bass-drive", "Drive", 0, 100, project.bass.drive * 100, `${Math.round(project.bass.drive * 100)}%`)}</div>${matrixMarkup("bass", "Bass")}
       </section>
       <section class="panel bass-panel keys-panel" aria-labelledby="keys-title">
         <div class="section-header"><div class="section-title"><span class="section-number">03</span><h2 id="keys-title">Texture</h2></div><div class="bass-actions"><button id="keys-mute" class="mute-button" aria-label="Mute Texture" aria-pressed="${project.keys.muted}">M</button><button id="keys-generate" class="text-button">${icon("shuffle")} New pattern</button></div></div>
         <div class="bass-meta"><div class="waveform-switch keys-sounds" role="group" aria-label="Texture sound">${KEYS_SOUNDS.map((sound, index) => `<button data-key-sound="${index}">${sound}</button>`).join("")}</div><span class="bass-key keys-key">A MINOR</span></div>
-        <div class="acid-controls">${slider("keys-tone", "Tone", 0, 100, project.keys.tone * 100, `${Math.round(project.keys.tone * 100)}%`)}${slider("keys-decay", "Decay", 80, 2000, project.keys.decay * 1000, `${Math.round(project.keys.decay * 1000)} ms`, "10")}${slider("keys-space", "Space", 0, 100, project.keys.space * 100, `${Math.round(project.keys.space * 100)}%`)}${slider("keys-volume", "Level", 0, 100, project.keys.volume * 100, `${Math.round(project.keys.volume * 100)}%`)}</div>
+        <div class="acid-controls">${slider("keys-tone", "Tone", 0, 100, project.keys.tone * 100, `${Math.round(project.keys.tone * 100)}%`)}${slider("keys-decay", "Decay", 80, 2000, project.keys.decay * 1000, `${Math.round(project.keys.decay * 1000)} ms`, "10")}${slider("keys-space", "Space", 0, 100, project.keys.space * 100, `${Math.round(project.keys.space * 100)}%`)}${slider("keys-volume", "Level", 0, 100, project.keys.volume * 100, `${Math.round(project.keys.volume * 100)}%`)}${slider("keys-grit", "Grit", 0, 100, project.keys.grit * 100, `${Math.round(project.keys.grit * 100)}%`)}${slider("keys-motion", "Motion", 0, 100, project.keys.motion * 100, `${Math.round(project.keys.motion * 100)}%`)}</div>
         ${matrixMarkup("keys", "Texture")}
       </section>
     </div>
@@ -113,6 +207,7 @@ function slider(
   ariaLabel = "",
   allowedValues?: number[],
 ): string {
+  const automation = automationControls.find((control) => control.id === id);
   const name =
     ariaLabel ||
     (id === "bpm"
@@ -126,7 +221,7 @@ function slider(
               ? "Visualizer intensity"
               : "Swing"
         : `${id.startsWith("keys-") ? "Texture" : "Bass"} ${label.toLowerCase()}`);
-  return `<div class="dial-control"><span class="dial-label">${label}</span><div class="gesture-control" id="${id}" role="slider" tabindex="0" title="Drag up/down · Shift for fine control · Double-tap to reset" aria-label="${name}" aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}" aria-valuetext="${display}" aria-orientation="vertical" data-step="${step}" ${allowedValues ? `data-values="${allowedValues.join(",")}"` : ""} data-reset="${value}" style="--knob-angle:${-135 + ((value - min) / (max - min)) * 270}deg"><span class="knob-face" aria-hidden="true"><span></span></span><output id="${id}-value">${display}</output></div></div>`;
+  return `<div class="dial-control"><span class="dial-label">${label}</span><div class="gesture-control" id="${id}" role="slider" tabindex="0" title="${automation ? "Click or Enter to draw automation · Drag to adjust" : "Drag up/down · Shift for fine control · Double-tap to reset"}" ${automation ? `data-automation-control="${id}" aria-controls="${automation.target.track}-matrix-canvas"` : ""} aria-label="${name}" aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}" aria-valuetext="${display}" aria-orientation="vertical" data-step="${step}" ${allowedValues ? `data-values="${allowedValues.join(",")}"` : ""} data-reset="${value}" style="--knob-angle:${-135 + ((value - min) / (max - min)) * 270}deg"><span class="knob-face" aria-hidden="true"><span></span></span><output id="${id}-value">${display}</output></div></div>`;
 }
 function formatFrequency(value: number): string {
   return value >= 1000
@@ -154,7 +249,7 @@ function renderInstrumentControls(): void {
   const track = project.drums.find((item) => item.id === selectedDrum);
   const controls = document.querySelector("#instrument-controls");
   if (!track || !controls) return;
-  controls.innerHTML = `<div class="sound-buttons" role="group" aria-label="${DRUM_META[track.id].name} sounds">${DRUM_META[track.id].sounds.map((sound, index) => `<button data-sound="${index}" data-sound-track="${track.id}" aria-pressed="${track.sound === index}">${sound}</button>`).join("")}</div><div class="instrument-dials">${slider(`${track.id}-pitch`, "Pitch", -24, 24, track.pitch, `${track.pitch > 0 ? "+" : ""}${track.pitch} st`, "1", `${DRUM_META[track.id].name} pitch`, scaleNotes({ root: 0, mode: project.scale.mode }, -24, 24))}${slider(`${track.id}-decay`, "Decay", 30, 1500, track.decay * 1000, `${Math.round(track.decay * 1000)} ms`, "10", `${DRUM_META[track.id].name} decay`)}${slider(`${track.id}-volume`, "Level", 0, 100, track.volume * 100, `${Math.round(track.volume * 100)}%`, "1", `${DRUM_META[track.id].name} level`)}<button class="mute-button" data-mute="${track.id}" aria-label="Mute ${DRUM_META[track.id].name}" aria-pressed="${track.muted}">M</button></div>`;
+  controls.innerHTML = `<div class="sound-buttons" role="group" aria-label="${DRUM_META[track.id].name} sounds">${DRUM_META[track.id].sounds.map((sound, index) => `<button data-sound="${index}" data-sound-track="${track.id}" aria-pressed="${track.sound === index}">${sound}</button>`).join("")}</div><div class="instrument-dials">${slider(`${track.id}-pitch`, "Pitch", -24, 24, track.pitch, `${track.pitch > 0 ? "+" : ""}${track.pitch} st`, "1", `${DRUM_META[track.id].name} pitch`, scaleNotes({ root: 0, mode: project.scale.mode }, -24, 24))}${slider(`${track.id}-decay`, "Decay", 30, 1500, track.decay * 1000, `${Math.round(track.decay * 1000)} ms`, "10", `${DRUM_META[track.id].name} decay`)}${slider(`${track.id}-volume`, "Level", 0, 100, track.volume * 100, `${Math.round(track.volume * 100)}%`, "1", `${DRUM_META[track.id].name} level`)}${slider(`${track.id}-tone`, "Tone", 0, 100, track.tone * 100, `${Math.round(track.tone * 100)}%`, "1", `${DRUM_META[track.id].name} tone`)}${slider(`${track.id}-drive`, "Drive", 0, 100, track.drive * 100, `${Math.round(track.drive * 100)}%`, "1", `${DRUM_META[track.id].name} drive`)}<button class="mute-button" data-mute="${track.id}" aria-label="Mute ${DRUM_META[track.id].name}" aria-pressed="${track.muted}">M</button></div>`;
   document
     .querySelectorAll<HTMLButtonElement>("[data-drum]")
     .forEach((button) =>
@@ -196,7 +291,123 @@ function matrixMarkup(track: NoteTrack, label: string): string {
     )
     .join(
       "",
-    )}</div><div class="matrix-tools" role="group" aria-label="${label} drawing tool"><button data-matrix-track="${track}" data-matrix-tool="draw" aria-pressed="true">Draw</button><button data-matrix-track="${track}" data-matrix-tool="line" aria-pressed="false">Line</button><button data-matrix-undo="${track}" aria-label="Undo ${label} drawing" disabled>Undo</button></div></div><div class="note-matrix" id="${track}-matrix"><canvas id="${track}-matrix-canvas" aria-label="Draw ${label} pitch" aria-describedby="${track}-matrix-help"></canvas><div class="matrix-access" id="${track}-matrix-access"></div></div><div class="section-footer note-help" id="${track}-matrix-help"><span>Draw a pitch curve · Notes stay in scale</span><span>↑↓ Edit · ←→ Step · Enter Gate</span></div>`;
+    )}</div><div class="matrix-tools" role="group" aria-label="${label} drawing tool"><button data-matrix-track="${track}" data-matrix-tool="draw" aria-pressed="true">Draw</button><button data-matrix-track="${track}" data-matrix-tool="line" aria-pressed="false">Line</button><button data-matrix-undo="${track}" aria-label="Undo ${label} drawing" disabled>Undo</button></div></div><div class="automation-strip" id="${track}-automation" hidden><span id="${track}-automation-label"></span><button data-automation-clear="${track}" aria-label="Clear ${label} automation">Clear curve</button><button data-automation-close="${track}" aria-label="Return to ${label} notes">Notes</button></div><div class="note-matrix" id="${track}-matrix"><canvas id="${track}-matrix-canvas" aria-label="Draw ${label} pitch" aria-describedby="${track}-matrix-help"></canvas><div class="matrix-access" id="${track}-matrix-access"></div></div><div class="matrix-legend" aria-hidden="true"><span class="motif-pitch">━ Pitch</span><span class="motif-gate">▌ Gate</span><span class="motif-accent">◆ Accent</span><span class="motif-glide">⌒ Glide</span></div><div class="section-footer note-help" id="${track}-matrix-help"><span>Draw pitch in scale · Tap a knob to automate</span><span>↑↓ Edit · ←→ Step · Enter Gate</span></div>`;
+}
+function automationValues(target: AutomationTarget): number[] | null {
+  return target.track === "bass"
+    ? project.bass.automation[target.parameter]
+    : project.keys.automation[target.parameter];
+}
+function setAutomationValues(
+  target: AutomationTarget,
+  values: number[] | null,
+): void {
+  if (target.track === "bass")
+    project.bass.automation[target.parameter] = values;
+  else project.keys.automation[target.parameter] = values;
+}
+function automationBase(target: AutomationTarget): number {
+  return target.track === "bass"
+    ? normalizedBassValue(project.bass, target.parameter)
+    : normalizedKeysValue(project.keys, target.parameter);
+}
+function automationDisplay(id: string, value: number): string {
+  if (id === "cutoff") return formatFrequency(80 * 100 ** value);
+  if (id === "bass-decay") return `${Math.round(50 + value * 1450)} ms`;
+  if (id === "keys-decay") return `${Math.round(80 + value * 1920)} ms`;
+  return `${Math.round(value * 100)}%`;
+}
+function refreshAutomation(track: NoteTrack): void {
+  const selected = automationControls.find(
+    (control) =>
+      control.id === selectedAutomation[track] &&
+      control.target.track === track,
+  );
+  const strip = document.getElementById(`${track}-automation`);
+  if (strip) strip.hidden = !selected;
+  for (const control of automationControls.filter(
+    (control) => control.target.track === track,
+  )) {
+    const element = document.getElementById(control.id);
+    const active = automationValues(control.target) !== null;
+    element?.classList.toggle("automated", active);
+    element?.classList.toggle(
+      "automation-selected",
+      control.id === selected?.id,
+    );
+    element?.setAttribute("data-automated", String(active));
+    element?.setAttribute(
+      "aria-description",
+      `${active ? "Automation active. " : ""}Click or Enter to draw automation. Drag to ${active ? "shift the curve" : "adjust"}.`,
+    );
+  }
+  if (!selected) {
+    matrices[track].setAutomation(null);
+    return;
+  }
+  const values = automationValues(selected.target);
+  matrices[track].setAutomation({
+    id: selected.id,
+    label: selected.label,
+    values,
+    base: automationBase(selected.target),
+    format: (value) => automationDisplay(selected.id, value),
+  });
+  const label = document.getElementById(`${track}-automation-label`);
+  if (label) label.textContent = `${selected.label} automation`;
+  const clear = document.querySelector(`[data-automation-clear="${track}"]`);
+  if (clear instanceof HTMLButtonElement) clear.disabled = values === null;
+}
+function selectAutomation(id: string): void {
+  const control = automationControls.find((control) => control.id === id);
+  if (!control) return;
+  const track = control.target.track;
+  selectedAutomation[track] = id;
+  document
+    .querySelectorAll<HTMLButtonElement>(
+      `[data-matrix-track="${track}"][data-matrix-parameter]`,
+    )
+    .forEach((button) => button.setAttribute("aria-pressed", "false"));
+  refreshAutomation(track);
+  const help = document.querySelector(`#${track}-matrix-help > span`);
+  if (help)
+    help.textContent = "Draw automation · Drag the knob to shift the curve";
+  document
+    .querySelector(`#${track}-matrix-canvas`)
+    ?.setAttribute(
+      "aria-label",
+      `Draw ${track === "bass" ? "Bass" : "Texture"} ${control.label.toLowerCase()} automation`,
+    );
+}
+function selectMatrixParameter(
+  track: NoteTrack,
+  parameter: MatrixParameter,
+): void {
+  selectedAutomation[track] = null;
+  matrices[track].setParameter(parameter);
+  refreshAutomation(track);
+  document
+    .querySelectorAll<HTMLButtonElement>(
+      `[data-matrix-track="${track}"][data-matrix-parameter]`,
+    )
+    .forEach((button) =>
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.matrixParameter === parameter),
+      ),
+    );
+  const help = document.querySelector(`#${track}-matrix-help > span`);
+  if (help)
+    help.textContent =
+      parameter === "pitch"
+        ? "Draw pitch in scale · Tap a knob to automate"
+        : "Draw above the centre for on · Below for off";
+  document
+    .querySelector(`#${track}-matrix-canvas`)
+    ?.setAttribute(
+      "aria-label",
+      `Draw ${track === "bass" ? "Bass" : "Texture"} ${parameter === "slide" ? "glide" : parameter}`,
+    );
 }
 function matrixPaint(track: NoteTrack, change: MatrixChange): void {
   if (change.parameter === "restore") {
@@ -204,6 +415,41 @@ function matrixPaint(track: NoteTrack, change: MatrixChange): void {
       const saved = change.steps[index];
       if (saved) Object.assign(step, saved);
     });
+    if (change.automation) {
+      const control = automationControls.find(
+        (control) =>
+          control.id === change.automation?.id &&
+          control.target.track === track,
+      );
+      if (control)
+        setAutomationValues(
+          control.target,
+          change.automation.values === null
+            ? null
+            : [...change.automation.values],
+        );
+    }
+    queueMatrixSave();
+    return;
+  }
+  if (change.parameter === "automation") {
+    const control = automationControls.find(
+      (control) => control.id === change.id && control.target.track === track,
+    );
+    if (
+      !control ||
+      !Number.isInteger(change.index) ||
+      change.index < 0 ||
+      change.index >= 16 ||
+      !Number.isFinite(change.value)
+    )
+      return;
+    const lane =
+      automationValues(control.target) ??
+      Array.from({ length: 16 }, () => automationBase(control.target));
+    lane[change.index] = Math.max(0, Math.min(1, change.value));
+    setAutomationValues(control.target, lane);
+    automationSweeps.delete(change.id);
     queueMatrixSave();
     return;
   }
@@ -233,12 +479,25 @@ function queueMatrixSave(): void {
     matrixCommitQueued = true;
     queueMicrotask(() => {
       matrixCommitQueued = false;
+      if (selectedAutomation.bass) refreshAutomation("bass");
+      if (selectedAutomation.keys) refreshAutomation("keys");
       persist();
     });
   }
 }
 function saveMatrixUndo(track: NoteTrack): void {
-  matrixUndo[track] = project[track].steps.map((step) => ({ ...step }));
+  if (track === "bass")
+    matrixUndo.bass = {
+      track,
+      steps: structuredClone(project.bass.steps),
+      automation: structuredClone(project.bass.automation),
+    };
+  else
+    matrixUndo.keys = {
+      track,
+      steps: structuredClone(project.keys.steps),
+      automation: structuredClone(project.keys.automation),
+    };
   const button = document.querySelector(`[data-matrix-undo="${track}"]`);
   if (button instanceof HTMLButtonElement) button.disabled = false;
 }
@@ -284,21 +543,17 @@ async function previewNote(track: NoteTrack, step: BassStep): Promise<void> {
 }
 function renderBass(): void {
   document
-    .querySelectorAll<HTMLButtonElement>("[data-waveform]")
+    .querySelectorAll<HTMLButtonElement>("[data-bass-sound]")
     .forEach((button) => {
-      button.classList.toggle(
-        "active",
-        button.dataset.waveform === project.bass.waveform,
-      );
-      button.setAttribute(
-        "aria-pressed",
-        String(button.dataset.waveform === project.bass.waveform),
-      );
+      const active = Number(button.dataset.bassSound) === project.bass.sound;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
     });
   document
     .querySelector("#bass-mute")
     ?.setAttribute("aria-pressed", String(project.bass.muted));
   matrices.bass.update(project.bass.steps, project.scale, project.bass.muted);
+  refreshAutomation("bass");
 }
 function renderKeys(): void {
   document
@@ -312,6 +567,7 @@ function renderKeys(): void {
     .querySelector("#keys-mute")
     ?.setAttribute("aria-pressed", String(project.keys.muted));
   matrices.keys.update(project.keys.steps, project.scale, project.keys.muted);
+  refreshAutomation("keys");
 }
 async function previewKeys(note: number): Promise<void> {
   try {
@@ -355,6 +611,7 @@ function updatePresetLabels(): void {
   if (label) label.textContent = project.name;
 }
 function refreshProject(): void {
+  automationSweeps.clear();
   renderDrums();
   renderBass();
   renderKeys();
@@ -369,6 +626,15 @@ function refreshProject(): void {
   setOutput("keys-space", `${Math.round(project.keys.space * 100)}%`);
   setInput("keys-volume", project.keys.volume * 100);
   setOutput("keys-volume", `${Math.round(project.keys.volume * 100)}%`);
+  for (const control of automationControls.filter((control) =>
+    ["bass-shape", "bass-drive", "keys-grit", "keys-motion"].includes(
+      control.id,
+    ),
+  )) {
+    const value = Math.round(automationBase(control.target) * 100);
+    setInput(control.id, value);
+    setOutput(control.id, `${value}%`);
+  }
   setInput("bpm", project.bpm);
   setOutput("bpm", String(project.bpm));
   setInput("swing", project.swing * 100);
@@ -478,7 +744,36 @@ const matrices = {
   bass: createMatrix("bass", "Bass", 24, 60),
   keys: createMatrix("keys", "Texture", 48, 84),
 };
-installGestures(app, (control, value) => updateControl(control.id, value));
+const gestures = installGestures(
+  app,
+  (control, value) => updateControl(control.id, value),
+  {
+    activate: (control) => selectAutomation(control.id),
+    begin: (element) => {
+      const control = automationControls.find(
+        (control) => control.id === element.id,
+      );
+      if (control) matrices[control.target.track].cancelStroke();
+    },
+    end: (control) => automationSweeps.delete(control.id),
+  },
+);
+const phoneMotion = new MotionControls(
+  (delta) => gestures.twist(delta),
+  (status) => {
+    const button = document.querySelector("#phone-motion");
+    if (button instanceof HTMLButtonElement) {
+      button.disabled = status.state === "requesting";
+      button.setAttribute("aria-pressed", String(status.state === "on"));
+      button.setAttribute(
+        "aria-label",
+        `${status.state === "on" ? "Disable" : "Enable"} phone twist control`,
+      );
+      button.title = status.message;
+    }
+    if (status.state !== "requesting") toast(status.message);
+  },
+);
 const applyPendingInstrument = () => {
   if (pendingDrum && !document.querySelector(".gesture-control.dragging")) {
     selectedDrum = pendingDrum;
@@ -568,6 +863,10 @@ document.addEventListener("click", async (event) => {
   const button = event.target.closest("button");
   if (!button) return;
   const { dataset, id } = button;
+  if (id === "phone-motion") {
+    if (phoneMotion.enabled) phoneMotion.disable();
+    else await phoneMotion.enable();
+  }
   if (id === "play") await togglePlayback();
   if (id === "restart") {
     const playing = engine.isPlaying;
@@ -671,29 +970,7 @@ document.addEventListener("click", async (event) => {
       parameter === "accent" ||
       parameter === "slide"
     ) {
-      matrices[track].setParameter(parameter);
-      document
-        .querySelectorAll<HTMLButtonElement>(
-          `[data-matrix-track="${track}"][data-matrix-parameter]`,
-        )
-        .forEach((control) =>
-          control.setAttribute(
-            "aria-pressed",
-            String(control.dataset.matrixParameter === parameter),
-          ),
-        );
-      const help = document.querySelector(`#${track}-matrix-help > span`);
-      if (help)
-        help.textContent =
-          parameter === "pitch"
-            ? "Draw a pitch curve · Notes stay in scale"
-            : "Draw above the centre for on · Below for off";
-      document
-        .querySelector(`#${track}-matrix-canvas`)
-        ?.setAttribute(
-          "aria-label",
-          `Draw ${track === "bass" ? "Bass" : "Texture"} ${parameter === "slide" ? "glide" : parameter}`,
-        );
+      selectMatrixParameter(track, parameter);
     }
     if (dataset.matrixTool === "draw" || dataset.matrixTool === "line") {
       matrices[track].setTool(dataset.matrixTool);
@@ -709,14 +986,39 @@ document.addEventListener("click", async (event) => {
         );
     }
   }
+  if (
+    dataset.automationClear === "bass" ||
+    dataset.automationClear === "keys"
+  ) {
+    const track = dataset.automationClear;
+    const control = automationControls.find(
+      (control) =>
+        control.id === selectedAutomation[track] &&
+        control.target.track === track,
+    );
+    if (control) {
+      matrices[track].cancelStroke();
+      automationSweeps.delete(control.id);
+      saveMatrixUndo(track);
+      setAutomationValues(control.target, null);
+      refreshAutomation(track);
+      persist();
+    }
+  }
+  if (dataset.automationClose === "bass" || dataset.automationClose === "keys")
+    selectMatrixParameter(dataset.automationClose, "pitch");
   if (dataset.matrixUndo === "bass" || dataset.matrixUndo === "keys") {
     const track = dataset.matrixUndo,
       before = matrixUndo[track];
     if (before) {
-      project[track].steps = before;
+      automationSweeps.clear();
+      project[track].steps = before.steps;
+      if (before.track === "bass") project.bass.automation = before.automation;
+      else project.keys.automation = before.automation;
       matrixUndo[track] = null;
       button.disabled = true;
-      matrices[track].update(before, project.scale, project[track].muted);
+      matrices[track].update(before.steps, project.scale, project[track].muted);
+      refreshAutomation(track);
       persist();
     }
   }
@@ -741,10 +1043,16 @@ document.addEventListener("click", async (event) => {
     renderBass();
     persist();
   }
-  if (dataset.waveform === "sawtooth" || dataset.waveform === "square") {
-    project.bass.waveform = dataset.waveform;
-    renderBass();
-    persist();
+  if (dataset.bassSound !== undefined) {
+    const sound = Number(dataset.bassSound);
+    if (Number.isInteger(sound) && sound >= 0 && sound < BASS_SOUNDS.length) {
+      project.bass.sound = sound;
+      renderBass();
+      persist();
+      const step =
+        project.bass.steps.find((step) => step.on) ?? project.bass.steps[0];
+      if (step && !engine.isPlaying) void previewNote("bass", step);
+    }
   }
   if (id === "generate") {
     clearMatrixUndo("bass");
@@ -825,6 +1133,8 @@ document.addEventListener("click", async (event) => {
   }
 });
 function updateControl(id: string, value: number): void {
+  const automation = automationControls.find((control) => control.id === id);
+  const baseBefore = automation ? automationBase(automation.target) : 0;
   if (id === "bpm") {
     project.bpm = value;
     setOutput(id, String(value));
@@ -859,6 +1169,22 @@ function updateControl(id: string, value: number): void {
   }
   if (id === "bass-volume") {
     project.bass.volume = value / 100;
+    setOutput(id, `${value}%`);
+  }
+  if (id === "bass-shape") {
+    project.bass.shape = value / 100;
+    setOutput(id, `${value}%`);
+  }
+  if (id === "bass-drive") {
+    project.bass.drive = value / 100;
+    setOutput(id, `${value}%`);
+  }
+  if (id === "keys-grit") {
+    project.keys.grit = value / 100;
+    setOutput(id, `${value}%`);
+  }
+  if (id === "keys-motion") {
+    project.keys.motion = value / 100;
     setOutput(id, `${value}%`);
   }
   if (id === "keys-tone") {
@@ -896,6 +1222,34 @@ function updateControl(id: string, value: number): void {
       track.volume = value / 100;
       setOutput(id, `${value}%`);
     }
+    if (id === `${track.id}-tone`) {
+      track.tone = value / 100;
+      setOutput(id, `${value}%`);
+    }
+    if (id === `${track.id}-drive`) {
+      track.drive = value / 100;
+      setOutput(id, `${value}%`);
+    }
+  }
+  if (automation) {
+    const lane = automationValues(automation.target);
+    if (lane) {
+      const held = document.getElementById(id)?.classList.contains("dragging");
+      if (held && !automationSweeps.has(id))
+        automationSweeps.set(id, { base: baseBefore, values: [...lane] });
+      const sweep = held ? automationSweeps.get(id) : undefined;
+      const delta =
+        automationBase(automation.target) - (sweep?.base ?? baseBefore);
+      const source = sweep?.values ?? lane;
+      if (delta !== 0 || sweep) {
+        setAutomationValues(
+          automation.target,
+          source.map((value) => Math.max(0, Math.min(1, value + delta))),
+        );
+        clearMatrixUndo(automation.target.track);
+      }
+    }
+    refreshAutomation(automation.target.track);
   }
   if (id === "intensity") {
     setOutput(id, `${value}%`);
@@ -978,6 +1332,7 @@ window.addEventListener("pageshow", (event) => {
   if (event.persisted) updatePlayback();
 });
 window.addEventListener("pagehide", () => {
+  phoneMotion.disable();
   engine.stop();
   visualizer.setPlaying(false);
   try {

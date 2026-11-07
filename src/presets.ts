@@ -1,4 +1,10 @@
-import { createProject, STEP_COUNT, withScale } from "./model";
+import {
+  createProject,
+  emptyBassAutomation,
+  emptyKeysAutomation,
+  STEP_COUNT,
+  withScale,
+} from "./model";
 import type { BassStep, DrumId, MusicalScale, Project } from "./model";
 
 interface DrumPreset {
@@ -25,6 +31,9 @@ interface GenrePreset {
   drive: number;
   drums: Record<DrumId, DrumPreset>;
   bass: NotePattern & {
+    shape: number;
+    drive: number;
+    sound: number;
     waveform: "sawtooth" | "square";
     cutoff: number;
     resonance: number;
@@ -58,6 +67,9 @@ const GENRE_PRESETS: GenrePreset[] = [
       rim: { hits: [3, 7, 11, 15], sound: 3, decay: 0.065, volume: 0.25 },
     },
     bass: {
+      shape: 0.32,
+      drive: 0,
+      sound: 0,
       root: 36,
       notes: [0, 0, 7, 0, 0, 4, 7, 4, 5, 5, 7, 5, 7, 7, 4, 7],
       hits: [0, 3, 6, 7, 8, 11, 14],
@@ -104,6 +116,9 @@ const GENRE_PRESETS: GenrePreset[] = [
       rim: { hits: [1, 6, 9, 14], sound: 4, decay: 0.055, volume: 0.3 },
     },
     bass: {
+      shape: 0.45,
+      drive: 0.12,
+      sound: 1,
       root: 33,
       notes: [0, 0, 0, 12, 0, 0, 7, 0, 0, 0, 3, 0, 0, 7, 0, 12],
       hits: [0, 2, 3, 6, 8, 10, 13, 15],
@@ -150,6 +165,9 @@ const GENRE_PRESETS: GenrePreset[] = [
       rim: { hits: [2, 5, 8, 11, 14], sound: 2, decay: 0.04, volume: 0.34 },
     },
     bass: {
+      shape: 0.55,
+      drive: 0.2,
+      sound: 2,
       root: 29,
       notes: [0, 0, 0, 7, 0, 0, 12, 0, 0, 0, 0, 7, 0, 3, 0, 0],
       hits: [0, 2, 3, 5, 6, 8, 10, 11, 13, 14],
@@ -196,6 +214,9 @@ const GENRE_PRESETS: GenrePreset[] = [
       rim: { hits: [1, 5, 9, 13], sound: 4, decay: 0.045, volume: 0.3 },
     },
     bass: {
+      shape: 0.8,
+      drive: 0.4,
+      sound: 3,
       root: 38,
       notes: [0, 0, 1, 0, 0, 7, 0, 0, 0, 0, 1, 0, 0, 7, 3, 0],
       hits: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
@@ -237,6 +258,9 @@ const GENRE_PRESETS: GenrePreset[] = [
       rim: { hits: [7, 15], sound: 3, decay: 0.075, volume: 0.19 },
     },
     bass: {
+      shape: 0.3,
+      drive: 0.08,
+      sound: 4,
       root: 33,
       notes: [0, 0, 7, 0, 0, 0, 7, 0, 8, 8, 3, 8, 5, 5, 7, 5],
       hits: [0, 3, 6, 8, 11, 12, 14],
@@ -278,6 +302,9 @@ const GENRE_PRESETS: GenrePreset[] = [
       rim: { hits: [3, 9, 13], sound: 4, decay: 0.14, volume: 0.27 },
     },
     bass: {
+      shape: 0.2,
+      drive: 0,
+      sound: 5,
       root: 38,
       notes: [0, 0, 0, 7, 7, 7, 0, 0, 10, 10, 10, 7, 3, 3, 0, 0],
       hits: [0, 3, 6, 10, 13],
@@ -324,6 +351,9 @@ const GENRE_PRESETS: GenrePreset[] = [
       rim: { hits: [3, 7, 10, 15], sound: 3, decay: 0.05, volume: 0.25 },
     },
     bass: {
+      shape: 0.68,
+      drive: 0.18,
+      sound: 6,
       root: 31,
       notes: [0, 0, 7, 0, 0, 3, 7, 0, 0, 0, 10, 7, 0, 0, 3, 7],
       hits: [0, 2, 5, 7, 9, 10, 14, 15],
@@ -370,6 +400,9 @@ const GENRE_PRESETS: GenrePreset[] = [
       rim: { hits: [1, 6, 9, 14], sound: 4, decay: 0.045, volume: 0.25 },
     },
     bass: {
+      shape: 0.75,
+      drive: 0.28,
+      sound: 7,
       root: 29,
       notes: [0, 0, 12, 7, 0, 0, 3, 7, 0, 0, 12, 10, 0, 0, 7, 3],
       hits: [0, 1, 2, 5, 6, 7, 8, 9, 10, 13, 14, 15],
@@ -416,6 +449,9 @@ const GENRE_PRESETS: GenrePreset[] = [
       rim: { hits: [1, 5, 9, 13], sound: 0, decay: 0.035, volume: 0.18 },
     },
     bass: {
+      shape: 0.7,
+      drive: 0.22,
+      sound: 8,
       root: 26,
       notes: [0, 0, 0, 7, 0, 0, 3, 3, 0, 0, 0, 10, 7, 7, 3, 0],
       hits: [0, 1, 6, 8, 9, 12, 14],
@@ -479,6 +515,10 @@ export function createPreset(id: string): Project {
     );
   });
   project.bass = {
+    shape: preset.bass.shape,
+    drive: preset.bass.drive,
+    sound: preset.bass.sound,
+    automation: emptyBassAutomation(),
     waveform: preset.bass.waveform,
     cutoff: preset.bass.cutoff,
     resonance: preset.bass.resonance,
@@ -489,6 +529,9 @@ export function createPreset(id: string): Project {
     steps: noteSteps(preset.bass),
   };
   project.keys = {
+    grit: 0,
+    motion: 0,
+    automation: emptyKeysAutomation(),
     sound: preset.texture.sound,
     tone: preset.texture.tone,
     decay: preset.texture.decay,

@@ -10,6 +10,12 @@ import {
   scaleNotes,
   snapNote,
   withScale,
+  automatedBass,
+  automatedKeys,
+  normalizedBassValue,
+  normalizedKeysValue,
+  emptyBassAutomation,
+  emptyKeysAutomation,
 } from "./model";
 
 describe("project boundary validation", () => {
@@ -268,5 +274,209 @@ describe("global scale lock", () => {
         scaleNotes(project.scale, 48, 84).includes(step.note),
       ),
     ).toBe(true);
+  });
+});
+
+describe("instrument automation", () => {
+  it("migrates older saves to Acid with inactive automation and independent defaults", () => {
+    const project = createProject();
+    const bass = Object.fromEntries(
+      Object.entries(project.bass).filter(
+        ([key]) => !["automation", "sound", "shape", "drive"].includes(key),
+      ),
+    );
+    const keys = Object.fromEntries(
+      Object.entries(project.keys).filter(
+        ([key]) => !["automation", "grit", "motion"].includes(key),
+      ),
+    );
+    const drums = project.drums.map((drum) =>
+      Object.fromEntries(
+        Object.entries(drum).filter(
+          ([key]) => !["tone", "drive"].includes(key),
+        ),
+      ),
+    );
+    const loaded = readProject({ ...project, bass, keys, drums });
+    expect(loaded?.bass.sound).toBe(2);
+    expect(loaded?.bass.shape).toBe(0.5);
+    expect(loaded?.bass.drive).toBe(0);
+    expect(loaded?.keys.grit).toBe(0);
+    expect(loaded?.keys.motion).toBe(0);
+    expect(
+      loaded?.drums.every((drum) => drum.tone === 0.5 && drum.drive === 0),
+    ).toBe(true);
+    expect(loaded?.bass.automation).toEqual(emptyBassAutomation());
+    expect(loaded?.keys.automation).toEqual(emptyKeysAutomation());
+    const second = readProject({ ...project, bass, keys });
+    if (!loaded || !second) throw new Error("Expected valid legacy projects.");
+    loaded.bass.automation.cutoff = Array.from({ length: 16 }, () => 0.5);
+    expect(second.bass.automation.cutoff).toBeNull();
+    expect(readProject({ ...project, bass: { ...bass, sound: 9 } })).toBeNull();
+  });
+
+  it("rejects malformed, out-of-range and nonfinite automation at the saved-data boundary", () => {
+    const project = createProject();
+    const invalid: unknown[] = [
+      [],
+      Array(15).fill(0.5),
+      Array(17).fill(0.5),
+      Array(16).fill(-0.01),
+      Array(16).fill(1.01),
+      Array(16).fill(NaN),
+      Array(16).fill(Infinity),
+      Array(16).fill("high"),
+      true,
+    ];
+    for (const lane of invalid) {
+      expect(
+        readProject({
+          ...project,
+          bass: { ...project.bass, automation: { cutoff: lane } },
+        }),
+      ).toBeNull();
+      expect(
+        readProject({
+          ...project,
+          keys: { ...project.keys, automation: { space: lane } },
+        }),
+      ).toBeNull();
+    }
+    const partial = readProject({
+      ...project,
+      bass: { ...project.bass, automation: { cutoff: Array(16).fill(0.5) } },
+    });
+    expect(partial?.bass.automation.resonance).toBeNull();
+    expect(partial?.bass.automation.shape).toBeNull();
+    expect(partial?.bass.automation.drive).toBeNull();
+  });
+
+  it("resolves zero, midpoint and full-scale values without changing the base controls", () => {
+    const project = createProject();
+    const curve = Array.from({ length: 16 }, (_, index) =>
+      index === 0 ? 0 : index === 15 ? 1 : 0.5,
+    );
+    project.bass.automation = {
+      shape: [...curve],
+      drive: [...curve],
+      cutoff: [...curve],
+      resonance: [...curve],
+      envelope: [...curve],
+      decay: [...curve],
+      volume: [...curve],
+    };
+    project.keys.automation = {
+      grit: [...curve],
+      motion: [...curve],
+      tone: [...curve],
+      decay: [...curve],
+      space: [...curve],
+      volume: [...curve],
+    };
+    const original = structuredClone(project);
+    const lowBass = automatedBass(project.bass, 0),
+      middleBass = automatedBass(project.bass, 8),
+      highBass = automatedBass(project.bass, 15);
+    expect(lowBass.shape).toBe(0);
+    expect(lowBass.drive).toBe(0);
+    expect(lowBass.cutoff).toBe(80);
+    expect(lowBass.resonance).toBe(0);
+    expect(lowBass.volume).toBe(0);
+    expect(lowBass.decay).toBe(0.05);
+    expect(middleBass.cutoff).toBeCloseTo(800);
+    expect(middleBass.resonance).toBe(11);
+    expect(middleBass.envelope).toBe(0.5);
+    expect(middleBass.decay).toBeCloseTo(0.775);
+    expect(highBass.shape).toBe(1);
+    expect(highBass.drive).toBe(1);
+    expect(highBass.cutoff).toBe(8000);
+    expect(highBass.resonance).toBe(22);
+    expect(highBass.decay).toBe(1.5);
+    const lowKeys = automatedKeys(project.keys, 0),
+      middleKeys = automatedKeys(project.keys, 8),
+      highKeys = automatedKeys(project.keys, 15);
+    expect(lowKeys.grit).toBe(0);
+    expect(lowKeys.motion).toBe(0);
+    expect(lowKeys.tone).toBe(0);
+    expect(lowKeys.volume).toBe(0);
+    expect(lowKeys.decay).toBe(0.08);
+    expect(middleKeys.decay).toBeCloseTo(1.04);
+    expect(middleKeys.space).toBe(0.5);
+    expect(highKeys.grit).toBe(1);
+    expect(highKeys.motion).toBe(1);
+    expect(highKeys.decay).toBe(2);
+    expect(highKeys.space).toBe(1);
+    expect(project).toEqual(original);
+    expect(automatedBass(project.bass, 16).cutoff).toBe(original.bass.cutoff);
+    expect(automatedKeys(project.keys, -1).decay).toBe(original.keys.decay);
+    project.bass.automation = emptyBassAutomation();
+    project.keys.automation = emptyKeysAutomation();
+    expect(automatedBass(project.bass, 8).cutoff).toBe(original.bass.cutoff);
+    expect(automatedKeys(project.keys, 8).decay).toBe(original.keys.decay);
+  });
+
+  it("uses base knob values when initializing curves and preserves drawn lanes through save, scale and remix", () => {
+    const project = createProject();
+    project.bass.sound = 8;
+    project.bass.automation.shape = Array(16).fill(
+      normalizedBassValue(project.bass, "shape"),
+    );
+    project.bass.automation.drive = Array(16).fill(
+      normalizedBassValue(project.bass, "drive"),
+    );
+    project.keys.automation.grit = Array(16).fill(
+      normalizedKeysValue(project.keys, "grit"),
+    );
+    project.keys.automation.motion = Array(16).fill(
+      normalizedKeysValue(project.keys, "motion"),
+    );
+    project.bass.automation.cutoff = Array(16).fill(
+      normalizedBassValue(project.bass, "cutoff"),
+    );
+    project.bass.automation.resonance = Array(16).fill(
+      normalizedBassValue(project.bass, "resonance"),
+    );
+    project.bass.automation.envelope = Array(16).fill(
+      normalizedBassValue(project.bass, "envelope"),
+    );
+    project.bass.automation.decay = Array(16).fill(
+      normalizedBassValue(project.bass, "decay"),
+    );
+    project.bass.automation.volume = Array(16).fill(
+      normalizedBassValue(project.bass, "volume"),
+    );
+    project.keys.automation.tone = Array(16).fill(
+      normalizedKeysValue(project.keys, "tone"),
+    );
+    project.keys.automation.decay = Array(16).fill(
+      normalizedKeysValue(project.keys, "decay"),
+    );
+    project.keys.automation.space = Array(16).fill(
+      normalizedKeysValue(project.keys, "space"),
+    );
+    project.keys.automation.volume = Array(16).fill(
+      normalizedKeysValue(project.keys, "volume"),
+    );
+    const bass = automatedBass(project.bass, 7),
+      keys = automatedKeys(project.keys, 7);
+    expect(bass.cutoff).toBeCloseTo(project.bass.cutoff);
+    expect(bass.resonance).toBeCloseTo(project.bass.resonance);
+    expect(bass.decay).toBeCloseTo(project.bass.decay);
+    expect(keys.decay).toBeCloseTo(project.keys.decay);
+    expect(keys.tone).toBe(project.keys.tone);
+    expect(keys.space).toBe(project.keys.space);
+    const saved = readProject(JSON.parse(JSON.stringify(project)));
+    expect(saved).toEqual(project);
+    for (const edited of [
+      withScale(project, { root: 1, mode: "dorian" }),
+      remixProject(project, () => 0.71),
+    ]) {
+      expect(edited.bass.sound).toBe(8);
+      expect(edited.bass.automation).toEqual(project.bass.automation);
+      expect(edited.keys.automation).toEqual(project.keys.automation);
+      expect(edited.bass.automation.cutoff).not.toBe(
+        project.bass.automation.cutoff,
+      );
+    }
   });
 });

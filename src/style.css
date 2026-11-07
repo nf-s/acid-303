@@ -117,6 +117,11 @@ button:active {
   align-items: center;
   gap: 20px;
 }
+#phone-motion[aria-pressed="true"] {
+  background: #1e2227;
+  color: #fff;
+  box-shadow: inset 1px 1px #000;
+}
 .save-state {
   font: 9px var(--mono);
   color: #bbb;
@@ -1001,11 +1006,12 @@ kbd {
   }
   .instrument-dials {
     width: 100%;
-    gap: 9px;
-    justify-content: space-around;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) 28px;
+    gap: 5px;
   }
   .instrument-dials .dial-control {
-    min-width: 53px;
+    min-width: 0;
     gap: 3px;
   }
   .instrument-dials .dial-label {
@@ -1300,7 +1306,7 @@ kbd {
 }
 .note-matrix {
   position: relative;
-  z-index: 21;
+  z-index: auto;
   margin: 0 14px;
   height: 300px;
   border: 1px solid #5b6066;
@@ -1317,6 +1323,7 @@ kbd {
 }
 .matrix-access {
   position: absolute;
+  z-index: 21;
   inset: 24px 8px 28px 34px;
   display: grid;
   grid-template-columns: repeat(16, minmax(0, 1fr));
@@ -1397,5 +1404,91 @@ kbd {
   }
   .keys-sounds button {
     min-height: 30px;
+  }
+}
+
+.bass-sounds {
+  flex-wrap: wrap;
+}
+.acid-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+}
+.matrix-legend {
+  display: flex;
+  gap: 14px;
+  margin: 8px 14px 0;
+  position: relative;
+  z-index: 21;
+  font: 9px var(--mono);
+  color: #c3c7cb;
+}
+.matrix-legend span {
+  background: #17191b;
+  padding: 3px 5px;
+}
+.automation-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  z-index: 21;
+  margin: 0 14px 8px;
+  padding: 6px 8px;
+  background: #292d32;
+  border: 1px solid #707780;
+}
+.automation-strip[hidden] {
+  display: none;
+}
+.automation-strip > span {
+  flex: 1;
+  font: 11px var(--mono);
+}
+.automation-strip button {
+  border: 1px solid #626a73;
+  background: #373c43;
+  padding: 5px 8px;
+  font-size: 10px;
+}
+.gesture-control.automation-selected .knob-face {
+  outline: 2px solid #eff2f5;
+  outline-offset: 3px;
+}
+.gesture-control.automated:after {
+  content: "•";
+  position: absolute;
+  top: 0;
+  right: 10%;
+  font-size: 17px;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 1px 2px #111;
+}
+@media (max-width: 360px) {
+  .scale-modes button {
+    font-size: 8px;
+    padding: 5px 3px;
+  }
+}
+@media (max-width: 650px) {
+  .acid-controls {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px 6px;
+  }
+  .keys-panel .acid-controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .bass-sounds button {
+    min-height: 30px;
+  }
+  .automation-strip {
+    margin: 0 9px 8px;
+  }
+  .matrix-legend {
+    margin: 7px 9px 0;
+    gap: 5px;
+    flex-wrap: wrap;
+    font-size: 8px;
   }
 }

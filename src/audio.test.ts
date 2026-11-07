@@ -113,6 +113,24 @@ describe("WAV export", () => {
     expect(exportTailDuration(project)).toBeGreaterThanOrEqual(2.85);
   });
 
+  it("retains an automated release after a different step opens the echo", () => {
+    const project = createProject();
+    project.bpm = 60;
+    project.keys.sound = 4;
+    project.keys.decay = 0.08;
+    project.keys.space = 0;
+    project.keys.automation.decay = Array.from({ length: 16 }, (_, step) =>
+      step === 15 ? 1 : 0,
+    );
+    project.keys.automation.space = Array.from({ length: 16 }, (_, step) =>
+      step === 14 ? 1 : 0,
+    );
+    expect(exportTailDuration(project)).toBeGreaterThanOrEqual(4.3);
+    project.keys.automation.volume = Array.from({ length: 16 }, () => 0);
+    for (const drum of project.drums) drum.muted = true;
+    expect(exportTailDuration(project)).toBe(0.35);
+  });
+
   it("writes an interleaved stereo PCM file with correctly clamped samples", async () => {
     const blob = encodeWav(
       [new Float32Array([-2, 0.5, NaN]), new Float32Array([2, -0.5, Infinity])],

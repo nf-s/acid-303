@@ -4,6 +4,8 @@ export const STEP_COUNT = 16;
 export const drumIdSchema = z.enum(["kick", "snare", "hat", "clap", "rim"]);
 export type DrumId = z.infer<typeof drumIdSchema>;
 export const drumSchema = z.object({
+  tone: z.number().min(0).max(1).default(0.5),
+  drive: z.number().min(0).max(1).default(0),
   id: drumIdSchema,
   sound: z.number().int().min(0).max(4),
   pitch: z.number().min(-24).max(24),
@@ -20,7 +22,58 @@ export const bassStepSchema = z.object({
   slide: z.boolean().default(false),
 });
 export type BassStep = z.infer<typeof bassStepSchema>;
+const automationLaneSchema = z
+  .array(z.number().min(0).max(1))
+  .length(STEP_COUNT)
+  .nullable()
+  .default(null);
+const bassAutomationSchema = z.object({
+  shape: automationLaneSchema,
+  drive: automationLaneSchema,
+  cutoff: automationLaneSchema,
+  resonance: automationLaneSchema,
+  envelope: automationLaneSchema,
+  decay: automationLaneSchema,
+  volume: automationLaneSchema,
+});
+export type BassAutomation = z.infer<typeof bassAutomationSchema>;
+export type BassAutomationParameter = keyof BassAutomation;
+export function emptyBassAutomation(): BassAutomation {
+  return {
+    shape: null,
+    drive: null,
+    cutoff: null,
+    resonance: null,
+    envelope: null,
+    decay: null,
+    volume: null,
+  };
+}
+const keysAutomationSchema = z.object({
+  grit: automationLaneSchema,
+  motion: automationLaneSchema,
+  tone: automationLaneSchema,
+  decay: automationLaneSchema,
+  space: automationLaneSchema,
+  volume: automationLaneSchema,
+});
+export type KeysAutomation = z.infer<typeof keysAutomationSchema>;
+export type KeysAutomationParameter = keyof KeysAutomation;
+export function emptyKeysAutomation(): KeysAutomation {
+  return {
+    grit: null,
+    motion: null,
+    tone: null,
+    decay: null,
+    space: null,
+    volume: null,
+  };
+}
 export const bassSchema = z.object({
+  shape: z.number().min(0).max(1).default(0.5),
+  drive: z.number().min(0).max(1).default(0),
+  sound: z.number().int().min(0).max(8).default(2),
+  automation: bassAutomationSchema.default(emptyBassAutomation),
   waveform: z.enum(["sawtooth", "square"]),
   cutoff: z.number().min(80).max(8000),
   resonance: z.number().min(0).max(22),
@@ -31,6 +84,17 @@ export const bassSchema = z.object({
   steps: z.array(bassStepSchema).length(STEP_COUNT),
 });
 export type BassTrack = z.infer<typeof bassSchema>;
+export const BASS_SOUNDS = [
+  "Round",
+  "Knock",
+  "Acid",
+  "Drive",
+  "Bloom",
+  "Fog",
+  "Rubber",
+  "Reese",
+  "Pressure",
+];
 export const keysStepSchema = z.object({
   note: z.number().int().min(48).max(84),
   on: z.boolean(),
@@ -38,6 +102,9 @@ export const keysStepSchema = z.object({
   slide: z.boolean().default(false),
 });
 export const keysSchema = z.object({
+  grit: z.number().min(0).max(1).default(0),
+  motion: z.number().min(0).max(1).default(0),
+  automation: keysAutomationSchema.default(emptyKeysAutomation),
   sound: z.number().int().min(0).max(5),
   tone: z.number().min(0).max(1),
   decay: z.number().min(0.08).max(2),
@@ -47,6 +114,66 @@ export const keysSchema = z.object({
   steps: z.array(keysStepSchema).length(STEP_COUNT),
 });
 export type KeysTrack = z.infer<typeof keysSchema>;
+export function automatedBass(track: BassTrack, index: number): BassTrack {
+  const { cutoff, resonance, envelope, decay, volume, shape, drive } =
+    track.automation;
+  const cutoffValue = cutoff?.[index],
+    resonanceValue = resonance?.[index],
+    envelopeValue = envelope?.[index],
+    decayValue = decay?.[index],
+    volumeValue = volume?.[index];
+  return {
+    ...track,
+    shape: shape?.[index] ?? track.shape,
+    drive: drive?.[index] ?? track.drive,
+    cutoff: cutoffValue === undefined ? track.cutoff : 80 * 100 ** cutoffValue,
+    resonance:
+      resonanceValue === undefined ? track.resonance : 22 * resonanceValue,
+    envelope: envelopeValue ?? track.envelope,
+    decay: decayValue === undefined ? track.decay : 0.05 + 1.45 * decayValue,
+    volume: volumeValue ?? track.volume,
+  };
+}
+export function automatedKeys(track: KeysTrack, index: number): KeysTrack {
+  const { tone, decay, space, volume, grit, motion } = track.automation;
+  const decayValue = decay?.[index];
+  return {
+    ...track,
+    grit: grit?.[index] ?? track.grit,
+    motion: motion?.[index] ?? track.motion,
+    tone: tone?.[index] ?? track.tone,
+    decay: decayValue === undefined ? track.decay : 0.08 + 1.92 * decayValue,
+    space: space?.[index] ?? track.space,
+    volume: volume?.[index] ?? track.volume,
+  };
+}
+export function normalizedBassValue(
+  track: BassTrack,
+  parameter: BassAutomationParameter,
+): number {
+  switch (parameter) {
+    case "shape":
+      return track.shape;
+    case "drive":
+      return track.drive;
+    case "cutoff":
+      return Math.log(track.cutoff / 80) / Math.log(100);
+    case "resonance":
+      return track.resonance / 22;
+    case "envelope":
+      return track.envelope;
+    case "decay":
+      return (track.decay - 0.05) / 1.45;
+    case "volume":
+      return track.volume;
+  }
+}
+export function normalizedKeysValue(
+  track: KeysTrack,
+  parameter: KeysAutomationParameter,
+): number {
+  return parameter === "decay" ? (track.decay - 0.08) / 1.92 : track[parameter];
+}
 export const KEYS_SOUNDS = [
   "Impact",
   "Haze",
@@ -60,6 +187,9 @@ export function createKeys(preset = 0): KeysTrack {
   const intervals = [0, 0, 7, 0, 0, 12, 0, 3, 0, 7, 0, 0, 12, 0, 3, 7];
   return {
     sound: 0,
+    grit: 0,
+    motion: 0,
+    automation: emptyKeysAutomation(),
     tone: 0.38,
     decay: 0.28,
     space: 0.35,
@@ -239,6 +369,8 @@ export function createProject(preset = 0): Project {
       volume: 0.65,
       drums: ids.map((id, index) => ({
         id,
+        tone: 0.5,
+        drive: 0,
         sound: 0,
         pitch: 0,
         decay: decays[index] ?? 0.2,
@@ -248,6 +380,10 @@ export function createProject(preset = 0): Project {
       })),
       keys: createKeys(preset),
       bass: {
+        shape: 0.5,
+        drive: 0,
+        sound: 2,
+        automation: emptyBassAutomation(),
         waveform: "sawtooth",
         cutoff: 680,
         resonance: 11,
