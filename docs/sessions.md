@@ -1,9 +1,9 @@
 # Shared sessions
 
 The static application stays at https://acid-303.pages.dev/. The separate
-`grain-sessions` Worker coordinates shared musical projects. The intended API
-origin is https://grain-sessions.nf-s.workers.dev; check the release verification
-before treating that origin as deployed.
+`grain-sessions` Worker coordinates shared musical projects. The API
+origin is https://grain-sessions.nf-s.workers.dev. This production backend was
+deployed and verified on 7 November 2026.
 
 A session has one host and up to seven guests. Only the host plays audio.
 Guests can edit every musical field and request Play, Stop or Restart. The host
@@ -212,3 +212,47 @@ Workers-subdomain change is needed.
 
 The public launcher continues to point to the app's existing Pages URL. The
 backend API is not a separate launcher application.
+
+## Production release evidence
+
+Released 7 November 2026 at 08:01:57 UTC from commit `1ccce3c`, using the
+authenticated Cloudflare API and the frozen cf production build. The script's
+workers.dev route is enabled; preview routes are disabled. No other Worker,
+namespace or account-wide subdomain was changed.
+
+- Worker version: `f7fda390-2c45-4b3f-a122-8c33c5b1a238`, deployed at 100%.
+- Deployment: `96929806-3141-4982-a893-e12a5549a1c2`.
+- SQLite namespace: `ffe237d4fde14ba99780aa4f28eb4bec` (`grain-sessions_SessionRoom`).
+- Downloaded production module: 395,669 bytes, SHA-256
+  `3a9eb8a0060424a92bd82585e6444bf7f3865f6e0f9c1025f0773e8d0ee7396b`,
+  matching the verified local bundle byte-for-byte.
+
+Read-back confirmed the expected origin, localhost disabled, all three rate
+bindings, SQLite storage, 10% logs and 1% traces. `/health` returned 200. Other,
+missing and localhost Origins returned 403.
+
+A backend-only Chrome check from the canonical Pages origin created one room
+at 08:03:12.698 UTC and ended it at 08:03:14.888 UTC. It verified separate
+credentials and roles, invalid-token denial, guest clock/end denial, ordered
+concurrent BPM/arp-automation edits, transport routing, host clocks, ping/pong,
+host replacement with close code 4009 and credential revocation after ending.
+All test sockets closed, and the namespace's subsequent object listing was
+empty. Final full-interface testing belongs to the coordinated Pages release.
+
+Before publication, 12 workerd tests, strict backend typechecking, the production
+build and deployment dry-run passed against the final instrument schemas. The
+application release also passed 107 unit tests and 34 preview browser tests.
+
+The coordinated Pages release is deployment
+`81e5ee0f-aaa0-46f6-8f71-360e90fa707d`, built from the same `1ccce3c` commit.
+All 34 browser tests passed on the canonical public origin with normal CSP,
+including simultaneous edits, guest silence, host replacement and reconnection.
+An additional live disconnect check confirmed that host audio stops when the
+connection drops. Every test room was ended.
+
+Release verification also passed 20 public route checks and 26 asset hash
+comparisons across canonical and immutable origins. At 320, 375 and 1440 pixels,
+the app had no horizontal overflow or browser errors; IBM Plex Mono loaded and
+all ten examples appeared above the instruments. Native analytics remained
+enabled with one beacon per page and successful GET/POST responses. The existing
+NFS Home Grain link still points to the canonical Pages address.
