@@ -6,42 +6,49 @@ interface Point {
   y: number;
 }
 
-interface Ribbon {
+interface SpectralSheet {
   offset: number;
   width: number;
   phase: number;
   opacity: number;
-  colours: [string, string, string, string];
+  colours: [string, string, string, string, string];
 }
 
-const RIBBONS: Ribbon[] = [
+const SHEETS: SpectralSheet[] = [
   {
-    offset: -0.08,
+    offset: -0.16,
     width: 0.24,
-    phase: 1.6,
-    opacity: 0.68,
-    colours: ["#192738", "#4e5b83", "#7d8caf", "#29334e"],
+    phase: 2.4,
+    opacity: 0.62,
+    colours: ["#202020", "#888888", "#e5e5e5", "#555555", "#bbbbbb"],
   },
   {
-    offset: 0.13,
-    width: 0.18,
-    phase: 3.7,
-    opacity: 0.64,
-    colours: ["#26314b", "#6b689b", "#a7a4ce", "#313c5c"],
+    offset: 0.18,
+    width: 0.29,
+    phase: 4.1,
+    opacity: 0.72,
+    colours: ["#a0a0a0", "#383838", "#fafafa", "#919191", "#333333"],
   },
   {
     offset: 0,
-    width: 0.29,
-    phase: 0,
-    opacity: 0.91,
-    colours: ["#344359", "#8f9fbc", "#c8cde0", "#655e91"],
+    width: 0.24,
+    phase: 0.3,
+    opacity: 0.8,
+    colours: ["#303030", "#d8d8d8", "#767676", "#ededed", "#505050"],
   },
 ];
 
-/** A continuous ribbon field: audio changes its shape, never its brightness. */
+const EDGE_COLOURS = ["#676767", "#a4a4a4", "#dedede", "#8b8b8b", "#bfbfbf"];
+const triangle = (value: number): number =>
+  (2 / Math.PI) * Math.asin(Math.sin(value));
+
+/** A prismatic fluid field: audio deforms geometry without flashing brightness. */
 export class FluidVisualizer {
   private readonly canvas: HTMLCanvasElement;
   private readonly context: CanvasRenderingContext2D | null;
+  private readonly field = document.createElement("canvas");
+  private readonly fieldContext = this.field.getContext("2d", { alpha: false });
+  private ratio = 1;
   private readonly resizeObserver: ResizeObserver;
   private readonly reducedMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
@@ -59,6 +66,20 @@ export class FluidVisualizer {
   private phase = 1.2;
   private bass = 0;
   private mid = 0;
+  private lowAverage = 0;
+  private impact = 0;
+
+  private get portrait(): boolean {
+    return this.height > this.width * 1.15;
+  }
+
+  private get sceneWidth(): number {
+    return this.portrait ? this.height : this.width;
+  }
+
+  private get sceneHeight(): number {
+    return this.portrait ? this.width : this.height;
+  }
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -106,10 +127,13 @@ export class FluidVisualizer {
     const bounds = this.canvas.getBoundingClientRect();
     this.width = Math.max(1, bounds.width);
     this.height = Math.max(1, bounds.height);
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    this.canvas.width = Math.round(this.width * ratio);
-    this.canvas.height = Math.round(this.height * ratio);
-    this.context?.setTransform(ratio, 0, 0, ratio, 0, 0);
+    this.ratio = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvas.width = Math.round(this.width * this.ratio);
+    this.canvas.height = Math.round(this.height * this.ratio);
+    this.field.width = this.canvas.width;
+    this.field.height = this.canvas.height;
+    this.context?.setTransform(this.ratio, 0, 0, this.ratio, 0, 0);
+    this.fieldContext?.setTransform(this.ratio, 0, 0, this.ratio, 0, 0);
     this.draw();
   };
 
@@ -141,7 +165,10 @@ export class FluidVisualizer {
     this.sampleAudio(seconds);
     this.phase +=
       seconds *
-      (0.13 + this.intensity * 0.38 + this.bass * this.intensity * 0.2);
+      (0.16 +
+        this.intensity * 0.42 +
+        this.bass * this.intensity * 0.4 +
+        this.impact * this.intensity * 0.8);
     this.draw();
   };
 
@@ -173,139 +200,311 @@ export class FluidVisualizer {
       low /= Math.max(1, lowCount);
       middle /= Math.max(1, midCount);
     }
-    const smoothing = 1 - Math.exp(-seconds / 0.24);
+    const smoothing = 1 - Math.exp(-seconds / 0.18);
+    this.lowAverage +=
+      (low - this.lowAverage) * (1 - Math.exp(-seconds / 0.75));
+    const onset = Math.min(1, Math.max(0, low - this.lowAverage) * 4);
+    this.impact += (onset - this.impact) * smoothing;
     this.bass += (low - this.bass) * smoothing;
     this.mid += (middle - this.mid) * smoothing;
   }
 
-  private point(position: number, strand: number, ribbon: Ribbon): Point {
-    const phase = this.phase;
+  private point(position: number, strand: number, sheet: SpectralSheet): Point {
     const angle = position * TAU;
-    const energy = this.bass * this.intensity;
-    const twist = Math.sin(angle * 1.17 - phase * 0.55 + ribbon.phase);
+    const energy = (this.bass * 0.4 + this.impact * 0.9) * this.intensity;
+    const acid = this.mid * this.intensity;
+    const twist = Math.sin(
+      angle * 1.37 - this.phase * 0.42 + sheet.phase + acid * 0.8,
+    );
     const width =
-      ribbon.width *
-      (0.54 + 0.46 * Math.cos(angle * 0.72 + ribbon.phase + phase * 0.3));
+      sheet.width *
+      (0.62 + 0.38 * Math.cos(angle + sheet.phase)) *
+      (1 + energy * 0.34);
+    const fracture = triangle(angle * 2.3 + this.phase * 0.22 + sheet.phase);
     const wave =
-      Math.sin(angle * 0.92 + phase * 0.6 + ribbon.phase) *
-        (0.2 + energy * 0.065) +
-      Math.sin(angle * 1.91 - phase * 0.29 + ribbon.phase * 0.7) *
-        (0.075 + this.mid * this.intensity * 0.025);
-    const fold = Math.sin(strand * Math.PI + twist * 1.6) * width * 0.38;
+      triangle(angle * 0.86 + this.phase * 0.35 + sheet.phase) *
+        (0.2 + energy * 0.18) +
+      Math.sin(angle * 1.72 - this.phase * 0.18 + sheet.phase) * 0.11 +
+      fracture * (0.035 + this.intensity * 0.035) +
+      Math.sin(angle * 0.6 + sheet.phase) * energy * 0.11;
+    const fold = Math.sin(strand * Math.PI + twist * 1.5) * width * 0.4;
     const x =
-      this.width * (position + Math.sin(strand * 2.2 + twist * 1.7) * 0.027);
+      this.sceneWidth *
+      (position + Math.sin(strand * 1.8 + twist * 1.6) * 0.032);
     const y =
-      this.height *
-      (0.5 + ribbon.offset + wave + strand * width * twist + fold);
-    const centreX = this.width * (0.61 + Math.sin(phase * 0.21) * 0.055);
-    const centreY = this.height * 0.51;
-    const radius = Math.min(this.width * 0.27, this.height * 1.12);
+      this.sceneHeight *
+      (0.5 + sheet.offset + wave + strand * width * twist + fold);
+    const centreX =
+      this.sceneWidth *
+      (0.57 +
+        Math.sin(this.phase * 0.17) * 0.08 +
+        Math.sin(this.phase * 0.55) * energy * 0.07);
+    const centreY =
+      this.sceneHeight * (0.51 + Math.cos(this.phase * 0.46) * energy * 0.09);
+    const radius = Math.min(this.sceneWidth * 0.31, this.sceneHeight * 1.6);
     const dx = x - centreX;
     const dy = y - centreY;
     const distance = (dx * dx + dy * dy) / (radius * radius);
     const rotation =
-      Math.exp(-distance * 1.7) *
-      (0.65 +
-        this.intensity * 1.8 +
-        energy * 0.65 +
-        Math.sin(phase * 0.37) * 0.4);
+      Math.exp(-distance * 1.4) *
+      (1.2 +
+        this.intensity * 1.65 +
+        energy * 1.1 +
+        acid * 0.5 +
+        Math.sin(this.phase * 0.27) * 0.55);
     return {
       x: centreX + dx * Math.cos(rotation) - dy * Math.sin(rotation),
       y: centreY + dx * Math.sin(rotation) + dy * Math.cos(rotation),
     };
   }
 
-  private drawRibbon(context: CanvasRenderingContext2D, ribbon: Ribbon): void {
-    const segments = this.width < 600 ? 64 : 96;
-    const strands = this.width < 600 ? 24 : 36;
-    const start = -0.12;
-    const length = 1.24;
-    const gradient = context.createLinearGradient(
-      0,
-      this.height * 0.2,
-      this.width,
-      this.height * 0.85,
-    );
-    gradient.addColorStop(0, ribbon.colours[0]);
-    gradient.addColorStop(0.32, ribbon.colours[1]);
-    gradient.addColorStop(0.62, ribbon.colours[2]);
-    gradient.addColorStop(1, ribbon.colours[3]);
-
-    context.globalAlpha = ribbon.opacity;
-    context.fillStyle = gradient;
-    context.beginPath();
-    for (let index = 0; index <= segments; index += 1) {
-      const point = this.point(start + (index / segments) * length, -1, ribbon);
-      if (index === 0) context.moveTo(point.x, point.y);
+  private sheetPath(
+    context: CanvasRenderingContext2D,
+    sheet: SpectralSheet,
+    strand: number,
+    reverse = false,
+  ): void {
+    const segments = this.sceneWidth < 600 ? 24 : 40;
+    for (let step = 0; step <= segments; step += 1) {
+      const index = reverse ? segments - step : step;
+      const point = this.point(-0.15 + (index / segments) * 1.3, strand, sheet);
+      if (step === 0 && !reverse) context.moveTo(point.x, point.y);
       else context.lineTo(point.x, point.y);
     }
-    for (let index = segments; index >= 0; index -= 1) {
-      const point = this.point(start + (index / segments) * length, 1, ribbon);
-      context.lineTo(point.x, point.y);
-    }
+  }
+
+  private drawSheet(
+    context: CanvasRenderingContext2D,
+    sheet: SpectralSheet,
+  ): void {
+    const gradient = context.createLinearGradient(
+      0,
+      this.sceneHeight * 0.18,
+      this.sceneWidth,
+      this.sceneHeight * 0.85,
+    );
+    sheet.colours.forEach((colour, index) =>
+      gradient.addColorStop(index / 4, colour),
+    );
+    context.globalAlpha = sheet.opacity;
+    context.fillStyle = gradient;
+    context.beginPath();
+    this.sheetPath(context, sheet, -1);
+    this.sheetPath(context, sheet, 1, true);
     context.closePath();
     context.fill();
 
-    for (let line = 0; line <= strands; line += 1) {
-      const strand = -1 + (line / strands) * 2;
-      const ridge = Math.pow(
-        Math.max(0, Math.sin((line / strands) * Math.PI)),
-        3,
-      );
-      context.globalAlpha = ribbon.opacity * (0.12 + ridge * 0.29);
-      context.strokeStyle = line % 3 === 0 ? "#e2e7f5" : "#b4badd";
-      context.lineWidth = line % 3 === 0 ? 0.8 : 0.45;
+    const facets = this.sceneWidth < 600 ? 12 : 20;
+    for (let index = 0; index < facets; index += 1) {
+      const position = -0.15 + (index / facets) * 1.3;
+      const next = position + 1.3 / facets;
+      const a = this.point(position, -1, sheet);
+      const b = this.point(next, -1, sheet);
+      const c = this.point(next, 1, sheet);
+      const d = this.point(position, 1, sheet);
+      context.globalAlpha = 0.12;
+      context.fillStyle = index % 3 === 0 ? "#111111" : "#dfdfdf";
       context.beginPath();
-      for (let index = 0; index <= segments; index += 1) {
-        const point = this.point(
-          start + (index / segments) * length,
-          strand,
-          ribbon,
-        );
-        if (index === 0) context.moveTo(point.x, point.y);
-        else context.lineTo(point.x, point.y);
+      context.moveTo(a.x, a.y);
+      context.lineTo(b.x, b.y);
+      context.lineTo(index % 2 === 0 ? c.x : d.x, index % 2 === 0 ? c.y : d.y);
+      context.closePath();
+      context.fill();
+    }
+
+    const strands = this.sceneWidth < 600 ? 5 : 7;
+    for (let index = 0; index <= strands; index += 1) {
+      const strand = -1 + (index / strands) * 2;
+      context.globalAlpha = index % 3 === 0 ? 0.38 : 0.16;
+      context.strokeStyle = index % 4 === 0 ? "#dedede" : "#8b8b8b";
+      context.lineWidth = index % 3 === 0 ? 1.6 : 1;
+      context.beginPath();
+      this.sheetPath(context, sheet, strand);
+      context.stroke();
+    }
+
+    context.save();
+    context.globalCompositeOperation = "screen";
+    context.globalAlpha = 0.85;
+    context.lineWidth = 1.5;
+    for (const edge of [-1, 1]) {
+      context.strokeStyle = edge < 0 ? "#d0d0d0" : "#9b9b9b";
+      context.translate(edge * 2.5, edge * 1.2);
+      context.beginPath();
+      this.sheetPath(context, sheet, edge);
+      context.stroke();
+    }
+    context.restore();
+    context.globalAlpha = 1;
+  }
+
+  private drawPrism(
+    context: CanvasRenderingContext2D,
+    centre: number,
+    offset: number,
+  ): void {
+    const push = this.impact * this.intensity;
+    const centreX =
+      this.sceneWidth *
+      (centre + Math.cos(this.phase * 0.33 + offset) * push * 0.035);
+    const centreY =
+      this.sceneHeight *
+      (0.5 + Math.sin(this.phase * 0.19 + offset) * (0.08 + push * 0.08));
+    const radiusX =
+      Math.min(this.sceneWidth * 0.22, this.sceneHeight * 0.85) *
+      (1 + push * 0.16);
+    const radiusY =
+      Math.min(this.sceneHeight * 0.64, this.sceneWidth * 0.27) *
+      (1 + push * 0.16);
+    const rings = this.sceneWidth < 600 ? 5 : 7;
+    const vertices = 18;
+    for (let ring = rings; ring > 0; ring -= 1) {
+      const radius = 0.22 + (ring / rings) * 0.82;
+      const angleOffset = this.phase * 0.06 + offset + ring * 0.035;
+      context.beginPath();
+      for (let vertex = 0; vertex <= vertices; vertex += 1) {
+        const angle = (vertex / vertices) * TAU + angleOffset;
+        const tooth =
+          1 + Math.sin(angle * 5 + offset) * 0.17 + (vertex % 2) * 0.13;
+        const x = centreX + Math.cos(angle) * radiusX * radius * tooth;
+        const y = centreY + Math.sin(angle) * radiusY * radius * tooth;
+        if (vertex === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
       }
+      context.closePath();
+      const colour =
+        EDGE_COLOURS[(ring + Math.floor(offset)) % EDGE_COLOURS.length] ??
+        "#a4a4a4";
+      context.globalAlpha = ring % 3 === 0 ? 0.36 : 0.17;
+      context.strokeStyle = colour;
+      context.lineWidth = ring % 3 === 0 ? 4 : 2;
       context.stroke();
     }
     context.globalAlpha = 1;
   }
 
+  private drawFracture(context: CanvasRenderingContext2D): void {
+    const segments = this.sceneWidth < 600 ? 18 : 30;
+    const gradient = context.createLinearGradient(0, 0, this.sceneWidth, 0);
+    gradient.addColorStop(0, "#444444");
+    gradient.addColorStop(0.22, "#bbbbbb");
+    gradient.addColorStop(0.48, "#555555");
+    gradient.addColorStop(0.68, "#dedede");
+    gradient.addColorStop(0.84, "#777777");
+    gradient.addColorStop(1, "#aaaaaa");
+    const point = (index: number, edge: number): Point => {
+      const position = index / segments;
+      const wave =
+        triangle(
+          position * TAU * 1.6 +
+            this.phase * 0.2 +
+            this.mid * this.intensity * 0.45,
+        ) *
+        (0.16 + this.impact * this.intensity * 0.09);
+      const notch = index % 3 === 0 ? 0.018 : -0.009;
+      const breadth = 0.085 + Math.sin(position * TAU * 0.85 + 1) * 0.045;
+      return {
+        x: position * this.sceneWidth,
+        y: this.sceneHeight * (0.54 + wave + notch + edge * breadth),
+      };
+    };
+    context.beginPath();
+    for (let index = 0; index <= segments; index += 1) {
+      const vertex = point(index, -1);
+      if (index === 0) context.moveTo(vertex.x, vertex.y);
+      else context.lineTo(vertex.x, vertex.y);
+    }
+    for (let index = segments; index >= 0; index -= 1) {
+      const vertex = point(index, 1);
+      context.lineTo(vertex.x, vertex.y);
+    }
+    context.closePath();
+    context.globalAlpha = 0.48;
+    context.fillStyle = gradient;
+    context.fill();
+    context.strokeStyle = gradient;
+    for (let line = 0; line <= 3; line += 1) {
+      context.beginPath();
+      for (let index = 0; index <= segments; index += 1) {
+        const vertex = point(index, (line / 3) * 2 - 1);
+        if (index === 0) context.moveTo(vertex.x, vertex.y);
+        else context.lineTo(vertex.x, vertex.y);
+      }
+      context.globalAlpha = line === 0 || line === 3 ? 0.65 : 0.2;
+      context.lineWidth = line === 0 || line === 3 ? 2 : 1;
+      context.stroke();
+    }
+    context.globalAlpha = 1;
+  }
+
+  private drawDigitalFragments(context: CanvasRenderingContext2D): void {
+    const count = this.sceneWidth < 600 ? 15 : 30;
+    for (let index = 0; index < count; index += 1) {
+      const column = ((index * 137 + 41) % 997) / 997;
+      const row = ((index * 73 + 29) % 197) / 197;
+      const x =
+        column * this.sceneWidth + Math.sin(this.phase * 0.2 + index) * 7;
+      const y = this.sceneHeight * (0.14 + row * 0.73);
+      const width = 7 + ((index * 19) % 43);
+      context.globalAlpha = index % 3 === 0 ? 0.48 : 0.18;
+      context.fillStyle =
+        EDGE_COLOURS[index % EDGE_COLOURS.length] ?? "#a4a4a4";
+      context.fillRect(x, y, width, index % 3 === 0 ? 2 : 1);
+      if (index % 4 === 0) context.fillRect(x + width - 1, y, 1, 9);
+    }
+    context.globalAlpha = 1;
+  }
+
   private draw(): void {
-    const context = this.context;
-    if (!context || this.destroyed) return;
-    const background = context.createLinearGradient(
-      0,
-      0,
-      this.width,
-      this.height,
-    );
-    background.addColorStop(0, "#172231");
-    background.addColorStop(0.5, "#20283e");
-    background.addColorStop(1, "#141d2b");
-    context.fillStyle = background;
+    const context = this.fieldContext;
+    const output = this.context;
+    if (!context || !output || this.destroyed) return;
+    context.fillStyle = "#000000";
     context.fillRect(0, 0, this.width, this.height);
+    context.save();
+    if (this.portrait) {
+      context.translate(this.width, 0);
+      context.rotate(Math.PI / 2);
+    }
+    this.drawPrism(context, 0.2, 0.5);
+    this.drawPrism(context, 0.79, 3.5);
+    this.drawFracture(context);
+    for (const sheet of SHEETS) this.drawSheet(context, sheet);
+    this.drawDigitalFragments(context);
+    context.restore();
 
-    const haze = context.createRadialGradient(
-      this.width * 0.58,
-      this.height * 0.46,
-      0,
-      this.width * 0.58,
-      this.height * 0.46,
-      this.width * 0.55,
-    );
-    haze.addColorStop(0, "rgba(104, 100, 151, 0.2)");
-    haze.addColorStop(1, "rgba(22, 31, 46, 0)");
-    context.fillStyle = haze;
-    context.fillRect(0, 0, this.width, this.height);
+    output.drawImage(this.field, 0, 0, this.width, this.height);
+    const slices = this.width < 600 ? 5 : 8;
+    for (let index = 0; index < slices; index += 1) {
+      const y = this.height * (0.19 + (index / slices) * 0.64);
+      const height = Math.max(2, this.height * (index % 3 === 0 ? 0.04 : 0.02));
+      const shift =
+        Math.sin(this.phase * 0.31 + index * 1.7) *
+        (6 +
+          this.intensity * 15 +
+          this.bass * this.intensity * 14 +
+          this.impact * this.intensity * 32);
+      const inset = Math.abs(shift) + 1;
+      if (this.width <= inset * 2) continue;
+      output.drawImage(
+        this.field,
+        inset * this.ratio,
+        y * this.ratio,
+        (this.width - inset * 2) * this.ratio,
+        height * this.ratio,
+        inset + shift,
+        y,
+        this.width - inset * 2,
+        height,
+      );
+    }
 
-    for (const ribbon of RIBBONS) this.drawRibbon(context, ribbon);
-
-    const vignette = context.createLinearGradient(0, 0, this.width, 0);
-    vignette.addColorStop(0, "rgba(17, 26, 40, 0.74)");
-    vignette.addColorStop(0.18, "rgba(17, 26, 40, 0.05)");
-    vignette.addColorStop(0.8, "rgba(17, 26, 40, 0.02)");
-    vignette.addColorStop(1, "rgba(17, 26, 40, 0.6)");
-    context.fillStyle = vignette;
-    context.fillRect(0, 0, this.width, this.height);
+    const shade = output.createLinearGradient(0, 0, 0, this.height);
+    shade.addColorStop(0, "rgba(0, 0, 0, 0.65)");
+    shade.addColorStop(0.22, "rgba(0, 0, 0, 0.02)");
+    shade.addColorStop(0.74, "rgba(0, 0, 0, 0.01)");
+    shade.addColorStop(1, "rgba(0, 0, 0, 0.7)");
+    output.fillStyle = shade;
+    output.fillRect(0, 0, this.width, this.height);
   }
 }

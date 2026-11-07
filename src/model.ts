@@ -168,3 +168,43 @@ export function noteName(note: number): string {
 export function stepDuration(bpm: number, swing: number, step: number): number {
   return (60 / bpm / 4) * (step % 2 === 0 ? 1 + swing : 1 - swing);
 }
+
+export function remixProject(
+  project: Project,
+  random: () => number = Math.random,
+): Project {
+  const remix = structuredClone(project);
+  for (const track of remix.drums) {
+    track.steps = Array.from({ length: STEP_COUNT }, (_, step) => {
+      if (track.id === "kick")
+        return (
+          step === 0 ||
+          step === 8 ||
+          (step % 2 === 0 ? random() > 0.55 : random() > 0.83)
+        );
+      if (track.id === "snare")
+        return (
+          step === 4 ||
+          step === 12 ||
+          ([3, 11, 15].includes(step) && random() > 0.8)
+        );
+      if (track.id === "hat") return step % 2 === 0 || random() > 0.65;
+      if (track.id === "clap")
+        return (
+          step === 4 ||
+          step === 12 ||
+          ([7, 11, 15].includes(step) && random() > 0.65)
+        );
+      return [3, 6, 7, 10, 11, 15].includes(step) && random() > 0.4;
+    });
+  }
+  const root = project.name === "Broken circuit" ? 36 : 33;
+  const scale = [0, 0, 3, 5, 7, 8, 11, 12];
+  remix.bass.steps = remix.bass.steps.map((_, index) => ({
+    note: root + (scale[Math.floor(random() * scale.length)] ?? 0),
+    on: index % 4 === 0 || random() > 0.2,
+    accent: index % 4 === 0 || random() > 0.8,
+    slide: index % 4 !== 0 && random() > 0.7,
+  }));
+  return remix;
+}

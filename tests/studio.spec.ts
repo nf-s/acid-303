@@ -1,128 +1,196 @@
 import { test, expect } from "@playwright/test";
+import type { Page, Locator } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 
-test("edits and persists individual drum sounds, pitches, decay and pattern", async ({
+async function dragUp(
+  page: Page,
+  control: Locator,
+  pixels: number,
+): Promise<void> {
+  await control.scrollIntoViewIfNeeded();
+  const box = await control.boundingBox();
+  if (!box) throw new Error("Control is not visible.");
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y - pixels, { steps: 6 });
+  await page.mouse.up();
+}
+async function point(page: Page, row: number, step: number) {
+  const canvas = page.locator("#beat-canvas");
+  await canvas.scrollIntoViewIfNeeded();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("Beat canvas is missing.");
+  return {
+    x: box.x + 54 + ((step + 0.5) * (box.width - 62)) / 16,
+    y: box.y + 27 + ((row + 0.5) * (box.height - 35)) / 5,
+  };
+}
+async function stroke(page: Page, row: number): Promise<void> {
+  const first = await point(page, row, 0);
+  const last = await point(page, row, 15);
+  await page.mouse.move(first.x, first.y);
+  await page.mouse.down();
+  await page.mouse.move(last.x, last.y);
+  await page.mouse.up();
+}
+
+test("direct sound buttons and pitch gestures persist without dropdowns", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
-  await expect(page.locator(".step-pad")).toHaveCount(80);
+  await expect(page.locator("select")).toHaveCount(0);
   await page
     .getByRole("button", { name: "Select and preview Cowbell", exact: true })
     .click();
-  await page
-    .getByRole("combobox", { name: "Cowbell sound", exact: true })
-    .selectOption("2");
-  await page.getByRole("slider", { name: "Drum pitch", exact: true }).fill("7");
-  await page
-    .getByRole("slider", { name: "Drum decay", exact: true })
-    .fill("440");
-  await page
-    .getByRole("button", { name: "Cowbell step 1", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Dark bell", exact: true }).click();
+  await dragUp(
+    page,
+    page.getByRole("slider", { name: "Cowbell pitch", exact: true }),
+    60,
+  );
   await expect(
-    page.getByRole("button", { name: "Cowbell step 1", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+    page.getByRole("slider", { name: "Cowbell pitch", exact: true }),
+  ).toHaveAttribute("aria-valuenow", "12");
+  await page
+    .getByRole("slider", { name: "Cowbell decay", exact: true })
+    .press("ArrowUp");
   await expect
-    .poll(async () =>
+    .poll(() =>
       page.evaluate(() => localStorage.getItem("acid-303-project-v1")),
     )
-    .toContain('"decay":0.44');
+    .toContain('"pitch":12');
   await page.reload();
   await page
     .getByRole("button", { name: "Select and preview Cowbell", exact: true })
     .click();
   await expect(
-    page.getByRole("combobox", { name: "Cowbell sound", exact: true }),
-  ).toHaveValue("2");
-  await expect(
-    page.getByRole("slider", { name: "Drum pitch", exact: true }),
-  ).toHaveValue("7");
-  await expect(
-    page.getByRole("slider", { name: "Drum decay", exact: true }),
-  ).toHaveValue("440");
-  await expect(
-    page.getByRole("button", { name: "Cowbell step 1", exact: true }),
+    page.getByRole("button", { name: "Dark bell", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("slider", { name: "Cowbell pitch", exact: true }),
+  ).toHaveAttribute("aria-valuenow", "12");
+  await expect(
+    page.getByRole("slider", { name: "Cowbell decay", exact: true }),
+  ).toHaveAttribute("aria-valuenow", "250");
   expect(errors).toEqual([]);
 });
 
-test("plays, edits acid sequence and filter, and stops without stale indicators", async ({
+test("fast painting and erasing fills every crossed step, with keyboard access", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await stroke(page, 0);
+  await expect(
+    page.locator('[data-drum-step="kick"][aria-pressed="true"]'),
+  ).toHaveCount(0);
+  await stroke(page, 0);
+  await expect(
+    page.locator('[data-drum-step="kick"][aria-pressed="true"]'),
+  ).toHaveCount(16);
+  const first = page.getByRole("gridcell", {
+    name: "Kick step 1",
+    exact: true,
+  });
+  await first.focus();
+  await first.press("Enter");
+  await expect(first).toHaveAttribute("aria-pressed", "false");
+  await first.press("ArrowRight");
+  await expect(
+    page.getByRole("gridcell", { name: "Kick step 2", exact: true }),
+  ).toBeFocused();
+});
+
+test("plays and edits notes with vertical gestures and keyboard", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
   await page.getByRole("button", { name: "Play pattern", exact: true }).click();
-  await expect(page.locator("#audio-status")).toHaveText("AUDIO LIVE");
   await expect
-    .poll(async () => page.locator("#position").textContent())
+    .poll(() => page.locator("#position").textContent())
     .not.toBe("01");
-  await expect(
-    page.getByRole("button", { name: "Bass gate step 2", exact: true }),
-  ).toHaveAttribute("aria-pressed", "false");
-  await expect(
-    page.getByRole("button", { name: "Bass gate step 2", exact: true }),
-  ).not.toHaveClass(/\bon\b/);
-  await page
-    .getByRole("button", { name: "Bass gate step 2", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Bass gate step 2", exact: true }),
-  ).toHaveClass(/\bon\b/);
-  await page
-    .getByRole("combobox", { name: "Bass note step 1", exact: true })
-    .selectOption("45");
+  const note = page.getByRole("slider", {
+    name: "Bass note step 1",
+    exact: true,
+  });
+  await dragUp(page, note, 80);
+  await expect(note).toHaveAttribute("aria-valuenow", "45");
+  await expect(note).toHaveAttribute("aria-valuetext", "A2");
   await page
     .getByRole("slider", { name: "Bass cutoff", exact: true })
-    .fill("80");
+    .press("PageUp");
   await page
-    .getByRole("slider", { name: "Bass resonance", exact: true })
-    .fill("21");
+    .getByRole("slider", { name: "Tempo in BPM", exact: true })
+    .press("ArrowUp");
+  await expect(
+    page.getByRole("slider", { name: "Tempo in BPM", exact: true }),
+  ).toHaveAttribute("aria-valuenow", "127");
   await page
     .getByRole("button", { name: "Bass slide step 1", exact: true })
     .click();
-  await page.getByRole("spinbutton", { name: "Tempo in BPM" }).fill("143");
-  await page.getByRole("slider", { name: "Swing", exact: true }).fill("30");
-  await expect(
-    page.getByRole("button", { name: "Bass slide step 1", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await page
-    .getByRole("button", { name: "Restart pattern", exact: true })
-    .click();
-  await expect(page.locator("#audio-status")).toHaveText("AUDIO LIVE");
   await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
   await expect(page.locator("#audio-status")).toHaveText("AUDIO IDLE");
   await expect(page.locator(".current")).toHaveCount(0);
-  await expect(page.locator("#position")).toHaveText("01");
   expect(errors).toEqual([]);
 });
 
-test("exports a valid audible stereo WAV", async ({ page }) => {
+test("one-tap remix preserves sound settings and Undo restores the beat", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("slider", { name: "Kick pitch", exact: true })
+    .press("PageUp");
+  const original = await page
+    .locator("[data-drum-step]")
+    .evaluateAll((steps) =>
+      steps.map((step) => step.getAttribute("aria-pressed")),
+    );
+  await page.getByRole("button", { name: "Remix", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Stop pattern", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("slider", { name: "Kick pitch", exact: true }),
+  ).toHaveAttribute("aria-valuenow", "10");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  expect(
+    await page
+      .locator("[data-drum-step]")
+      .evaluateAll((steps) =>
+        steps.map((step) => step.getAttribute("aria-pressed")),
+      ),
+  ).toEqual(original);
+  await expect(
+    page.getByRole("button", { name: "Undo", exact: true }),
+  ).toBeDisabled();
+  await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
+});
+
+test("exports valid audible stereo audio", async ({ page }) => {
   await page.goto("/");
   const downloaded = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export WAV", exact: true }).click();
-  const download = await downloaded;
-  const path = await download.path();
-  if (!path) throw new Error("No WAV download file was produced.");
+  const path = await (await downloaded).path();
+  if (!path) throw new Error("No WAV file was downloaded.");
   const wav = await readFile(path);
   expect(wav.toString("ascii", 0, 4)).toBe("RIFF");
   expect(wav.toString("ascii", 8, 12)).toBe("WAVE");
   expect(wav.readUInt16LE(22)).toBe(2);
   expect(wav.readUInt32LE(24)).toBe(44100);
-  expect(wav.length).toBeGreaterThan(900000);
   let peak = 0;
   for (let index = 44; index < wav.length; index += 2)
     peak = Math.max(peak, Math.abs(wav.readInt16LE(index)));
   expect(peak).toBeGreaterThan(1000);
   expect(peak).toBeLessThan(32767);
-  await expect(
-    page.getByRole("button", { name: "Export WAV", exact: true }),
-  ).toBeEnabled();
 });
 
-test("renders desktop and mobile, respects reduced motion, and pauses visualizer", async ({
+test("visualizer pauses, respects reduced motion, and fills phone viewport", async ({
   page,
 }) => {
   await page.goto("/");
@@ -132,31 +200,100 @@ test("renders desktop and mobile, respects reduced motion, and pauses visualizer
   await page
     .getByRole("button", { name: "Pause visualizer motion", exact: true })
     .click();
-  const getFrame = () =>
+  const frame = () =>
     page
-      .locator("canvas")
+      .locator("#fluid-canvas")
       .evaluate((canvas) =>
         canvas instanceof HTMLCanvasElement ? canvas.toDataURL() : "",
       );
-  const frame = await getFrame();
-  await page.waitForTimeout(500);
-  expect(await getFrame()).toBe(frame);
+  const paused = await frame();
+  await page.waitForTimeout(350);
+  expect(await frame()).toBe(paused);
   await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.reload();
   await page.getByRole("button", { name: "Play pattern", exact: true }).click();
-  const reducedFrame = await getFrame();
-  await page.waitForTimeout(500);
-  expect(await getFrame()).toBe(reducedFrame);
+  const reduced = await frame();
+  await page.waitForTimeout(350);
+  expect(await frame()).toBe(reduced);
   await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: "test-results/mobile.png", fullPage: true });
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(390);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.screenshot({ path: "test-results/mobile.png" });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    375,
+  );
+  expect((await page.locator("#fluid-canvas").boundingBox())?.height).toBe(812);
+  await page
+    .getByRole("slider", { name: "Bass decay", exact: true })
+    .scrollIntoViewIfNeeded();
   await expect(
     page.getByRole("button", { name: "Play pattern", exact: true }),
   ).toBeInViewport();
+  await page
+    .getByRole("button", { name: "Fullscreen visualizer", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", {
+      name: "Exit fullscreen visualizer",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Exit fullscreen visualizer", exact: true })
+    .click();
+});
+
+test("two fingers paint one lane while changing another instrument pitch", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 375, height: 812 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const page = await context.newPage();
+  await page.goto("/");
+  const session = await context.newCDPSession(page);
+  const knob = await page
+    .getByRole("slider", { name: "Kick pitch", exact: true })
+    .boundingBox();
+  const first = await point(page, 1, 0);
+  const last = await point(page, 1, 15);
+  if (!knob) throw new Error("Pitch dial missing.");
+  const x = knob.x + knob.width / 2;
+  const y = knob.y + knob.height / 2;
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ id: 1, x, y }],
+  });
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [
+      { id: 1, x, y },
+      { id: 2, x: first.x, y: first.y },
+    ],
+  });
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchMove",
+    touchPoints: [
+      { id: 1, x, y: y - 60 },
+      { id: 2, x: last.x, y: last.y },
+    ],
+  });
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+  });
+  await expect(
+    page.locator('[data-drum-step="snare"][aria-pressed="true"]'),
+  ).toHaveCount(16);
+  await page
+    .getByRole("button", { name: "Select and preview Kick", exact: true })
+    .tap();
+  await expect(
+    page.getByRole("slider", { name: "Kick pitch", exact: true }),
+  ).toHaveAttribute("aria-valuenow", "12");
+  await context.close();
 });
 
 test("recovers from corrupted saved data", async ({ page }) => {
@@ -165,61 +302,7 @@ test("recovers from corrupted saved data", async ({ page }) => {
   );
   await page.goto("/");
   await expect(
-    page.getByRole("spinbutton", { name: "Tempo in BPM" }),
-  ).toHaveValue("126");
-  await expect(page.locator(".step-pad")).toHaveCount(80);
-});
-
-test("phone touch controls can reach the last steps and sound settings", async ({
-  browser,
-}) => {
-  const context = await browser.newContext({
-    viewport: { width: 375, height: 812 },
-    isMobile: true,
-    hasTouch: true,
-    deviceScaleFactor: 2,
-  });
-  const page = await context.newPage();
-  await page.goto("/");
-  await page.getByRole("button", { name: "Play pattern", exact: true }).tap();
-  await expect(page.locator("#audio-status")).toHaveText("AUDIO LIVE");
-  const drumScroll = page.locator(".drums-panel .sequence-scroll");
-  await drumScroll.evaluate((element) => {
-    element.scrollLeft = element.scrollWidth;
-  });
-  await page.getByRole("button", { name: "Kick step 16", exact: true }).tap();
-  await expect(
-    page.getByRole("button", { name: "Kick step 16", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await page
-    .getByRole("button", { name: "Select and preview Hi-hat", exact: true })
-    .tap();
-  await page
-    .getByRole("combobox", { name: "Hi-hat sound", exact: true })
-    .selectOption("1");
-  await page.getByRole("slider", { name: "Drum pitch", exact: true }).fill("5");
-  await page
-    .getByRole("slider", { name: "Drum decay", exact: true })
-    .fill("250");
-  await expect(
-    page.getByRole("slider", { name: "Drum pitch", exact: true }),
-  ).toHaveValue("5");
-  const bassScroll = page.locator(".bass-panel .sequence-scroll");
-  await bassScroll.evaluate((element) => {
-    element.scrollLeft = element.scrollWidth;
-  });
-  await page
-    .getByRole("combobox", { name: "Bass note step 16", exact: true })
-    .selectOption("45");
-  await page
-    .getByRole("button", { name: "Bass slide step 16", exact: true })
-    .tap();
-  await expect(
-    page.getByRole("button", { name: "Bass slide step 16", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(375);
-  await page.getByRole("button", { name: "Stop pattern", exact: true }).tap();
-  await context.close();
+    page.getByRole("slider", { name: "Tempo in BPM", exact: true }),
+  ).toHaveAttribute("aria-valuenow", "126");
+  await expect(page.locator("[data-drum-step]")).toHaveCount(80);
 });

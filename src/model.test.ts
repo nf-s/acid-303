@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createProject, noteName, projectSchema, stepDuration } from "./model";
+import {
+  createProject,
+  noteName,
+  projectSchema,
+  stepDuration,
+  remixProject,
+} from "./model";
 
 describe("project boundary validation", () => {
   it("accepts all starter patterns", () => {
@@ -53,5 +59,24 @@ describe("sequencer timing", () => {
     expect(noteName(33)).toBe("A1");
     expect(noteName(60)).toBe("C4");
     expect(noteName(24)).toBe("C1");
+  });
+});
+
+describe("remix", () => {
+  it("changes the sequence, keeps its downbeat and preserves sound settings", () => {
+    const original = createProject();
+    const kick = original.drums[0];
+    if (!kick) throw new Error("Missing starter kick.");
+    kick.pitch = 7;
+    kick.decay = 0.5;
+    const remixed = remixProject(original, () => 0.6);
+    expect(projectSchema.safeParse(remixed).success).toBe(true);
+    expect(remixed.drums[0]?.steps[0]).toBe(true);
+    expect(remixed.drums[0]?.steps).not.toEqual(original.drums[0]?.steps);
+    expect(remixed.drums[0]?.pitch).toBe(7);
+    expect(remixed.drums[0]?.decay).toBe(0.5);
+    expect(remixed.bpm).toBe(original.bpm);
+    expect(remixed.bass.steps[0]?.on).toBe(true);
+    expect(original.bass.steps[0]?.note).toBe(33);
   });
 });
