@@ -9,10 +9,17 @@ import {
   projectSchema,
   scaleNotes,
 } from "../src/model";
-import { PRESETS } from "../src/presets";
+import { PRESETS, createPreset } from "../src/presets";
 import { ARP_SOUNDS } from "../src/arp-model";
 import { PAD_SOUNDS } from "../src/pad-model";
 import { trackStepCount } from "../src/timing";
+
+async function seedFactoryProject(page: Page): Promise<void> {
+  await page.addInitScript((project) => {
+    if (localStorage.getItem("acid-303-project-v1") === null)
+      localStorage.setItem("acid-303-project-v1", JSON.stringify(project));
+  }, createProject());
+}
 
 async function openTrackControls(page: Page): Promise<void> {
   const button = page.locator("#studio-tools");
@@ -64,6 +71,7 @@ test("direct sound buttons and pitch gestures persist without dropdowns", async 
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  await seedFactoryProject(page);
   await page.goto("/");
   await expect(page.locator("select")).toHaveCount(0);
   await page
@@ -263,7 +271,7 @@ test("recovers from corrupted saved data", async ({ page }) => {
   await openTrackControls(page);
   await expect(
     page.getByRole("slider", { name: "Tempo in BPM", exact: true }),
-  ).toHaveAttribute("aria-valuenow", "126");
+  ).toHaveAttribute("aria-valuenow", String(createPreset("techno").bpm));
   await expect(page.locator("[data-drum-step]")).toHaveCount(80);
 });
 
@@ -316,7 +324,7 @@ test("upgrades saved cowbell and slide patterns without losing user steps", asyn
     .poll(() =>
       page.evaluate(() => localStorage.getItem("acid-303-project-v1")),
     )
-    .toContain('"version":4');
+    .toContain(`"version":${createProject().version}`);
 });
 
 async function savedProject(page: Page) {
@@ -366,6 +374,7 @@ async function matrixStroke(
 test("draws a scale-locked pitch line across all steps and undoes the complete stroke", async ({
   page,
 }) => {
+  await seedFactoryProject(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Play pattern", exact: true }).click();
   for (const [track, label] of [
@@ -425,6 +434,7 @@ test("draws a scale-locked pitch line across all steps and undoes the complete s
 test("matrix parameter tabs paint gates, accents and glide without arrow buttons", async ({
   page,
 }) => {
+  await seedFactoryProject(page);
   await page.goto("/");
   const modes = page.getByRole("group", {
     name: "Bass matrix parameter",
@@ -934,6 +944,7 @@ test("visualizer palettes colour the fluid, persist locally and freeze with moti
 test("retracting a glide line restores gates outside the final stroke", async ({
   page,
 }) => {
+  await seedFactoryProject(page);
   await page.goto("/");
   await expect(page.locator("#bass-matrix-access [role=slider]")).toHaveCount(
     16,
@@ -995,6 +1006,7 @@ test("generating a new sequence clears stale drawing undo", async ({
 test("automation lines retract, undo and clear without changing notes", async ({
   page,
 }) => {
+  await seedFactoryProject(page);
   await page.goto("/");
   await page.locator("#cutoff").click();
   await expect(page.locator("#bass-automation-label")).toHaveText(
@@ -1061,6 +1073,7 @@ test("automation lines retract, undo and clear without changing notes", async ({
 test("every Bass and Texture knob opens editable automation and manual changes shift the curve", async ({
   page,
 }) => {
+  await seedFactoryProject(page);
   await page.goto("/");
   const controls = [
     { track: "bass", id: "cutoff" },
@@ -1140,6 +1153,7 @@ test("phone sound selection, expression controls and tap automation persist with
   const page = await context.newPage();
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  await seedFactoryProject(page);
   await page.goto("/");
   const sounds = page.getByRole("group", { name: "Bass sound", exact: true });
   await expect(sounds.getByRole("button")).toHaveCount(BASS_SOUNDS.length);
@@ -1339,6 +1353,7 @@ test("clearing a curve cancels a held line before it can restore old values", as
 test("advanced drums expose eight automated controls on every track", async ({
   page,
 }) => {
+  await seedFactoryProject(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Advanced", exact: true }).click();
   await expect(page.locator(".drum-detail")).toHaveCount(5);
@@ -1394,6 +1409,7 @@ test("advanced drums expose eight automated controls on every track", async ({
 test("global undo and redo restore the whole track across examples and gestures", async ({
   page,
 }) => {
+  await seedFactoryProject(page);
   await page.goto("/");
   await openTrackControls(page);
   await dragUp(page, page.locator("#cutoff"), 48);
@@ -1401,7 +1417,7 @@ test("global undo and redo restore the whole track across examples and gestures"
     .poll(async () => (await savedProject(page)).bass.cutoff)
     .toBeGreaterThan(createProject().bass.cutoff);
   const edited = await savedProject(page);
-  await page.locator("[data-preset]").first().click();
+  await page.locator('[data-preset="house"]').click();
   await expect
     .poll(async () => (await savedProject(page)).name)
     .not.toBe(edited.name);
@@ -1515,6 +1531,7 @@ test("fluid overlay reaches transport, scale, knobs and matrices", async ({
 test("arpeggiator notes, order, rhythm and all eight controls persist with global undo", async ({
   page,
 }) => {
+  await seedFactoryProject(page);
   await page.goto("/");
   await openTrackControls(page);
   await expect(page.locator("#arp-panel .gesture-control")).toHaveCount(8);
@@ -1654,6 +1671,7 @@ test("WAV export includes all eight progression bars and release tails", async (
 test("every Arp and Pad knob opens drawable automation with clear and undo", async ({
   page,
 }) => {
+  await seedFactoryProject(page);
   await page.goto("/");
   await expect(page.locator(".drums-panel .preset-bar")).toHaveCount(0);
   await expect(
@@ -1739,6 +1757,7 @@ async function changeTiming(
 test("long triplet Arp and Pad patterns edit the final partial page and survive reload", async ({
   page,
 }) => {
+  await seedFactoryProject(page);
   await page.goto("/");
   const arpPages = page.locator("#arp-pattern-controls");
   await changeTiming(arpPages, 8, "5/4", "triplet");
@@ -2163,6 +2182,7 @@ test("touch page selection returns to the selected automation bar", async ({
     isMobile: true,
   });
   const page = await context.newPage();
+  await seedFactoryProject(page);
   await page.goto("/");
   const controls = page.locator("#arp-pattern-controls");
   await controls.locator(".pattern-trigger").tap();

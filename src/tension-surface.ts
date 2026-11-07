@@ -40,6 +40,7 @@ export class TensionSurface {
   private readonly rings = new Map<number, Ring>();
   private notes: number[] = [];
   private octave = 0;
+  private readonly baseNote: number;
   private selected = 0;
   private keyboardVelocity = 0.65;
   private key: string | null = null;
@@ -55,6 +56,13 @@ export class TensionSurface {
     private readonly canvas: HTMLCanvasElement,
     private readonly options: TensionSurfaceOptions,
   ) {
+    this.baseNote = Math.max(
+      36,
+      Math.min(
+        72,
+        options.getTrack().steps.find((step) => step.on)?.note ?? 48,
+      ),
+    );
     this.context = canvas.getContext("2d");
     canvas.tabIndex = 0;
     canvas.setAttribute("role", "group");
@@ -84,17 +92,18 @@ export class TensionSurface {
     return `${noteName(this.notes[0] ?? 48)}–${noteName(this.notes.at(-1) ?? 60)}`;
   }
   get canLower(): boolean {
-    return this.octave > -1;
+    return this.baseNote + this.octave * 12 >= 48;
   }
   get canRaise(): boolean {
-    return this.octave < 1;
+    return this.baseNote + this.octave * 12 <= 60;
   }
   get busy(): boolean {
     return this.pulls.size > 0;
   }
   shiftOctave(direction: number): void {
-    const next = Math.max(-1, Math.min(1, this.octave + Math.sign(direction)));
-    if (next === this.octave) return;
+    const next = this.octave + Math.sign(direction);
+    const low = this.baseNote + next * 12;
+    if (next === this.octave || low < 36 || low > 72) return;
     this.cancel();
     this.rings.clear();
     this.octave = next;
@@ -108,7 +117,11 @@ export class TensionSurface {
       this.cancel();
       this.rings.clear();
       this.signature = signature;
-      this.notes = scaleNotes(scale, 48 + this.octave * 12, 84).slice(0, 7);
+      this.notes = scaleNotes(
+        scale,
+        this.baseNote + this.octave * 12,
+        84,
+      ).slice(0, 7);
       this.selected = Math.min(this.selected, this.notes.length - 1);
     }
     this.describe();

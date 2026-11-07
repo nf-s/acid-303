@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   tensionSchema,
+  TENSION_PATCHES,
+  TENSION_SOUNDS,
+  applyTensionPatch,
   createTension,
   resizeTensionTrack,
   retuneTension,
@@ -30,6 +33,51 @@ const parameters: TensionParameter[] = [
   "volume",
 ];
 describe("Tension model", () => {
+  it("uses a short sparse root-and-fifth factory rhythm without changing legacy fallbacks", () => {
+    const track = createTension();
+    const notes = track.steps.filter((step) => step.on);
+    expect(notes).toHaveLength(4);
+    expect(new Set(notes.map((step) => step.note))).toEqual(new Set([45, 52]));
+    expect(track.muted).toBe(true);
+    expect(track.sound).toBe(0);
+    expect(track.automation).toEqual(tensionSchema.parse({}).automation);
+    expect(tensionSchema.parse({}).steps[0]?.note).toBe(57);
+  });
+  it("applies all six complete patches without erasing the sequence, mix or automation", () => {
+    const track = resizeTensionTrack(createTension(), {
+      bars: 2,
+      meter: "3/4",
+      grid: "triplet",
+    });
+    track.muted = false;
+    track.seed = 123456;
+    track.volume = 0.19;
+    track.steps[0] = { on: true, note: 38, velocity: 0.31 };
+    track.automation.volume = Array(track.steps.length).fill(0.25);
+    track.automation.decay = Array.from(
+      { length: track.steps.length },
+      (_, index) => index / track.steps.length,
+    );
+    const before = structuredClone(track);
+    expect(TENSION_PATCHES).toHaveLength(TENSION_SOUNDS.length);
+    for (const patch of TENSION_PATCHES) {
+      const applied = applyTensionPatch(track, patch.sound);
+      expect(Object.keys(patch.values)).toHaveLength(8);
+      expect(tensionSchema.safeParse(applied).success).toBe(true);
+      expect(applied.sound).toBe(patch.sound);
+      expect(applied.steps).toEqual(before.steps);
+      expect(applied.timing).toEqual(before.timing);
+      expect(applied.automation).toEqual(before.automation);
+      expect(applied.seed).toBe(before.seed);
+      expect(applied.muted).toBe(false);
+      expect(applied.volume).toBe(0.19);
+      expect(tensionSchema.parse(before)).toEqual(before);
+    }
+    for (const sound of [-1, 6, NaN, 1.5])
+      expect(applyTensionPatch(track, sound)).toEqual(before);
+    expect(track).toEqual(before);
+  });
+
   it("defaults to a muted scale-locked playable pattern with six valid profiles", () => {
     const track = createTension();
     expect(track.muted).toBe(true);

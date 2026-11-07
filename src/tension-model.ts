@@ -93,8 +93,119 @@ export const tensionSchema = tensionBaseSchema.superRefine((track, context) => {
     });
 });
 export type TensionTrack = z.infer<typeof tensionSchema>;
+export interface TensionPatch {
+  readonly name: string;
+  readonly sound: number;
+  readonly values: Readonly<Record<TensionParameter, number>>;
+}
+export const TENSION_PATCHES: ReadonlyArray<TensionPatch> = [
+  {
+    name: "Low tom",
+    sound: 0,
+    values: {
+      tension: 0.04,
+      pick: 0.42,
+      decay: 0.18,
+      damping: 0.88,
+      coupling: 0,
+      drive: 0.12,
+      width: 0.1,
+      volume: 0.38,
+    },
+  },
+  {
+    name: "Metal hit",
+    sound: 1,
+    values: {
+      tension: 0.28,
+      pick: 0.18,
+      decay: 0.12,
+      damping: 0.66,
+      coupling: 0,
+      drive: 0.2,
+      width: 0.2,
+      volume: 0.3,
+    },
+  },
+  {
+    name: "Dry rim",
+    sound: 2,
+    values: {
+      tension: 0.08,
+      pick: 0.82,
+      decay: 0.06,
+      damping: 0.84,
+      coupling: 0,
+      drive: 0.08,
+      width: 0.08,
+      volume: 0.32,
+    },
+  },
+  {
+    name: "Dub hit",
+    sound: 3,
+    values: {
+      tension: 0.16,
+      pick: 0.48,
+      decay: 0.23,
+      damping: 0.92,
+      coupling: 0.04,
+      drive: 0.1,
+      width: 0.24,
+      volume: 0.34,
+    },
+  },
+  {
+    name: "Clank",
+    sound: 4,
+    values: {
+      tension: 0.48,
+      pick: 0.12,
+      decay: 0.12,
+      damping: 0.62,
+      coupling: 0,
+      drive: 0.25,
+      width: 0.18,
+      volume: 0.28,
+    },
+  },
+  {
+    name: "Knock",
+    sound: 5,
+    values: {
+      tension: 0.02,
+      pick: 0.35,
+      decay: 0.18,
+      damping: 0.9,
+      coupling: 0,
+      drive: 0.12,
+      width: 0.05,
+      volume: 0.4,
+    },
+  },
+];
+
+/** Sound selection changes articulation, leaving the performance and mix intact. */
+export function applyTensionPatch(
+  track: TensionTrack,
+  sound: number,
+): TensionTrack {
+  const patch = TENSION_PATCHES.find((candidate) => candidate.sound === sound);
+  return patch
+    ? { ...track, ...patch.values, sound: patch.sound, volume: track.volume }
+    : { ...track };
+}
 export function createTension(): TensionTrack {
-  return tensionSchema.parse({});
+  const patch = TENSION_PATCHES[0];
+  return tensionSchema.parse({
+    ...patch?.values,
+    sound: patch?.sound ?? 0,
+    steps: Array.from({ length: 16 }, (_, index) => ({
+      on: [3, 7, 10, 15].includes(index),
+      note: index === 10 ? 52 : 45,
+      velocity: index === 7 ? 0.52 : index === 15 ? 0.64 : 0.82,
+    })),
+  });
 }
 export function normalizedTensionValue(
   track: TensionTrack,

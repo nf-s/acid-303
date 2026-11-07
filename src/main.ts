@@ -259,7 +259,7 @@ let sessionStatus: SessionStatus = {
 };
 let remotePlaying = false;
 let deferredSessionRefresh = false;
-let project = createProject();
+let project = createPreset("techno");
 let storageAvailable = true;
 try {
   const stored = localStorage.getItem(storageKey);

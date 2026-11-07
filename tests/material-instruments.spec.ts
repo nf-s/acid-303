@@ -1,8 +1,10 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { createProject, projectSchema, scaleNotes } from "../src/model";
-import { resizeCloudTrack } from "../src/cloud-model";
-import { resizeTensionTrack } from "../src/tension-model";
+import { CLOUD_PATCHES, resizeCloudTrack } from "../src/cloud-model";
+import { TENSION_PATCHES, resizeTensionTrack } from "../src/tension-model";
+
+import { createPreset } from "../src/presets";
 
 type Instrument = "cloud" | "tension";
 async function load(page: Page, long = false, empty = false) {
@@ -79,8 +81,11 @@ test("Cloud and Tension retain six sounds and eight adjacent automated controls"
     for (let sound = 0; sound < 6; sound++) {
       await page.locator(`[data-${instrument}-sound="${sound}"]`).click();
       await expect
-        .poll(async () => (await saved(page))[instrument].sound)
-        .toBe(sound);
+        .poll(async () => {
+          const track = (await saved(page))[instrument];
+          return { sound: track.sound, muted: track.muted };
+        })
+        .toEqual({ sound, muted: false });
     }
     expect((await saved(page))[instrument].steps).toEqual(
       original[instrument].steps,
@@ -321,4 +326,109 @@ test("local Record captures Cloud motion and Tension notes only on release", asy
   await page.locator("#play").click();
   await expect(cloud).toHaveAttribute("data-active", "false");
   await expect(tension).toHaveAttribute("data-active", "false");
+});
+
+test("new browsers open Contact while saved projects keep their musical state", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator("[data-preset]").first()).toHaveAttribute(
+    "data-preset",
+    "techno",
+  );
+  await page.locator("#fx-sweep").press("ArrowUp");
+  await expect
+    .poll(() =>
+      page.evaluate(() => localStorage.getItem("acid-303-project-v1")),
+    )
+    .not.toBeNull();
+  expect((await saved(page)).name).toBe("Contact");
+  const initial = createPreset("techno");
+  const fresh = await saved(page);
+  expect(fresh.drums).toEqual(initial.drums);
+  expect(fresh.tension).toEqual(initial.tension);
+  const { automation: freshAutomation, ...freshBass } = fresh.bass;
+  const { automation: initialAutomation, ...initialBass } = initial.bass;
+  expect(freshBass).toEqual(initialBass);
+  expect({ ...freshAutomation, cutoff: null }).toEqual({
+    ...initialAutomation,
+    cutoff: null,
+  });
+  expect(freshAutomation.cutoff).toHaveLength(
+    initialAutomation.cutoff?.length ?? 0,
+  );
+  freshAutomation.cutoff?.forEach((value, index) => {
+    expect(value).toBeCloseTo(initialAutomation.cutoff?.[index] ?? -1, 12);
+  });
+  expect(fresh.cloud).toEqual(initial.cloud);
+  await page.locator('[data-preset="house"]').click();
+  await expect.poll(async () => (await saved(page)).name).toBe("Afterhours");
+  const selected = await saved(page);
+  await page.reload();
+  await expect(page.locator("#cloud-surface")).toBeAttached();
+  expect(await saved(page)).toEqual(selected);
+});
+
+test("material patches change articulation and shift automation with one undo while preserving the performance", async ({
+  page,
+}) => {
+  const project = createProject();
+  for (const instrument of ["cloud", "tension"] satisfies Instrument[]) {
+    project[instrument].volume = 0.23;
+    project[instrument].automation.width = Array.from(
+      { length: 16 },
+      (_, index) => 0.25 + index * 0.02,
+    );
+    project[instrument].automation.volume = Array(16).fill(0.22);
+  }
+  await page.addInitScript(
+    (saved) =>
+      localStorage.setItem("acid-303-project-v1", JSON.stringify(saved)),
+    project,
+  );
+  await page.goto("/");
+  for (const instrument of ["cloud", "tension"] satisfies Instrument[]) {
+    await openSound(page, instrument);
+    const patch =
+      instrument === "cloud" ? CLOUD_PATCHES[3] : TENSION_PATCHES[3];
+    if (!patch) throw new Error("Musical patch missing");
+    await expect(page.locator(`[data-${instrument}-sound="3"]`)).toHaveText(
+      patch.name,
+    );
+    await expect(page.locator(`#${instrument}-surface`)).toHaveAttribute(
+      "data-note",
+      "45",
+    );
+    await page.locator(`[data-${instrument}-sound="3"]`).click();
+    await expect
+      .poll(async () => (await saved(page))[instrument].sound)
+      .toBe(3);
+    const after = (await saved(page))[instrument];
+    for (const [key, value] of Object.entries(patch.values)) {
+      if (key !== "volume") expect(Reflect.get(after, key)).toBe(value);
+    }
+    expect(after.steps).toEqual(project[instrument].steps);
+    expect(after.timing).toEqual(project[instrument].timing);
+    expect(after.volume).toBe(0.23);
+    expect(after.muted).toBe(false);
+    expect(after.automation.volume).toEqual(
+      project[instrument].automation.volume,
+    );
+    expect(after.automation.width).toEqual(
+      project[instrument].automation.width?.map((value) =>
+        Math.max(
+          0,
+          Math.min(1, value + (patch.values.width - project[instrument].width)),
+        ),
+      ),
+    );
+    await page.keyboard.press("Control+z");
+    await expect
+      .poll(async () => (await saved(page))[instrument])
+      .toEqual(project[instrument]);
+    await page.keyboard.press("Control+Shift+z");
+    await expect
+      .poll(async () => (await saved(page))[instrument])
+      .toEqual(after);
+  }
 });

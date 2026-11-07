@@ -30,6 +30,7 @@ export class CloudSurface {
   private readonly keys = new Set<string>();
   private notes: number[] = [];
   private octave = 0;
+  private readonly baseNote: number;
   private selected = 0;
   private scan = 0.35;
   private spread = 0.55;
@@ -49,6 +50,13 @@ export class CloudSurface {
     private readonly canvas: HTMLCanvasElement,
     private readonly options: CloudSurfaceOptions,
   ) {
+    this.baseNote = Math.max(
+      36,
+      Math.min(
+        72,
+        options.getTrack().steps.find((step) => step.on)?.note ?? 48,
+      ),
+    );
     this.context = canvas.getContext("2d");
     canvas.tabIndex = 0;
     canvas.setAttribute("role", "group");
@@ -79,17 +87,18 @@ export class CloudSurface {
     return `${noteName(this.notes[0] ?? 48)}–${noteName(this.notes.at(-1) ?? 60)}`;
   }
   get canLower(): boolean {
-    return this.octave > -1;
+    return this.baseNote + this.octave * 12 >= 48;
   }
   get canRaise(): boolean {
-    return this.octave < 2;
+    return this.baseNote + this.octave * 12 <= 60;
   }
   get busy(): boolean {
     return this.gestureId !== null;
   }
   shiftOctave(direction: number): void {
-    const next = Math.max(-1, Math.min(2, this.octave + Math.sign(direction)));
-    if (next === this.octave) return;
+    const next = this.octave + Math.sign(direction);
+    const low = this.baseNote + next * 12;
+    if (next === this.octave || low < 36 || low > 72) return;
     this.cancel();
     this.octave = next;
     this.refresh();
@@ -103,8 +112,8 @@ export class CloudSurface {
       this.signature = signature;
       this.notes = scaleNotes(
         scale,
-        48 + this.octave * 12,
-        60 + this.octave * 12,
+        this.baseNote + this.octave * 12,
+        this.baseNote + (this.octave + 1) * 12,
       );
       this.selected = Math.min(this.selected, this.notes.length - 1);
     }

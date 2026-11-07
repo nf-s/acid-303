@@ -6,7 +6,8 @@ import { NoteMatrix } from "./note-matrix";
 import type { MatrixChange } from "./note-matrix";
 import { PPQ, timingSchema, trackPosition } from "./timing";
 import {
-  TENSION_SOUNDS,
+  TENSION_PATCHES,
+  applyTensionPatch,
   normalizedTensionValue,
   tensionValueFromNormalized,
   resizeTensionTrack,
@@ -75,7 +76,12 @@ export function createTensionPanel(
   let queued = false;
   let parameter: "pitch" | "gate" | "velocity" = "pitch";
   let lastStep = -1;
-  let previewNote = snapNote(48, options.getScale(), 36, 84);
+  let previewNote = snapNote(
+    options.getTrack().steps.find((step) => step.on)?.note ?? 48,
+    options.getScale(),
+    36,
+    84,
+  );
   const steps: BassStep[] = [];
   const velocities: number[] = [];
   container.innerHTML = `
@@ -83,7 +89,7 @@ export function createTensionPanel(
     <p id="tension-host-capability" class="material-status" hidden>Host must reload Grain to play tension.</p>
     <div class="material-surface-tools"><span>Pull sideways and release · Touch height changes Pick</span><div class="material-octaves" role="group" aria-label="Tension pitch view"><button data-tension-octave="-1" aria-label="Lower Tension pitch view">−</button><output id="tension-octave-label"></output><button data-tension-octave="1" aria-label="Raise Tension pitch view">+</button></div></div>
     <div class="material-surface"><canvas id="tension-surface"></canvas></div>
-    <details class="material-sound-controls"><summary>Sound <span id="tension-sound-name"></span></summary><div class="waveform-switch material-sounds" role="group" aria-label="Tension sound">${TENSION_SOUNDS.map((sound, index) => `<button data-tension-sound="${index}">${sound}</button>`).join("")}</div><div class="acid-controls material-controls">${CONTROLS.map(
+    <details class="material-sound-controls"><summary>Sound <span id="tension-sound-name"></span></summary><div class="waveform-switch material-sounds" role="group" aria-label="Tension sound">${TENSION_PATCHES.map((patch) => `<button data-tension-sound="${patch.sound}">${patch.name}</button>`).join("")}</div><div class="acid-controls material-controls">${CONTROLS.map(
       (control) => {
         const value = normalizedTensionValue(
           options.getTrack(),
@@ -268,7 +274,10 @@ export function createTensionPanel(
       .querySelector("#tension-mute")
       ?.setAttribute("aria-pressed", String(track.muted));
     const soundName = container.querySelector("#tension-sound-name");
-    if (soundName) soundName.textContent = TENSION_SOUNDS[track.sound] ?? "";
+    if (soundName)
+      soundName.textContent =
+        TENSION_PATCHES.find((patch) => patch.sound === track.sound)?.name ??
+        "";
     surface.refresh();
     renderView();
     refreshNotes();
@@ -303,10 +312,27 @@ export function createTensionPanel(
     if (
       button.dataset.tensionSound !== undefined &&
       Number.isInteger(sound) &&
-      TENSION_SOUNDS[sound] !== undefined
+      TENSION_PATCHES.some((patch) => patch.sound === sound)
     ) {
-      options.getTrack().sound = sound;
-      options.getTrack().muted = false;
+      surface.cancel();
+      const track = options.getTrack();
+      const before = { ...track };
+      Object.assign(track, applyTensionPatch(track, sound));
+      for (const control of CONTROLS) {
+        if (control.parameter === "volume") continue;
+        automation.shiftControl(
+          `tension-${control.parameter}`,
+          normalizedTensionValue(before, control.parameter),
+          normalizedTensionValue(track, control.parameter),
+        );
+      }
+      track.muted = false;
+      previewNote = snapNote(
+        track.steps.find((step) => step.on)?.note ?? previewNote,
+        options.getScale(),
+        36,
+        84,
+      );
       render();
       options.onChange();
       options.onPreview(previewNote, 0.75);

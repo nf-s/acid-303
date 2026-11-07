@@ -10,6 +10,10 @@ import {
 } from "./model";
 import type { BassStep, DrumId, MusicalScale, Project } from "./model";
 import type { ArpTrack } from "./arp-model";
+import { applyCloudPatch, emptyCloudAutomation } from "./cloud-model";
+import type { CloudStep, CloudTrack } from "./cloud-model";
+import { applyTensionPatch, emptyTensionAutomation } from "./tension-model";
+import type { TensionTrack } from "./tension-model";
 import { applyPadProgression } from "./pad-model";
 import type { PadTrack } from "./pad-model";
 import { nightshiftSnapshot } from "./preset-data/nightshift";
@@ -161,42 +165,35 @@ const GENRE_PRESETS: GenrePreset[] = [
     scale: { root: 5, mode: "minor" },
     bpm: 134,
     swing: 0.025,
-    drive: 0.12,
+    drive: 0.08,
     drums: {
-      kick: { hits: [0, 4, 8, 12], sound: 1, decay: 0.18, volume: 0.86 },
+      kick: { hits: [0, 4, 8, 12], sound: 1, decay: 0.21, volume: 0.86 },
       snare: { hits: [], sound: 1, decay: 0.09, volume: 0.3 },
       hat: {
-        hits: [2, 4, 6, 7, 10, 12, 14, 15],
+        hits: [2, 6, 10, 14, 15],
         sound: 0,
-        decay: 0.045,
-        volume: 0.26,
-        tone: 0.62,
+        decay: 0.04,
+        volume: 0.19,
+        tone: 0.5,
       },
       clap: { hits: [], sound: 4, decay: 0.08, volume: 0.24 },
-      rim: {
-        hits: [3, 6, 10, 14],
-        sound: 2,
-        decay: 0.04,
-        volume: 0.22,
-        tone: 0.38,
-        space: 0.08,
-      },
+      rim: { hits: [], sound: 2, decay: 0.04, volume: 0.2 },
     },
     bass: {
-      shape: 0.24,
-      drive: 0.13,
-      sound: 1,
-      root: 41,
+      shape: 0.18,
+      drive: 0.03,
+      sound: 0,
+      root: 29,
       notes: [0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0],
-      hits: [2, 5, 7, 10, 13],
-      accents: [5, 13],
+      hits: [2, 6, 7, 10, 14],
+      accents: [2, 10],
       slides: [],
       waveform: "square",
-      cutoff: 550,
-      resonance: 1.2,
-      envelope: 0.08,
-      decay: 0.1,
-      volume: 0.34,
+      cutoff: 240,
+      resonance: 0.65,
+      envelope: 0.03,
+      decay: 0.16,
+      volume: 0.42,
     },
     texture: {
       root: 65,
@@ -216,42 +213,42 @@ const GENRE_PRESETS: GenrePreset[] = [
     name: "Transit",
     genre: "Driving techno",
     scale: { root: 2, mode: "phrygian" },
-    bpm: 142,
+    bpm: 140,
     swing: 0,
-    drive: 0.14,
+    drive: 0.1,
     drums: {
-      kick: { hits: [0, 4, 8, 12], sound: 2, decay: 0.2, volume: 0.84 },
-      snare: { hits: [4, 12], sound: 1, decay: 0.1, volume: 0.32 },
+      kick: { hits: [0, 4, 8, 12], sound: 1, decay: 0.2, volume: 0.87 },
+      snare: { hits: [4, 12], sound: 1, decay: 0.09, volume: 0.27 },
       hat: {
-        hits: [1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15],
+        hits: [1, 3, 5, 7, 9, 11, 13, 15],
         sound: 0,
-        decay: 0.04,
-        volume: 0.28,
-        tone: 0.58,
+        decay: 0.035,
+        volume: 0.22,
+        tone: 0.48,
       },
       clap: { hits: [], sound: 4, decay: 0.07, volume: 0.24 },
       rim: { hits: [], sound: 2, decay: 0.04, volume: 0.2 },
     },
     bass: {
-      shape: 0.34,
-      drive: 0.18,
-      sound: 3,
+      shape: 0.2,
+      drive: 0.1,
+      sound: 8,
       root: 38,
-      notes: [0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 1],
+      notes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
       hits: [2, 3, 6, 7, 10, 11, 14, 15],
       accents: [2, 10],
       slides: [6, 14],
-      waveform: "sawtooth",
-      cutoff: 700,
-      resonance: 2,
-      envelope: 0.14,
-      decay: 0.12,
-      volume: 0.34,
+      waveform: "square",
+      cutoff: 460,
+      resonance: 1.2,
+      envelope: 0.08,
+      decay: 0.11,
+      volume: 0.36,
     },
     texture: {
       root: 62,
       notes: [0],
-      hits: [3, 11],
+      hits: [],
       accents: [],
       slides: [],
       sound: 3,
@@ -266,14 +263,14 @@ const GENRE_PRESETS: GenrePreset[] = [
     name: "Halflight",
     genre: "Melodic techno",
     scale: { root: 9, mode: "minor" },
-    bpm: 124,
-    swing: 0,
-    drive: 0.05,
+    bpm: 126,
+    swing: 0.02,
+    drive: 0.04,
     drums: {
-      kick: { hits: [0, 4, 8, 12], sound: 1, decay: 0.22, volume: 0.83 },
+      kick: { hits: [0, 4, 8, 12], sound: 1, decay: 0.2, volume: 0.83 },
       snare: { hits: [], sound: 4, decay: 0.12, volume: 0.2 },
-      hat: { hits: [2, 6, 10, 14], sound: 1, decay: 0.045, volume: 0.24 },
-      clap: { hits: [4, 12], sound: 3, decay: 0.13, volume: 0.34 },
+      hat: { hits: [2, 6, 10, 14], sound: 1, decay: 0.04, volume: 0.18 },
+      clap: { hits: [4, 12], sound: 3, decay: 0.11, volume: 0.26 },
       rim: { hits: [], sound: 0, decay: 0.05, volume: 0.18 },
     },
     bass: {
@@ -286,11 +283,11 @@ const GENRE_PRESETS: GenrePreset[] = [
       accents: [],
       slides: [],
       waveform: "square",
-      cutoff: 220,
-      resonance: 0.8,
-      envelope: 0.04,
-      decay: 0.22,
-      volume: 0.38,
+      cutoff: 230,
+      resonance: 0.6,
+      envelope: 0.035,
+      decay: 0.18,
+      volume: 0.4,
     },
     texture: {
       root: 57,
@@ -309,27 +306,14 @@ const GENRE_PRESETS: GenrePreset[] = [
     id: "atmospheric-techno",
     name: "Drift",
     genre: "Experimental atmospheric techno",
-    scale: { root: 2, mode: "pentatonic" },
-    bpm: 116,
-    swing: 0.08,
-    drive: 0.07,
+    scale: { root: 2, mode: "minor" },
+    bpm: 120,
+    swing: 0.02,
+    drive: 0.04,
     drums: {
-      kick: { hits: [0, 10], sound: 3, decay: 0.29, volume: 0.72 },
-      snare: {
-        hits: [7],
-        sound: 4,
-        decay: 0.22,
-        volume: 0.19,
-        tone: 0.3,
-        space: 0.28,
-      },
-      hat: {
-        hits: [3, 6, 11, 14],
-        sound: 3,
-        decay: 0.075,
-        volume: 0.18,
-        tone: 0.38,
-      },
+      kick: { hits: [0, 8, 14], sound: 0, decay: 0.18, volume: 0.74 },
+      snare: { hits: [], sound: 4, decay: 0.16, volume: 0.19 },
+      hat: { hits: [], sound: 3, decay: 0.06, volume: 0.18 },
       clap: { hits: [], sound: 3, decay: 0.25, volume: 0.22 },
       rim: { hits: [], sound: 4, decay: 0.08, volume: 0.2 },
     },
@@ -351,15 +335,15 @@ const GENRE_PRESETS: GenrePreset[] = [
     },
     texture: {
       root: 62,
-      notes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0],
-      hits: [1, 11],
+      notes: [0],
+      hits: [5, 13],
       accents: [],
       slides: [],
-      sound: 5,
-      tone: 0.24,
-      decay: 0.95,
-      space: 0.64,
-      volume: 0.19,
+      sound: 4,
+      tone: 0.16,
+      decay: 0.28,
+      space: 0.56,
+      volume: 0.24,
     },
   },
   {
@@ -1085,6 +1069,8 @@ const GENRE_PRESETS: GenrePreset[] = [
 ];
 
 interface GenrePalette {
+  cloud?: Partial<CloudTrack>;
+  tension?: Partial<TensionTrack>;
   arp: Partial<ArpTrack>;
   pad: Partial<PadTrack>;
   progression: string;
@@ -1101,6 +1087,21 @@ interface GenrePalette {
 }
 const pattern = (hits: number[]) =>
   Array.from({ length: STEP_COUNT }, (_, index) => hits.includes(index));
+function strikeSteps(
+  root: number,
+  hits: number[],
+  velocities: number[],
+  intervals: number[] = [],
+): CloudStep[] {
+  return Array.from({ length: STEP_COUNT }, (_, index) => {
+    const hit = hits.indexOf(index);
+    return {
+      on: hit >= 0,
+      note: root + (intervals[hit] ?? 0),
+      velocity: hit < 0 ? 0 : (velocities[hit] ?? 0.6),
+    };
+  });
+}
 const GENRE_PALETTES: Record<string, GenrePalette> = {
   house: {
     arp: {
@@ -1168,40 +1169,75 @@ const GENRE_PALETTES: Record<string, GenrePalette> = {
     arp: { muted: true },
     pad: { muted: true },
     progression: "suspended",
-    bassSweep: [-0.025, 0, 0.025, -0.01, 0, 0.04, -0.015, 0.02],
-    bassPulse: [0.24, 0.27, 0.22, 0.3],
-    hatLevels: [0.52, 0.45, 1, 0.4, 0.58, 0.45, 0.86, 0.32],
-    hatPan: [0.46, 0.49, 0.54, 0.51],
+    tension: {
+      sound: 1,
+      muted: false,
+      volume: 0.32,
+      steps: strikeSteps(53, [3, 7, 10, 15], [0.7, 0.4, 0.6, 0.48]),
+      automation: {
+        ...emptyTensionAutomation(),
+        damping: [
+          0.7, 0.7, 0.68, 0.62, 0.7, 0.7, 0.7, 0.76, 0.7, 0.7, 0.64, 0.7, 0.7,
+          0.7, 0.7, 0.72,
+        ],
+        pick: [
+          0.18, 0.18, 0.18, 0.22, 0.18, 0.18, 0.18, 0.16, 0.18, 0.18, 0.2, 0.18,
+          0.18, 0.18, 0.18, 0.24,
+        ],
+      },
+    },
+    bassSweep: [0, 0, 0.015, 0, 0, 0, -0.01, 0.02],
+    bassPulse: [0.42, 0.42, 0.48, 0.4],
+    hatLevels: [0.45, 0.4, 1, 0.32, 0.45, 0.4, 0.88, 0.3],
+    hatPan: [0.46, 0.5, 0.54, 0.5],
     textureMotion: [0],
   },
   "driving-techno": {
     arp: { muted: true },
     pad: { muted: true },
     progression: "descent",
-    bassSweep: [-0.03, 0, 0.04, 0.02, -0.025, 0, 0.065, 0.035],
-    bassPulse: [0.3, 0.32, 0.4, 0.34],
-    hatLevels: [0.45, 0.5, 1, 0.38, 0.45, 0.58, 0.88, 0.4],
+    cloud: {
+      sound: 1,
+      muted: false,
+      volume: 0.26,
+      tone: 0.52,
+      size: 0.22,
+      roughness: 0.08,
+      scatter: 0.035,
+      width: 0.3,
+      steps: strikeSteps(62, [2, 6, 10, 14], [0.62, 0.46, 0.7, 0.52]),
+      automation: {
+        ...emptyCloudAutomation(),
+        scan: [
+          0.4, 0.4, 0.34, 0.4, 0.4, 0.4, 0.42, 0.4, 0.4, 0.4, 0.47, 0.4, 0.4,
+          0.4, 0.38, 0.4,
+        ],
+      },
+    },
+    bassSweep: [-0.015, 0, 0.025, 0.01, -0.01, 0, 0.035, 0.015],
+    bassPulse: [0.34, 0.36, 0.42, 0.36],
+    hatLevels: [0.4, 0.6, 0.4, 0.35, 0.4, 0.72, 0.4, 0.42],
     hatPan: [0.45, 0.48, 0.55, 0.52],
-    textureMotion: [0.12, 0.18, 0.1, 0.24],
+    textureMotion: [0],
   },
   "melodic-techno": {
     arp: {
       muted: false,
-      sound: 1,
-      notes: [57, 60, 64],
-      direction: "up",
-      rate: "1/16",
+      sound: 4,
+      notes: [60, 57],
+      direction: "played",
+      rate: "1/8",
       octaves: 1,
-      steps: pattern([0, 2, 3, 6, 8, 10, 11, 14]),
-      accents: pattern([0, 8]),
-      gate: 0.44,
-      decay: 0.22,
-      tone: 0.28,
-      resonance: 0.14,
-      shape: 0.16,
+      steps: pattern([2, 6, 8, 14]),
+      accents: pattern([8]),
+      gate: 0.42,
+      decay: 0.19,
+      tone: 0.22,
+      resonance: 0.08,
+      shape: 0.12,
       width: 0.32,
-      space: 0.38,
-      volume: 0.26,
+      space: 0.28,
+      volume: 0.24,
     },
     pad: {
       muted: true,
@@ -1211,33 +1247,53 @@ const GENRE_PALETTES: Record<string, GenrePalette> = {
       volume: 0.12,
     },
     progression: "suspended",
-    bassSweep: [0, -0.01, 0.015, 0],
-    bassPulse: [0.58, 0.58, 0.62, 0.58],
-    hatLevels: [0.5, 0.5, 1, 0.5, 0.5, 0.5, 0.88, 0.5],
-    hatPan: [0.45, 0.48, 0.55, 0.52],
+    bassSweep: [0, -0.005, 0.01, 0],
+    bassPulse: [0.44, 0.44, 0.48, 0.44],
+    hatLevels: [0.45, 0.45, 1, 0.45, 0.45, 0.45, 0.88, 0.45],
+    hatPan: [0.46, 0.48, 0.54, 0.52],
     textureMotion: [0],
+    arpTone: [0.2, 0.22, 0.24, 0.21],
   },
   "atmospheric-techno": {
     arp: { muted: true, sound: 5, notes: [62, 69], octaves: 1 },
     pad: {
-      muted: false,
+      muted: true,
       sound: 4,
       timing: { bars: 8, meter: "4/4", grid: "straight" },
-      attack: 0.68,
-      release: 0.6,
-      tone: 0.26,
-      motion: 0.3,
-      spread: 0.76,
-      space: 0.58,
-      shape: 0.26,
-      volume: 0.19,
+      volume: 0.16,
+    },
+    cloud: {
+      sound: 3,
+      muted: false,
+      volume: 0.22,
+      tone: 0.24,
+      width: 0.62,
+      scatter: 0.12,
+      steps: strikeSteps(
+        50,
+        [2, 3, 6, 10, 11, 15],
+        [0.35, 0.45, 0.32, 0.4, 0.5, 0.28],
+      ),
+      automation: {
+        ...emptyCloudAutomation(),
+        scan: [
+          0.24, 0.25, 0.27, 0.3, 0.32, 0.33, 0.35, 0.36, 0.35, 0.33, 0.31, 0.29,
+          0.27, 0.25, 0.23, 0.24,
+        ],
+        tone: [
+          0.22, 0.22, 0.24, 0.26, 0.24, 0.22, 0.23, 0.22, 0.22, 0.23, 0.25,
+          0.27, 0.25, 0.23, 0.22, 0.2,
+        ],
+      },
     },
     progression: "drift",
     bassSweep: [0],
     bassPulse: [0.65],
-    hatLevels: [0.5, 0.65, 0.8, 0.55, 0.5, 0.6, 1, 0.4],
-    hatPan: [0.3, 0.44, 0.7, 0.56],
-    textureMotion: [0.18, 0.22, 0.28, 0.32, 0.36, 0.32, 0.26, 0.2],
+    hatLevels: [0.5],
+    hatPan: [0.5],
+    textureMotion: [0.04, 0.08, 0.06, 0.1],
+    textureTone: [0.14, 0.16, 0.18, 0.15],
+    textureSpace: [0.54, 0.6, 0.56, 0.65],
   },
   garage: {
     arp: { muted: true },
@@ -1499,12 +1555,20 @@ const curve = (values: number[], base = 0, multiply = false) =>
     ),
   );
 
+const leadingPresets = new Map<string, number>([
+  ["techno", 0],
+  ["driving-techno", 1],
+  ["atmospheric-techno", 2],
+  ["melodic-techno", 3],
+]);
 export const PRESETS: ReadonlyArray<{
   id: string;
   name: string;
   genre: string;
 }> = [
-  ...GENRE_PRESETS.map(({ id, name, genre }) => ({ id, name, genre })),
+  ...GENRE_PRESETS.map(({ id, name, genre }) => ({ id, name, genre })).sort(
+    (a, b) => (leadingPresets.get(a.id) ?? 4) - (leadingPresets.get(b.id) ?? 4),
+  ),
   { id: "nightshift", name: "Nightshift", genre: "House" },
 ];
 
@@ -1621,6 +1685,22 @@ export function createPreset(id: string): Project {
   };
   const palette = GENRE_PALETTES[preset.id];
   if (palette) {
+    if (palette.cloud)
+      project.cloud = {
+        ...applyCloudPatch(
+          project.cloud,
+          palette.cloud.sound ?? project.cloud.sound,
+        ),
+        ...palette.cloud,
+      };
+    if (palette.tension)
+      project.tension = {
+        ...applyTensionPatch(
+          project.tension,
+          palette.tension.sound ?? project.tension.sound,
+        ),
+        ...palette.tension,
+      };
     project.arp = { ...project.arp, ...palette.arp };
     project.pad = { ...project.pad, ...palette.pad };
     applyPadProgression(project.pad, palette.progression, project.scale);

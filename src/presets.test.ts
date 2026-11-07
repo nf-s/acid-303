@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PRESETS, createPreset, findPresetByName } from "./presets";
 import { nightshiftSnapshot } from "./preset-data/nightshift";
+import { arpEvents } from "./arp-model";
 import {
   DRUM_META,
   automatedDrum,
@@ -146,8 +147,8 @@ describe("genre examples", () => {
     expect(findPresetByName("__proto__")).toBeUndefined();
   });
 
-  it("preserves all twenty complete musical arrangements while changing only their names", async () => {
-    // Captured before renaming; only project.name is excluded from each complete-project hash.
+  it("locks the twenty authored arrangements to their reviewed musical fingerprints", async () => {
+    // The legacy musical projection retains its original fingerprints except the four revised techno examples.
     const frozen = [
       {
         id: "house",
@@ -162,22 +163,22 @@ describe("genre examples", () => {
       {
         id: "techno",
         sha256:
-          "fd6f256a9cc877b96c8a63c14a8d9ce401eec90acd6835642bd8203acf387d91",
+          "a69d55013b6bbd5d1e2589bdabed0fb7b41563408755d3a81a54c623e936da05",
       },
       {
         id: "driving-techno",
         sha256:
-          "309e173a87bcb7b1355648d6f17b048e3c0a6b93626a8aaba23b337aed952f29",
+          "e9d62cc7c8b8c46b12f6dcd24983f2c6937530d27c7392d33fc7ba50bef64ae6",
       },
       {
         id: "melodic-techno",
         sha256:
-          "502e66036e9da692e8800a9c2faf69905a277f053eb6a01e918fdfd37edbd504",
+          "46d8cb0d181dea94be81e021dab6ae17f9120184ded2394c148a83170543a7e0",
       },
       {
         id: "atmospheric-techno",
         sha256:
-          "2fbd775051e6eee3bc28076f3fa7da791509b71d0313bbb14893684eb642d883",
+          "280987a466a8907e73fd220ab805b8ef3a037799de9c9f8d8dd534e4f42a77d0",
       },
       {
         id: "garage",
@@ -256,14 +257,117 @@ describe("genre examples", () => {
     }
   });
 
+  it("preserves all seventeen untouched examples including timing, effects and vocals", async () => {
+    const frozen = [
+      {
+        id: "house",
+        sha256:
+          "425adf9e5c0c59ce28857d2381c8c0788f7ee607bae4a655e539908e255bbf5c",
+      },
+      {
+        id: "tech-house",
+        sha256:
+          "bb37d99880adeb29032f9d6b7ac2b866c61b268c5dd36e3c941097dc53c68b6a",
+      },
+      {
+        id: "garage",
+        sha256:
+          "3865a6f0fba67812a1ecd6927baa99f51a2714cb11d39f696870f0a108ce73c1",
+      },
+      {
+        id: "speed-garage",
+        sha256:
+          "0baeb4c4dc96a523ec3f62264051118dbde51fc9f5c4ddb69b1ee4e989f99ddf",
+      },
+      {
+        id: "jungle",
+        sha256:
+          "8357f99650db8a10acb05afa21c75e52ec595d1f687d1eeb93d370033d2ed9cb",
+      },
+      {
+        id: "bass-house",
+        sha256:
+          "fec37a29284b6ac1b62a4a55e8f223015f37a8d94385d876bef8038ec21211b0",
+      },
+      {
+        id: "dub-techno",
+        sha256:
+          "89421110437ba2b625a8666ca0e27d4fcff70a1e86babd66f5dcc669cd67d366",
+      },
+      {
+        id: "electro",
+        sha256:
+          "62c0cc903c981b88ea5a0c60f001c1d63f5fefcf1d71f4b6a7edb2ceec660693",
+      },
+      {
+        id: "microhouse",
+        sha256:
+          "98333855c2f5dfc3376d478a8f2f8ed1d31c1589b348465f538b0ced5a4048cd",
+      },
+      {
+        id: "deep-techno",
+        sha256:
+          "6f163a426586ddca200d418db618ad274cb9bb2addc4d72e385d2c7b4882687b",
+      },
+      {
+        id: "acid-techno",
+        sha256:
+          "19c946effb15b598501b1c61d8fc7858a9d2475adc4ae6dbb50686f4b88135f2",
+      },
+      {
+        id: "detroit-techno",
+        sha256:
+          "fb1fecb847ae68711fc027ba037aae5a33eda1891f4f5e0cc8aba5ee3881ee8d",
+      },
+      {
+        id: "industrial-techno",
+        sha256:
+          "00877be87fb3bcd63d04d01b89cd2c365fe793478aa52c10d44904643fbf29b8",
+      },
+      {
+        id: "ambient-breaks",
+        sha256:
+          "49887f705191a7371ed1b2fd6ed495c65ef4ceb6f3d873d78615fdd8622394a1",
+      },
+      {
+        id: "broken-beat",
+        sha256:
+          "6ad3a08943ac6ca5e83baec2b695100d562d5dd48216de94fafd97188993c6f1",
+      },
+      {
+        id: "uk-bass",
+        sha256:
+          "4e5e374dfd30acaccfff302753544d3f7eefabeaffd2b4b30ed52b5623dc7013",
+      },
+      {
+        id: "nightshift",
+        sha256:
+          "a70a9142a2c7f8c52400f43d0a649f3ac0037ad0c330227a3843f59d2d465a77",
+      },
+    ];
+    for (const { id, sha256 } of frozen) {
+      const { cloud, tension, ...project } = createPreset(id);
+      expect(cloud.muted && tension.muted).toBe(true);
+      // Only newly revised muted factory tracks are omitted; all pre-existing state is frozen.
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(JSON.stringify(project)),
+      );
+      const fingerprint = Array.from(new Uint8Array(digest), (value) =>
+        value.toString(16).padStart(2, "0"),
+      ).join("");
+      expect(fingerprint).toBe(sha256);
+    }
+  });
+
   it("provides twenty-one valid arrangements with notes locked to their scales", () => {
     expect(PRESETS.map((preset) => preset.id)).toEqual([
-      "house",
-      "tech-house",
       "techno",
       "driving-techno",
-      "melodic-techno",
       "atmospheric-techno",
+      "melodic-techno",
+      "house",
+      "tech-house",
       "garage",
       "speed-garage",
       "jungle",
@@ -281,12 +385,12 @@ describe("genre examples", () => {
       "nightshift",
     ]);
     expect(PRESETS.map((preset) => preset.name)).toEqual([
-      "Afterhours",
-      "Lowline",
       "Contact",
       "Transit",
-      "Halflight",
       "Drift",
+      "Halflight",
+      "Afterhours",
+      "Lowline",
       "Side Street",
       "Undertow",
       "Crosscut",
@@ -325,6 +429,12 @@ describe("genre examples", () => {
           scaleNotes(project.scale, 48, 84).includes(note),
         ),
       ).toBe(true);
+      for (const track of [project.cloud, project.tension])
+        expect(
+          track.steps.every((step) =>
+            scaleNotes(project.scale, 36, 84).includes(step.note),
+          ),
+        ).toBe(true);
       for (const track of [project.bass, project.keys]) {
         if (!track.muted)
           expect(track.steps.some((step) => step.on)).toBe(true);
@@ -362,13 +472,18 @@ describe("genre examples", () => {
   });
 
   it("limits authored additions and revisions to three to five audible roles", () => {
-    for (const preset of PRESETS.slice(2, 20)) {
+    for (const preset of PRESETS.filter(
+      (preset) => !["house", "tech-house", "nightshift"].includes(preset.id),
+    )) {
       const project = createPreset(preset.id);
       const melodic = [
         project.bass,
         project.keys,
         project.arp,
         project.pad,
+        project.vocal,
+        project.cloud,
+        project.tension,
       ].filter((track) => !track.muted);
       const drums = project.drums.filter(
         (drum) => !drum.muted && drum.steps.some(Boolean),
@@ -388,9 +503,18 @@ describe("genre examples", () => {
   });
 
   it("gives the ten additions varied roles and purposeful automation", () => {
-    const additions = PRESETS.slice(10, 20).map((preset) =>
-      createPreset(preset.id),
-    );
+    const additions = [
+      "dub-techno",
+      "electro",
+      "microhouse",
+      "deep-techno",
+      "acid-techno",
+      "detroit-techno",
+      "industrial-techno",
+      "ambient-breaks",
+      "broken-beat",
+      "uk-bass",
+    ].map(createPreset);
     expect(additions).toHaveLength(10);
     expect(new Set(PRESETS.map((preset) => preset.genre)).size).toBe(20);
     const combinations = additions.map((project) =>
@@ -434,35 +558,110 @@ describe("genre examples", () => {
     expect(createPreset("deep-techno").pad.automation.tone?.[0]).not.toBe(1);
   });
 
-  it("gives techno a short low-resonance rhythm and melodic techno one restrained minor arp", () => {
-    const techno = createPreset("techno");
-    expect(BASS_SOUNDS[techno.bass.sound]).toBe("Knock");
-    expect(techno.bass.resonance).toBeLessThanOrEqual(2);
-    expect(techno.bass.envelope).toBeLessThanOrEqual(0.15);
-    expect(techno.bass.decay).toBeLessThanOrEqual(0.12);
-    expect(techno.bass.steps.some((step) => step.slide)).toBe(false);
-    expect(techno.arp.muted && techno.pad.muted && techno.keys.muted).toBe(
-      true,
+  it("makes Contact a four-role kick, short sub, hat and metallic syncopation", () => {
+    const project = createPreset("techno");
+    expect(PRESETS[0]?.id).toBe("techno");
+    const kick = project.drums.find((drum) => drum.id === "kick");
+    expect(kick?.steps.flatMap((on, index) => (on ? [index] : []))).toEqual([
+      0, 4, 8, 12,
+    ]);
+    expect(BASS_SOUNDS[project.bass.sound]).toBe("Round");
+    expect(project.bass.resonance).toBeLessThan(1);
+    expect(project.bass.envelope).toBeLessThan(0.1);
+    expect(project.bass.steps.some((step) => step.slide)).toBe(false);
+    expect(
+      project.bass.steps
+        .filter((step) => step.on)
+        .every((step) => step.note <= 36),
+    ).toBe(true);
+    expect(project.tension.muted).toBe(false);
+    expect(project.tension.sound).toBe(1);
+    expect(project.tension.decay).toBeLessThan(0.2);
+    expect(
+      project.tension.steps.flatMap((step, index) => (step.on ? [index] : [])),
+    ).toEqual([3, 7, 10, 15]);
+    expect(
+      new Set(
+        project.tension.steps
+          .filter((step) => step.on)
+          .map((step) => step.velocity),
+      ).size,
+    ).toBeGreaterThan(2);
+    expect(project.tension.automation.damping).not.toBeNull();
+    expect(
+      project.arp.muted &&
+        project.pad.muted &&
+        project.keys.muted &&
+        project.cloud.muted &&
+        project.vocal.muted,
+    ).toBe(true);
+    expect(project.drums.filter((drum) => !drum.muted)).toHaveLength(2);
+  });
+
+  it("interlocks Transit noise offbeats with its rolling hats and limits bass to two notes", () => {
+    const project = createPreset("driving-techno");
+    expect(project.cloud.muted).toBe(false);
+    expect(project.cloud.sound).toBe(1);
+    const hat = project.drums.find((drum) => drum.id === "hat");
+    const cloudHits = project.cloud.steps.flatMap((step, index) =>
+      step.on ? [index] : [],
     );
+    expect(cloudHits).toEqual([2, 6, 10, 14]);
+    expect(cloudHits.every((index) => !hat?.steps[index])).toBe(true);
+    expect(project.cloud.size).toBeLessThan(0.3);
+    expect(project.cloud.density).toBeLessThan(0.2);
+    expect(
+      new Set(
+        project.bass.steps.filter((step) => step.on).map((step) => step.note),
+      ).size,
+    ).toBeLessThanOrEqual(2);
+    expect(
+      project.keys.muted &&
+        project.arp.muted &&
+        project.pad.muted &&
+        project.tension.muted,
+    ).toBe(true);
+  });
+
+  it("gives Drift three sparse roles and Halflight a repeating root/minor-third motif", () => {
+    const drift = createPreset("atmospheric-techno");
+    expect(drift.drums.filter((drum) => !drum.muted)).toHaveLength(1);
+    expect(drift.drums.find((drum) => drum.id === "kick")?.space).toBe(0);
+    expect(drift.keys.sound).toBe(4);
+    expect(drift.keys.steps.filter((step) => step.on)).toHaveLength(2);
+    expect(drift.cloud.muted).toBe(false);
+    expect(drift.cloud.sound).toBe(3);
+    expect(
+      drift.bass.muted &&
+        drift.arp.muted &&
+        drift.pad.muted &&
+        drift.tension.muted,
+    ).toBe(true);
     const melodic = createPreset("melodic-techno");
-    expect(melodic.scale.mode).toBe("minor");
-    expect(melodic.arp.muted).toBe(false);
+    const phrase = Array.from({ length: 16 }, (_, index) =>
+      arpEvents(melodic.arp, melodic.scale, index),
+    ).flat();
+    expect(phrase.map((event) => event.note)).toEqual([57, 57, 60, 57]);
+    expect(melodic.arp.direction).toBe("played");
     expect(melodic.arp.octaves).toBe(1);
-    expect(melodic.arp.notes).toEqual([57, 60, 64]);
-    expect(melodic.arp.steps.filter(Boolean).length).toBeLessThanOrEqual(8);
-    expect(melodic.keys.muted && melodic.pad.muted).toBe(true);
     expect(
       new Set(
         melodic.bass.steps.filter((step) => step.on).map((step) => step.note),
       ).size,
     ).toBe(1);
+    expect(
+      melodic.keys.muted &&
+        melodic.pad.muted &&
+        melodic.cloud.muted &&
+        melodic.tension.muted,
+    ).toBe(true);
   });
 
   it("preserves genre-specific pulse, breaks and space without filling every instrument", () => {
     const atmospheric = createPreset("atmospheric-techno");
     expect(atmospheric.name).toBe("Drift");
     expect(atmospheric.bass.muted && atmospheric.arp.muted).toBe(true);
-    expect(atmospheric.pad.muted).toBe(false);
+    expect(atmospheric.pad.muted).toBe(true);
     expect(atmospheric.keys.steps.filter((step) => step.on)).toHaveLength(2);
     const speed = createPreset("speed-garage");
     expect(BASS_SOUNDS[speed.bass.sound]).toBe("Reese");
@@ -529,6 +728,16 @@ describe("genre examples", () => {
         ),
       ).toBe(true);
     }
+    const contact = createPreset("techno");
+    const firstHit = contact.tension.steps.find((step) => step.on);
+    if (!firstHit) throw new Error("Contact tension hit is missing.");
+    firstHit.velocity = 0;
+    const damping = contact.tension.automation.damping;
+    if (damping) damping[3] = 1;
+    expect(
+      createPreset("techno").tension.steps.find((step) => step.on)?.velocity,
+    ).toBeGreaterThan(0);
+    expect(createPreset("techno").tension.automation.damping?.[3]).not.toBe(1);
     expect(createPreset("missing").name).toBe("Afterhours");
   });
 });

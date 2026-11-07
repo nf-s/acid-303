@@ -93,8 +93,116 @@ export const cloudSchema = cloudBaseSchema.superRefine((track, context) => {
     });
 });
 export type CloudTrack = z.infer<typeof cloudSchema>;
+export interface CloudPatch {
+  readonly name: string;
+  readonly sound: number;
+  readonly values: Readonly<Record<CloudParameter, number>>;
+}
+export const CLOUD_PATCHES: ReadonlyArray<CloudPatch> = [
+  {
+    name: "Shuffle",
+    sound: 0,
+    values: {
+      scan: 0.23,
+      size: 0.34,
+      density: 0.12,
+      scatter: 0.07,
+      roughness: 0.08,
+      tone: 0.58,
+      width: 0.24,
+      volume: 0.36,
+    },
+  },
+  {
+    name: "Dust",
+    sound: 1,
+    values: {
+      scan: 0.42,
+      size: 0.23,
+      density: 0.08,
+      scatter: 0.1,
+      roughness: 0.12,
+      tone: 0.68,
+      width: 0.18,
+      volume: 0.34,
+    },
+  },
+  {
+    name: "Grind",
+    sound: 2,
+    values: {
+      scan: 0.62,
+      size: 0.38,
+      density: 0.18,
+      scatter: 0.04,
+      roughness: 0.28,
+      tone: 0.43,
+      width: 0.12,
+      volume: 0.3,
+    },
+  },
+  {
+    name: "Air",
+    sound: 3,
+    values: {
+      scan: 0.31,
+      size: 0.58,
+      density: 0.38,
+      scatter: 0.16,
+      roughness: 0.02,
+      tone: 0.35,
+      width: 0.58,
+      volume: 0.26,
+    },
+  },
+  {
+    name: "Pulse",
+    sound: 4,
+    values: {
+      scan: 0.12,
+      size: 0.52,
+      density: 0.1,
+      scatter: 0.01,
+      roughness: 0.06,
+      tone: 0.32,
+      width: 0.08,
+      volume: 0.32,
+    },
+  },
+  {
+    name: "Crunch",
+    sound: 5,
+    values: {
+      scan: 0.47,
+      size: 0.29,
+      density: 0.16,
+      scatter: 0.04,
+      roughness: 0.34,
+      tone: 0.39,
+      width: 0.16,
+      volume: 0.3,
+    },
+  },
+];
+
+/** Sound selection changes articulation, leaving the performance and mix intact. */
+export function applyCloudPatch(track: CloudTrack, sound: number): CloudTrack {
+  const patch = CLOUD_PATCHES.find((candidate) => candidate.sound === sound);
+  return patch
+    ? { ...track, ...patch.values, sound: patch.sound, volume: track.volume }
+    : { ...track };
+}
 export function createCloud(): CloudTrack {
-  return cloudSchema.parse({});
+  const patch = CLOUD_PATCHES[0];
+  return cloudSchema.parse({
+    ...patch?.values,
+    sound: patch?.sound ?? 0,
+    steps: Array.from({ length: 16 }, (_, index) => ({
+      on: [2, 6, 9, 14].includes(index),
+      note: index === 9 ? 52 : 45,
+      velocity: index === 9 ? 0.48 : index === 14 ? 0.68 : 0.76,
+    })),
+  });
 }
 export function normalizedCloudValue(
   track: CloudTrack,

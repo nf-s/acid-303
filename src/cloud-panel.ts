@@ -6,7 +6,8 @@ import { NoteMatrix } from "./note-matrix";
 import type { MatrixChange } from "./note-matrix";
 import { PPQ, timingSchema, trackPosition } from "./timing";
 import {
-  CLOUD_SOUNDS,
+  CLOUD_PATCHES,
+  applyCloudPatch,
   normalizedCloudValue,
   cloudValueFromNormalized,
   resizeCloudTrack,
@@ -75,7 +76,12 @@ export function createCloudPanel(
   let queued = false;
   let parameter: "pitch" | "gate" | "velocity" = "pitch";
   let lastStep = -1;
-  let previewNote = snapNote(48, options.getScale(), 36, 84);
+  let previewNote = snapNote(
+    options.getTrack().steps.find((step) => step.on)?.note ?? 48,
+    options.getScale(),
+    36,
+    84,
+  );
   const steps: BassStep[] = [];
   const velocities: number[] = [];
   container.innerHTML = `
@@ -83,7 +89,7 @@ export function createCloudPanel(
     <p id="cloud-host-capability" class="material-status" hidden>Host must reload Grain to play cloud.</p>
     <div class="material-surface-tools"><span>Drag to scan and pitch · Two fingers change width</span><div class="material-octaves" role="group" aria-label="Cloud pitch view"><button data-cloud-octave="-1" aria-label="Lower Cloud pitch view">−</button><output id="cloud-octave-label"></output><button data-cloud-octave="1" aria-label="Raise Cloud pitch view">+</button></div></div>
     <div class="material-surface"><canvas id="cloud-surface"></canvas></div>
-    <details class="material-sound-controls"><summary>Sound <span id="cloud-sound-name"></span></summary><div class="waveform-switch material-sounds" role="group" aria-label="Cloud sound">${CLOUD_SOUNDS.map((sound, index) => `<button data-cloud-sound="${index}">${sound}</button>`).join("")}</div><div class="acid-controls material-controls">${CONTROLS.map(
+    <details class="material-sound-controls"><summary>Sound <span id="cloud-sound-name"></span></summary><div class="waveform-switch material-sounds" role="group" aria-label="Cloud sound">${CLOUD_PATCHES.map((patch) => `<button data-cloud-sound="${patch.sound}">${patch.name}</button>`).join("")}</div><div class="acid-controls material-controls">${CONTROLS.map(
       (control) => {
         const value = normalizedCloudValue(
           options.getTrack(),
@@ -265,7 +271,9 @@ export function createCloudPanel(
       .querySelector("#cloud-mute")
       ?.setAttribute("aria-pressed", String(track.muted));
     const soundName = container.querySelector("#cloud-sound-name");
-    if (soundName) soundName.textContent = CLOUD_SOUNDS[track.sound] ?? "";
+    if (soundName)
+      soundName.textContent =
+        CLOUD_PATCHES.find((patch) => patch.sound === track.sound)?.name ?? "";
     surface.refresh();
     renderView();
     refreshNotes();
@@ -300,10 +308,27 @@ export function createCloudPanel(
     if (
       button.dataset.cloudSound !== undefined &&
       Number.isInteger(sound) &&
-      CLOUD_SOUNDS[sound] !== undefined
+      CLOUD_PATCHES.some((patch) => patch.sound === sound)
     ) {
-      options.getTrack().sound = sound;
-      options.getTrack().muted = false;
+      surface.cancel();
+      const track = options.getTrack();
+      const before = { ...track };
+      Object.assign(track, applyCloudPatch(track, sound));
+      for (const control of CONTROLS) {
+        if (control.parameter === "volume") continue;
+        automation.shiftControl(
+          `cloud-${control.parameter}`,
+          normalizedCloudValue(before, control.parameter),
+          normalizedCloudValue(track, control.parameter),
+        );
+      }
+      track.muted = false;
+      previewNote = snapNote(
+        track.steps.find((step) => step.on)?.note ?? previewNote,
+        options.getScale(),
+        36,
+        84,
+      );
       render();
       options.onChange();
       options.onPreview(previewNote, 0.75);
