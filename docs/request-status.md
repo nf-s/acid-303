@@ -9,8 +9,9 @@ Stage 9 source is `2edeabbc686c221f1848d20f9f2b424f9948f0a3`.
 Its Pages deployment was `ec548c46-934f-408d-8a24-0bb6a6dd0a29`.
 The recovery/contrast release is source `47354ff`, deployment
 `7a0b0ab4-5a89-4f84-b750-97706b7efe74`; see [release evidence](recovery-release.md).
-The latest instrument/music-vocal release is source `a0ff876`, deployment
+The instrument/music-vocal release is source `a0ff876`, deployment
 `d02485f4-45e4-47d5-b994-807be2dba7db`; see [release evidence](stage10-release.md).
+The techno-defaults update is source `e3ef989`; see [release evidence](stage11-release.md).
 
 | Request                                                  | Delivered behavior                                                                                                                                                                                                     |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -42,13 +43,14 @@ The latest instrument/music-vocal release is source `a0ff876`, deployment
 
 ## Latest follow-up requests
 
-| Request                                             | Current state                                                                                                                                                                                                                                               |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Two radical instruments                             | Cloud and Tension are implemented with six sounds each, eight controls, performance gestures, notes, automation, local recording, mixer, sharing and export. Published and verified on the canonical site; Chrome/WebKit interaction and audio checks pass. |
-| Recover playback after a real reload                | Published in the recovery release. Same-tab recent playback resumes automatically when allowed or on the next control gesture. Explicit Stop, new tabs, incoming tracks and guests remain silent.                                                           |
-| Vocal sound revision                                | Twenty-four real music recordings added in Soul, Chops and Dance banks; tuned chops retain their original registers. Four rhythm starters preserve trim and automation. Published in the instrument/music-vocal release.                                    |
-| Missing visualizer labels and dark instrument names | Published: the broad dark-label rule is scoped to light controls; visualizer labels are legible and instrument headings are white.                                                                                                                          |
-| Exact unexplained Safari reload                     | Known navigation trigger fixed and audio memory pressure reduced. User reports no Safari error message. No automatic reload mechanism exists in the app; physical Safari cause remains unconfirmed.                                                         |
+| Request                                             | Current state                                                                                                                                                                                                                                                                                             |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Useful techno starting sounds and arrangements      | Twelve complete Cloud/Tension patches replace material-only selection; sparse factory rhythms and low-register performance views. Contact opens for new users; Contact, Transit, Drift and Halflight lead the examples. Existing saved tracks and the other seventeen examples retain their arrangements. |
+| Two radical instruments                             | Cloud and Tension are implemented with six sounds each, eight controls, performance gestures, notes, automation, local recording, mixer, sharing and export. Published and verified on the canonical site; Chrome/WebKit interaction and audio checks pass.                                               |
+| Recover playback after a real reload                | Published in the recovery release. Same-tab recent playback resumes automatically when allowed or on the next control gesture. Explicit Stop, new tabs, incoming tracks and guests remain silent.                                                                                                         |
+| Vocal sound revision                                | Twenty-four real music recordings added in Soul, Chops and Dance banks; tuned chops retain their original registers. Four rhythm starters preserve trim and automation. Published in the instrument/music-vocal release.                                                                                  |
+| Missing visualizer labels and dark instrument names | Published: the broad dark-label rule is scoped to light controls; visualizer labels are legible and instrument headings are white.                                                                                                                                                                        |
+| Exact unexplained Safari reload                     | Known navigation trigger fixed and audio memory pressure reduced. User reports no Safari error message. No automatic reload mechanism exists in the app; physical Safari cause remains unconfirmed.                                                                                                       |
 
 ## Superseded requests
 
