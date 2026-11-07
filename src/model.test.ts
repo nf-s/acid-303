@@ -6,6 +6,10 @@ import {
   stepDuration,
   remixProject,
   readProject,
+  SCALE_MODES,
+  scaleNotes,
+  snapNote,
+  withScale,
 } from "./model";
 
 describe("project boundary validation", () => {
@@ -157,4 +161,112 @@ it("loads saved v2 notes without expression fields and rejects invalid expressio
       },
     }),
   ).toBeNull();
+});
+
+describe("global scale lock", () => {
+  it("enumerates exact scale notes and snaps ties downward within the instrument range", () => {
+    const minor = { root: 9, mode: "minor" };
+    const validated = projectSchema.parse({
+      ...createProject(),
+      scale: minor,
+    }).scale;
+    expect(scaleNotes(validated, 24, 36)).toEqual([
+      24, 26, 28, 29, 31, 33, 35, 36,
+    ]);
+    expect(snapNote(32, validated, 24, 60)).toBe(31);
+    expect(snapNote(-100, validated, 24, 60)).toBe(24);
+    expect(snapNote(100, validated, 24, 60)).toBe(60);
+    expect(scaleNotes({ root: 0, mode: "minor" }, -12, 0)).toEqual([
+      -12, -10, -9, -7, -5, -4, -2, 0,
+    ]);
+  });
+
+  it("retunes every editable pitch across all roots and modes without changing rhythm or sound controls", () => {
+    const original = createProject();
+    original.drums.forEach((drum, index) => {
+      drum.pitch = [-23, -11, -1, 1, 23][index] ?? 0;
+    });
+    for (let root = 0; root < 12; root += 1) {
+      for (const mode of SCALE_MODES) {
+        const scale = { root, mode: mode.id };
+        const retuned = withScale(original, scale);
+        const bassNotes = scaleNotes(scale, 24, 60);
+        const textureNotes = scaleNotes(scale, 48, 84);
+        const drumOffsets = scaleNotes({ root: 0, mode: mode.id }, -24, 24);
+        expect(
+          retuned.bass.steps.every((step) => bassNotes.includes(step.note)),
+        ).toBe(true);
+        expect(
+          retuned.keys.steps.every((step) => textureNotes.includes(step.note)),
+        ).toBe(true);
+        expect(
+          retuned.drums.every((drum) => drumOffsets.includes(drum.pitch)),
+        ).toBe(true);
+        expect(
+          retuned.bass.steps.map(({ on, accent, slide }) => ({
+            on,
+            accent,
+            slide,
+          })),
+        ).toEqual(
+          original.bass.steps.map(({ on, accent, slide }) => ({
+            on,
+            accent,
+            slide,
+          })),
+        );
+        expect(retuned.drums.map((drum) => drum.steps)).toEqual(
+          original.drums.map((drum) => drum.steps),
+        );
+        expect(retuned.keys.tone).toBe(original.keys.tone);
+        expect(retuned.bass.cutoff).toBe(original.bass.cutoff);
+        expect(projectSchema.safeParse(retuned).success).toBe(true);
+      }
+    }
+    expect(original.scale).toEqual({ root: 9, mode: "minor" });
+    expect(original.drums[0]?.pitch).toBe(-23);
+  });
+
+  it("loads old projects into A minor while retaining valid notes and all expanded voices", () => {
+    const current = createProject();
+    current.drums.forEach((drum) => {
+      drum.sound = 4;
+    });
+    current.keys.sound = 5;
+    const saved = Object.fromEntries(
+      Object.entries(current).filter(([key]) => key !== "scale"),
+    );
+    expect(readProject(saved)).toEqual(current);
+    expect(
+      readProject({ ...saved, scale: { root: 12, mode: "minor" } }),
+    ).toBeNull();
+    expect(
+      readProject({ ...saved, scale: { root: 9, mode: "unknown" } }),
+    ).toBeNull();
+    expect(
+      readProject({ ...saved, keys: { ...current.keys, sound: 6 } }),
+    ).toBeNull();
+    expect(
+      readProject({
+        ...saved,
+        drums: current.drums.map((drum) => ({ ...drum, sound: 5 })),
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps remix pitches inside the currently selected scale", () => {
+    const project = withScale(createProject(), { root: 1, mode: "pentatonic" });
+    const result = remixProject(project, () => 0.73);
+    expect(result.scale).toEqual(project.scale);
+    expect(
+      result.bass.steps.every((step) =>
+        scaleNotes(project.scale, 24, 60).includes(step.note),
+      ),
+    ).toBe(true);
+    expect(
+      result.keys.steps.every((step) =>
+        scaleNotes(project.scale, 48, 84).includes(step.note),
+      ),
+    ).toBe(true);
+  });
 });

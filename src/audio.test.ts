@@ -90,6 +90,29 @@ describe("WAV export", () => {
     expect(exportTailDuration(project)).toBeGreaterThanOrEqual(2.95);
   });
 
+  it("retains long Dub taps, Ride cymbals and Room claps", () => {
+    const project = createProject();
+    project.bpm = 60;
+    project.keys.sound = 4;
+    project.keys.space = 1;
+    project.keys.decay = 2;
+    expect(exportTailDuration(project)).toBeGreaterThanOrEqual(4.3);
+    project.keys.muted = true;
+    for (const track of project.drums) track.muted = true;
+    const hat = project.drums.find((track) => track.id === "hat");
+    const clap = project.drums.find((track) => track.id === "clap");
+    if (!hat || !clap) throw new Error("Expected hi-hat and clap tracks.");
+    hat.muted = false;
+    hat.sound = 4;
+    hat.decay = 1.5;
+    expect(exportTailDuration(project)).toBeGreaterThanOrEqual(3.1);
+    hat.muted = true;
+    clap.muted = false;
+    clap.sound = 3;
+    clap.decay = 1.5;
+    expect(exportTailDuration(project)).toBeGreaterThanOrEqual(2.85);
+  });
+
   it("writes an interleaved stereo PCM file with correctly clamped samples", async () => {
     const blob = encodeWav(
       [new Float32Array([-2, 0.5, NaN]), new Float32Array([2, -0.5, Infinity])],

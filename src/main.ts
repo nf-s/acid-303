@@ -19,13 +19,19 @@ import {
   readProject,
   KEYS_SOUNDS,
   remixProject,
+  SCALE_MODES,
+  withScale,
+  snapNote,
+  scaleNotes,
 } from "./model";
 import type { BassStep, DrumId } from "./model";
 import { AudioEngine } from "./audio";
 import { FluidVisualizer } from "./visualizer";
 import { BeatCanvas } from "./beat-canvas";
 import { installGestures } from "./gestures";
-import type { NoteAction } from "./gestures";
+import { NoteMatrix } from "./note-matrix";
+import type { MatrixChange } from "./note-matrix";
+import { PRESETS, createPreset } from "./presets";
 import "./style.css";
 
 const storageKey = "acid-303-project-v1";
@@ -45,7 +51,12 @@ let beforeRemix: ReturnType<typeof createProject> | null = null;
 let starting = false;
 let pendingDrum: DrumId | null = null;
 let lastPaintPreview = 0;
-let motion = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+let motion = true;
+const matrixUndo: Record<NoteTrack, BassStep[] | null> = {
+  bass: null,
+  keys: null,
+};
+let matrixCommitQueued = false;
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -65,10 +76,11 @@ app.innerHTML = `
       ${slider("volume", "Volume", 0, 100, project.volume * 100, `${Math.round(project.volume * 100)}%`)}
       <div class="position"><span id="position">01</span><span>/ 16</span><span class="beat-lights"><b></b><b></b><b></b><b></b></span></div>
     </section>
+    <section class="scale-panel panel" aria-label="Musical scale"><div class="scale-row"><span>ROOT</span><div class="scale-roots" role="group" aria-label="Root note">${Array.from({ length: 12 }, (_, root) => `<button data-root="${root}" aria-label="Root ${noteName(root + 60).slice(0, -1)}" aria-pressed="${project.scale.root === root}">${noteName(root + 60).slice(0, -1)}</button>`).join("")}</div></div><div class="scale-row"><span>SCALE</span><div class="scale-modes" role="group" aria-label="Scale type">${SCALE_MODES.map((scale) => `<button data-scale="${scale.id}" aria-pressed="${project.scale.mode === scale.id}">${scale.name}</button>`).join("")}</div></div></section>
     <div class="studio-grid"><div class="sequencers">
       <section class="panel drums-panel" aria-labelledby="drums-title">
         <div class="section-header"><div class="section-title"><span class="section-number">01</span><h1 id="drums-title">Drum sequencer</h1><span class="small-tag">16 STEPS</span></div><button id="reset" class="text-button" title="Restore the selected preset">${icon("rotate-ccw")} Reset</button></div>
-        <div class="preset-bar"><div class="preset-options"><button data-preset="0">Acid funk</button><button data-preset="1">After hours</button><button data-preset="2">Broken circuit</button></div><button id="remix" class="remix-button">${icon("shuffle")} Remix</button><button id="undo-remix" class="text-button undo-remix" disabled>Undo</button></div>
+        <div class="preset-bar"><div class="preset-options" role="group" aria-label="Genre examples">${PRESETS.map((preset) => `<button data-preset="${preset.id}" aria-label="${preset.name} — ${preset.genre}"><strong>${preset.name}</strong><span>${preset.genre}</span></button>`).join("")}</div><div class="preset-actions"><button id="remix" class="remix-button">${icon("shuffle")} Remix</button><button id="undo-remix" class="text-button undo-remix" disabled>Undo</button></div></div>
         <div class="instrument-tabs" role="group" aria-label="Drum instrument">${project.drums.map((track) => `<button data-drum="${track.id}" aria-label="Select and preview ${DRUM_META[track.id].name}" aria-pressed="${track.id === selectedDrum}">${DRUM_META[track.id].name}</button>`).join("")}</div><div id="instrument-controls" class="instrument-controls"></div>
         <div class="beat-surface"><canvas id="beat-canvas" aria-label="Paint drum beats" aria-describedby="paint-help"></canvas><div id="drum-grid" class="beat-keyboard" role="grid" aria-label="Drum steps"></div></div>
         <div class="section-footer"><span><span class="legend-pad"></span><span id="paint-help">Drag to paint · Drag a filled step to erase</span></span><span>Drag controls up / down</span></div>
@@ -76,19 +88,17 @@ app.innerHTML = `
       <section class="panel bass-panel" aria-labelledby="bass-title">
         <div class="section-header"><div class="section-title"><span class="section-number">02</span><h2 id="bass-title">Acid bass</h2><span class="small-tag">303</span></div><div class="bass-actions"><button id="bass-mute" class="mute-button" aria-label="Mute acid bass" aria-pressed="${project.bass.muted}">M</button><button id="generate" class="text-button">${icon("shuffle")} Generate</button></div></div>
         <div class="bass-meta"><div class="waveform-switch" role="group" aria-label="Bass waveform"><button data-waveform="sawtooth">${icon("audio-lines")} Saw</button><button data-waveform="square">${icon("waves")} Square</button></div><span class="bass-key">A MINOR <span>·</span> 1 BAR</span></div>
-        <div class="acid-controls">${slider("cutoff", "Cutoff", 0, 100, Math.round((Math.log(project.bass.cutoff / 80) / Math.log(100)) * 100), formatFrequency(project.bass.cutoff))}${slider("resonance", "Resonance", 0, 22, project.bass.resonance, `${Math.round((project.bass.resonance / 22) * 100)}%`, "0.1")}${slider("envelope", "Envelope", 0, 100, project.bass.envelope * 100, `${Math.round(project.bass.envelope * 100)}%`)}${slider("bass-decay", "Decay", 50, 1500, project.bass.decay * 1000, `${Math.round(project.bass.decay * 1000)} ms`, "10")}${slider("bass-volume", "Level", 0, 100, project.bass.volume * 100, `${Math.round(project.bass.volume * 100)}%`)}</div><div class="sequence-scroll"><div class="bass-grid" id="bass-grid"></div></div>
-        <div class="section-footer note-help" id="bass-note-help"><span>↕ Pitch · Tap to play · Hold for accent</span><span>↔ Scroll · ↗ Slide to next</span></div>
+        <div class="acid-controls">${slider("cutoff", "Cutoff", 0, 100, Math.round((Math.log(project.bass.cutoff / 80) / Math.log(100)) * 100), formatFrequency(project.bass.cutoff))}${slider("resonance", "Resonance", 0, 22, project.bass.resonance, `${Math.round((project.bass.resonance / 22) * 100)}%`, "0.1")}${slider("envelope", "Envelope", 0, 100, project.bass.envelope * 100, `${Math.round(project.bass.envelope * 100)}%`)}${slider("bass-decay", "Decay", 50, 1500, project.bass.decay * 1000, `${Math.round(project.bass.decay * 1000)} ms`, "10")}${slider("bass-volume", "Level", 0, 100, project.bass.volume * 100, `${Math.round(project.bass.volume * 100)}%`)}</div>${matrixMarkup("bass", "Bass")}
       </section>
       <section class="panel bass-panel keys-panel" aria-labelledby="keys-title">
         <div class="section-header"><div class="section-title"><span class="section-number">03</span><h2 id="keys-title">Texture</h2></div><div class="bass-actions"><button id="keys-mute" class="mute-button" aria-label="Mute Texture" aria-pressed="${project.keys.muted}">M</button><button id="keys-generate" class="text-button">${icon("shuffle")} New pattern</button></div></div>
         <div class="bass-meta"><div class="waveform-switch keys-sounds" role="group" aria-label="Texture sound">${KEYS_SOUNDS.map((sound, index) => `<button data-key-sound="${index}">${sound}</button>`).join("")}</div><span class="bass-key keys-key">A MINOR</span></div>
         <div class="acid-controls">${slider("keys-tone", "Tone", 0, 100, project.keys.tone * 100, `${Math.round(project.keys.tone * 100)}%`)}${slider("keys-decay", "Decay", 80, 2000, project.keys.decay * 1000, `${Math.round(project.keys.decay * 1000)} ms`, "10")}${slider("keys-space", "Space", 0, 100, project.keys.space * 100, `${Math.round(project.keys.space * 100)}%`)}${slider("keys-volume", "Level", 0, 100, project.keys.volume * 100, `${Math.round(project.keys.volume * 100)}%`)}</div>
-        <div class="sequence-scroll"><div class="bass-grid" id="keys-grid"></div></div>
-        <div class="section-footer note-help" id="keys-note-help"><span>↕ Pitch · Tap to play · Hold for accent</span><span>↔ Scroll · ↗ Slide to next</span></div>
+        ${matrixMarkup("keys", "Texture")}
       </section>
     </div>
 </div>
-<div class="visualizer-toolbar"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><span class="visualizer-mode"><span class="visualizer-dot"></span>FLUID</span><div class="visualizer-controls">${slider("intensity", "Intensity", 0, 100, 65, "65%")}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div></div>
+<div class="visualizer-toolbar"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><span class="visualizer-mode"><span class="visualizer-dot"></span>FLUID</span><div class="visualizer-controls">${slider("intensity", "Intensity", 0, 100, 30, "30%")}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div></div>
     <footer class="app-footer"><span><kbd>SPACE</kbd> Play / stop</span><span>16 STEPS <span>·</span> 4/4</span><span id="project-name"></span></footer>
   </main><div id="toast" role="status" class="toast" hidden></div>`;
 
@@ -101,6 +111,7 @@ function slider(
   display: string,
   step = "1",
   ariaLabel = "",
+  allowedValues?: number[],
 ): string {
   const name =
     ariaLabel ||
@@ -115,7 +126,7 @@ function slider(
               ? "Visualizer intensity"
               : "Swing"
         : `${id.startsWith("keys-") ? "Texture" : "Bass"} ${label.toLowerCase()}`);
-  return `<div class="dial-control"><span class="dial-label">${label}</span><div class="gesture-control" id="${id}" role="slider" tabindex="0" title="Drag up/down · Shift for fine control · Double-tap to reset" aria-label="${name}" aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}" aria-valuetext="${display}" aria-orientation="vertical" data-step="${step}" data-reset="${value}" style="--knob-angle:${-135 + ((value - min) / (max - min)) * 270}deg"><span class="knob-face" aria-hidden="true"><span></span></span><output id="${id}-value">${display}</output></div></div>`;
+  return `<div class="dial-control"><span class="dial-label">${label}</span><div class="gesture-control" id="${id}" role="slider" tabindex="0" title="Drag up/down · Shift for fine control · Double-tap to reset" aria-label="${name}" aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}" aria-valuetext="${display}" aria-orientation="vertical" data-step="${step}" ${allowedValues ? `data-values="${allowedValues.join(",")}"` : ""} data-reset="${value}" style="--knob-angle:${-135 + ((value - min) / (max - min)) * 270}deg"><span class="knob-face" aria-hidden="true"><span></span></span><output id="${id}-value">${display}</output></div></div>`;
 }
 function formatFrequency(value: number): string {
   return value >= 1000
@@ -143,7 +154,7 @@ function renderInstrumentControls(): void {
   const track = project.drums.find((item) => item.id === selectedDrum);
   const controls = document.querySelector("#instrument-controls");
   if (!track || !controls) return;
-  controls.innerHTML = `<div class="sound-buttons" role="group" aria-label="${DRUM_META[track.id].name} sounds">${DRUM_META[track.id].sounds.map((sound, index) => `<button data-sound="${index}" data-sound-track="${track.id}" aria-pressed="${track.sound === index}">${sound}</button>`).join("")}</div><div class="instrument-dials">${slider(`${track.id}-pitch`, "Pitch", -24, 24, track.pitch, `${track.pitch > 0 ? "+" : ""}${track.pitch} st`, "1", `${DRUM_META[track.id].name} pitch`)}${slider(`${track.id}-decay`, "Decay", 30, 1500, track.decay * 1000, `${Math.round(track.decay * 1000)} ms`, "10", `${DRUM_META[track.id].name} decay`)}${slider(`${track.id}-volume`, "Level", 0, 100, track.volume * 100, `${Math.round(track.volume * 100)}%`, "1", `${DRUM_META[track.id].name} level`)}<button class="mute-button" data-mute="${track.id}" aria-label="Mute ${DRUM_META[track.id].name}" aria-pressed="${track.muted}">M</button></div>`;
+  controls.innerHTML = `<div class="sound-buttons" role="group" aria-label="${DRUM_META[track.id].name} sounds">${DRUM_META[track.id].sounds.map((sound, index) => `<button data-sound="${index}" data-sound-track="${track.id}" aria-pressed="${track.sound === index}">${sound}</button>`).join("")}</div><div class="instrument-dials">${slider(`${track.id}-pitch`, "Pitch", -24, 24, track.pitch, `${track.pitch > 0 ? "+" : ""}${track.pitch} st`, "1", `${DRUM_META[track.id].name} pitch`, scaleNotes({ root: 0, mode: project.scale.mode }, -24, 24))}${slider(`${track.id}-decay`, "Decay", 30, 1500, track.decay * 1000, `${Math.round(track.decay * 1000)} ms`, "10", `${DRUM_META[track.id].name} decay`)}${slider(`${track.id}-volume`, "Level", 0, 100, track.volume * 100, `${Math.round(track.volume * 100)}%`, "1", `${DRUM_META[track.id].name} level`)}<button class="mute-button" data-mute="${track.id}" aria-label="Mute ${DRUM_META[track.id].name}" aria-pressed="${track.muted}">M</button></div>`;
   document
     .querySelectorAll<HTMLButtonElement>("[data-drum]")
     .forEach((button) =>
@@ -172,57 +183,95 @@ function renderDrums(): void {
   beatCanvas.setSelectedDrum(selectedDrum);
 }
 type NoteTrack = "bass" | "keys";
-function notePad(track: NoteTrack, step: BassStep, index: number): string {
-  const id = track === "bass" ? `note-${index}` : `keys-note-${index}`;
-  const label = track === "bass" ? "Bass" : "Texture";
-  return `<div class="bass-step ${index % 4 === 0 ? "group-start" : ""}" data-${track}-index="${index}"><div class="note-cell gesture-control ${step.on ? "on" : ""} ${step.accent ? "accented" : ""} ${step.slide && step.on ? "joined" : ""}" id="${id}" data-note-pad="${track}" data-note-index="${index}" data-accent="${step.accent}" data-slide="${step.slide}" role="slider" tabindex="0" aria-label="${label} note step ${index + 1}" aria-describedby="${track}-note-help" aria-description="${noteDescription(step)}" aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight A Enter Space" aria-valuemin="${track === "bass" ? 24 : 48}" aria-valuemax="${track === "bass" ? 60 : 84}" aria-valuenow="${step.note}" aria-valuetext="${noteName(step.note)}" aria-orientation="vertical" data-step="1"><span class="note-index">${String(index + 1).padStart(2, "0")}</span><output id="${id}-value">${noteName(step.note)}</output><span class="note-expression" aria-hidden="true"><i class="accent-mark">◆</i></span><span class="hold-progress" aria-hidden="true"></span><span class="slide-link" aria-hidden="true"></span></div><button class="note-slide-toggle ${step.slide ? "active" : ""}" data-note-slide="${track}" data-note-index="${index}" aria-label="${label} slide step ${index + 1}" aria-pressed="${step.slide}" title="Join to next note">${index === 15 ? "↩" : "↗"}</button><button class="bass-toggle gate ${step.on ? "on" : ""}" ${track === "bass" ? `data-bass-toggle="on" data-step="${index}"` : `data-keys-gate="${index}"`} aria-label="${label} gate step ${index + 1}" aria-pressed="${step.on}"><span></span></button></div>`;
+function matrixMarkup(track: NoteTrack, label: string): string {
+  return `<div class="matrix-toolbar"><div class="matrix-parameters" role="group" aria-label="${label} matrix parameter">${[
+    ["pitch", "Pitch"],
+    ["gate", "Gate"],
+    ["accent", "Accent"],
+    ["slide", "Glide"],
+  ]
+    .map(
+      ([parameter, name]) =>
+        `<button data-matrix-track="${track}" data-matrix-parameter="${parameter}" aria-pressed="${parameter === "pitch"}">${name}</button>`,
+    )
+    .join(
+      "",
+    )}</div><div class="matrix-tools" role="group" aria-label="${label} drawing tool"><button data-matrix-track="${track}" data-matrix-tool="draw" aria-pressed="true">Draw</button><button data-matrix-track="${track}" data-matrix-tool="line" aria-pressed="false">Line</button><button data-matrix-undo="${track}" aria-label="Undo ${label} drawing" disabled>Undo</button></div></div><div class="note-matrix" id="${track}-matrix"><canvas id="${track}-matrix-canvas" aria-label="Draw ${label} pitch" aria-describedby="${track}-matrix-help"></canvas><div class="matrix-access" id="${track}-matrix-access"></div></div><div class="section-footer note-help" id="${track}-matrix-help"><span>Draw a pitch curve · Notes stay in scale</span><span>↑↓ Edit · ←→ Step · Enter Gate</span></div>`;
 }
-function noteDescription(step: BassStep): string {
-  return `${step.on ? "Playing" : "Rest"}. Accent ${step.accent ? "on" : "off"}. Slide ${step.slide ? "on" : "off"}. Up/down: pitch. Right: join next. Left: separate. A: accent. Enter: gate.`;
-}
-function refreshNoteStates(track: NoteTrack): void {
-  project[track].steps.forEach((step, index) => {
-    const pad = document.getElementById(
-      track === "bass" ? `note-${index}` : `keys-note-${index}`,
-    );
-    if (!pad) return;
-    pad.classList.toggle("on", step.on);
-    pad.classList.toggle("accented", step.accent);
-    pad.classList.toggle(
-      "joined",
-      step.slide &&
-        step.on &&
-        Boolean(project[track].steps[(index + 1) % 16]?.on),
-    );
-    pad.dataset.accent = String(step.accent);
-    pad.dataset.slide = String(step.slide);
-    pad.setAttribute("aria-description", noteDescription(step));
-    const slide = pad.parentElement?.querySelector(".note-slide-toggle");
-    slide?.classList.toggle("active", step.slide);
-    slide?.setAttribute("aria-pressed", String(step.slide));
-    const gate = pad.parentElement?.querySelector(".gate");
-    gate?.classList.toggle("on", step.on);
-    gate?.setAttribute("aria-pressed", String(step.on));
-  });
-}
-function performNoteAction(control: HTMLElement, action: NoteAction): void {
-  const track = control.dataset.notePad;
-  if (track !== "bass" && track !== "keys") return;
-  const index = Number(control.dataset.noteIndex);
-  const step = project[track].steps[index];
-  if (!step) return;
-  if (action === "gate") step.on = !step.on;
-  if (action === "accent") step.accent = !step.accent;
-  if (action === "join") {
-    step.slide = true;
-    step.on = true;
-    const next = project[track].steps[(index + 1) % 16];
-    if (next) next.on = true;
+function matrixPaint(track: NoteTrack, change: MatrixChange): void {
+  if (change.parameter === "restore") {
+    project[track].steps.forEach((step, index) => {
+      const saved = change.steps[index];
+      if (saved) Object.assign(step, saved);
+    });
+    queueMatrixSave();
+    return;
   }
-  if (action === "separate") step.slide = false;
-  refreshNoteStates(track);
-  persist();
-  if (step.on && !engine.isPlaying) void previewNote(track, step);
+  const step = project[track].steps[change.index];
+  if (!step) return;
+  if (change.parameter === "pitch") {
+    if (step.note === change.value) return;
+    step.note = change.value;
+    if (!engine.isPlaying && performance.now() - lastPaintPreview > 110) {
+      lastPaintPreview = performance.now();
+      void previewNote(track, step);
+    }
+  } else {
+    const property = change.parameter === "gate" ? "on" : change.parameter;
+    if (step[property] === change.value) return;
+    step[property] = change.value;
+    if (property === "slide" && change.value) {
+      step.on = true;
+      const next = project[track].steps[(change.index + 1) % 16];
+      if (next) next.on = true;
+    }
+  }
+  queueMatrixSave();
+}
+function queueMatrixSave(): void {
+  if (!matrixCommitQueued) {
+    matrixCommitQueued = true;
+    queueMicrotask(() => {
+      matrixCommitQueued = false;
+      persist();
+    });
+  }
+}
+function saveMatrixUndo(track: NoteTrack): void {
+  matrixUndo[track] = project[track].steps.map((step) => ({ ...step }));
+  const button = document.querySelector(`[data-matrix-undo="${track}"]`);
+  if (button instanceof HTMLButtonElement) button.disabled = false;
+}
+function clearMatrixUndo(track?: NoteTrack): void {
+  const tracks: NoteTrack[] = track ? [track] : ["bass", "keys"];
+  for (const target of tracks) {
+    matrixUndo[target] = null;
+    const button = document.querySelector(`[data-matrix-undo="${target}"]`);
+    if (button instanceof HTMLButtonElement) button.disabled = true;
+  }
+}
+function refreshScaleControls(): void {
+  const mode = SCALE_MODES.find((entry) => entry.id === project.scale.mode);
+  const label = `${noteName(project.scale.root + 60).slice(0, -1)} ${mode?.name ?? "Minor"}`;
+  document.querySelectorAll<HTMLElement>(".bass-key").forEach((element) => {
+    element.textContent = label;
+  });
+  document
+    .querySelectorAll<HTMLElement>("[data-root]")
+    .forEach((button) =>
+      button.setAttribute(
+        "aria-pressed",
+        String(Number(button.dataset.root) === project.scale.root),
+      ),
+    );
+  document
+    .querySelectorAll<HTMLElement>("[data-scale]")
+    .forEach((button) =>
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.scale === project.scale.mode),
+      ),
+    );
 }
 async function previewNote(track: NoteTrack, step: BassStep): Promise<void> {
   try {
@@ -234,9 +283,6 @@ async function previewNote(track: NoteTrack, step: BassStep): Promise<void> {
   }
 }
 function renderBass(): void {
-  const grid = document.querySelector("#bass-grid");
-  if (!grid) return;
-  grid.innerHTML = `<div class="bass-labels"><span>NOTE</span><span>GATE</span></div><div class="bass-steps">${project.bass.steps.map((step, index) => notePad("bass", step, index)).join("")}</div>`;
   document
     .querySelectorAll<HTMLButtonElement>("[data-waveform]")
     .forEach((button) => {
@@ -252,13 +298,9 @@ function renderBass(): void {
   document
     .querySelector("#bass-mute")
     ?.setAttribute("aria-pressed", String(project.bass.muted));
-  grid.classList.toggle("muted", project.bass.muted);
-  refreshNoteStates("bass");
+  matrices.bass.update(project.bass.steps, project.scale, project.bass.muted);
 }
 function renderKeys(): void {
-  const grid = document.querySelector("#keys-grid");
-  if (!grid) return;
-  grid.innerHTML = `<div class="bass-labels"><span>NOTE</span><span>GATE</span></div><div class="bass-steps">${project.keys.steps.map((step, index) => notePad("keys", step, index)).join("")}</div>`;
   document
     .querySelectorAll<HTMLButtonElement>("[data-key-sound]")
     .forEach((button) => {
@@ -269,8 +311,7 @@ function renderKeys(): void {
   document
     .querySelector("#keys-mute")
     ?.setAttribute("aria-pressed", String(project.keys.muted));
-  grid.classList.toggle("muted", project.keys.muted);
-  refreshNoteStates("keys");
+  matrices.keys.update(project.keys.steps, project.scale, project.keys.muted);
 }
 async function previewKeys(note: number): Promise<void> {
   try {
@@ -303,9 +344,13 @@ function clearRemixUndo(): void {
 function updatePresetLabels(): void {
   document
     .querySelectorAll<HTMLButtonElement>("[data-preset]")
-    .forEach((button) =>
-      button.classList.toggle("active", button.textContent === project.name),
-    );
+    .forEach((button) => {
+      const active =
+        PRESETS.find((preset) => preset.id === button.dataset.preset)?.name ===
+        project.name;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
   const label = document.querySelector("#project-name");
   if (label) label.textContent = project.name;
 }
@@ -314,12 +359,8 @@ function refreshProject(): void {
   renderBass();
   renderKeys();
   updatePresetLabels();
-  const bassKey = document.querySelector(".bass-key");
-  if (bassKey)
-    bassKey.innerHTML = `${project.name === "Broken circuit" ? "C" : "A"} MINOR <span>·</span> 1 BAR`;
-  const keysKey = document.querySelector(".keys-key");
-  if (keysKey)
-    keysKey.textContent = `${project.name === "Broken circuit" ? "C" : "A"} MINOR`;
+  refreshScaleControls();
+  clearMatrixUndo();
   setInput("keys-tone", project.keys.tone * 100);
   setOutput("keys-tone", `${Math.round(project.keys.tone * 100)}%`);
   setInput("keys-decay", project.keys.decay * 1000);
@@ -352,6 +393,8 @@ function refreshProject(): void {
 }
 const engine = new AudioEngine((step) => {
   beatCanvas.setStep(step);
+  matrices.bass.setStep(step);
+  matrices.keys.setStep(step);
   if (step >= 0) visualizer.triggerStep(project.drums, step);
   document
     .querySelectorAll(".current")
@@ -408,11 +451,34 @@ const beatCanvas = new BeatCanvas(
     }
   },
 );
-installGestures(
-  app,
-  (control, value) => updateControl(control.id, value),
-  performNoteAction,
-);
+function createMatrix(
+  track: NoteTrack,
+  label: string,
+  min: number,
+  max: number,
+): NoteMatrix {
+  const canvas = document.querySelector(`#${track}-matrix-canvas`),
+    access = document.querySelector(`#${track}-matrix-access`);
+  if (
+    !(canvas instanceof HTMLCanvasElement) ||
+    !(access instanceof HTMLElement)
+  )
+    throw new Error("Note matrix is missing.");
+  return new NoteMatrix(
+    canvas,
+    access,
+    label,
+    min,
+    max,
+    (change) => matrixPaint(track, change),
+    () => saveMatrixUndo(track),
+  );
+}
+const matrices = {
+  bass: createMatrix("bass", "Bass", 24, 60),
+  keys: createMatrix("keys", "Texture", 48, 84),
+};
+installGestures(app, (control, value) => updateControl(control.id, value));
 const applyPendingInstrument = () => {
   if (pendingDrum && !document.querySelector(".gesture-control.dragging")) {
     selectedDrum = pendingDrum;
@@ -538,7 +604,12 @@ document.addEventListener("click", async (event) => {
   if (dataset.sound !== undefined) {
     const track = project.drums.find((item) => item.id === dataset.soundTrack);
     const value = Number(dataset.sound);
-    if (track && [0, 1, 2].includes(value)) {
+    if (
+      track &&
+      Number.isInteger(value) &&
+      value >= 0 &&
+      value < DRUM_META[track.id].sounds.length
+    ) {
       track.sound = value;
       renderInstrumentControls();
       persist();
@@ -553,21 +624,101 @@ document.addEventListener("click", async (event) => {
       persist();
     }
   }
-  if (dataset.preset || dataset.preset === "0") {
+  if (
+    dataset.preset &&
+    PRESETS.some((preset) => preset.id === dataset.preset)
+  ) {
     clearRemixUndo();
-    project = createProject(Number(dataset.preset));
+    project = withScale(createPreset(dataset.preset), project.scale);
     refreshProject();
     persist();
   }
   if (id === "reset") {
     clearRemixUndo();
-    const preset = ["Acid funk", "After hours", "Broken circuit"].indexOf(
-      project.name,
+    const preset = PRESETS.find((preset) => preset.name === project.name);
+    project = withScale(
+      preset ? createPreset(preset.id) : createProject(),
+      project.scale,
     );
-    project = createProject(Math.max(0, preset));
     refreshProject();
     persist();
     toast("Pattern reset.");
+  }
+  if (dataset.root !== undefined) {
+    const root = Number(dataset.root);
+    if (Number.isInteger(root) && root >= 0 && root < 12) {
+      project = withScale(project, { ...project.scale, root });
+      clearRemixUndo();
+      refreshProject();
+      persist();
+    }
+  }
+  if (dataset.scale) {
+    const mode = SCALE_MODES.find((entry) => entry.id === dataset.scale)?.id;
+    if (mode) {
+      project = withScale(project, { ...project.scale, mode });
+      clearRemixUndo();
+      refreshProject();
+      persist();
+    }
+  }
+  if (dataset.matrixTrack === "bass" || dataset.matrixTrack === "keys") {
+    const track = dataset.matrixTrack;
+    const parameter = dataset.matrixParameter;
+    if (
+      parameter === "pitch" ||
+      parameter === "gate" ||
+      parameter === "accent" ||
+      parameter === "slide"
+    ) {
+      matrices[track].setParameter(parameter);
+      document
+        .querySelectorAll<HTMLButtonElement>(
+          `[data-matrix-track="${track}"][data-matrix-parameter]`,
+        )
+        .forEach((control) =>
+          control.setAttribute(
+            "aria-pressed",
+            String(control.dataset.matrixParameter === parameter),
+          ),
+        );
+      const help = document.querySelector(`#${track}-matrix-help > span`);
+      if (help)
+        help.textContent =
+          parameter === "pitch"
+            ? "Draw a pitch curve · Notes stay in scale"
+            : "Draw above the centre for on · Below for off";
+      document
+        .querySelector(`#${track}-matrix-canvas`)
+        ?.setAttribute(
+          "aria-label",
+          `Draw ${track === "bass" ? "Bass" : "Texture"} ${parameter === "slide" ? "glide" : parameter}`,
+        );
+    }
+    if (dataset.matrixTool === "draw" || dataset.matrixTool === "line") {
+      matrices[track].setTool(dataset.matrixTool);
+      document
+        .querySelectorAll<HTMLButtonElement>(
+          `[data-matrix-track="${track}"][data-matrix-tool]`,
+        )
+        .forEach((control) =>
+          control.setAttribute(
+            "aria-pressed",
+            String(control.dataset.matrixTool === dataset.matrixTool),
+          ),
+        );
+    }
+  }
+  if (dataset.matrixUndo === "bass" || dataset.matrixUndo === "keys") {
+    const track = dataset.matrixUndo,
+      before = matrixUndo[track];
+    if (before) {
+      project[track].steps = before;
+      matrixUndo[track] = null;
+      button.disabled = true;
+      matrices[track].update(before, project.scale, project[track].muted);
+      persist();
+    }
   }
   if (id === "remix") {
     beforeRemix = structuredClone(project);
@@ -595,30 +746,14 @@ document.addEventListener("click", async (event) => {
     renderBass();
     persist();
   }
-  if (dataset.noteSlide === "bass" || dataset.noteSlide === "keys") {
-    const track = dataset.noteSlide;
-    const index = Number(dataset.noteIndex);
-    const step = project[track].steps[index];
-    const pad = document.getElementById(
-      track === "bass" ? `note-${index}` : `keys-note-${index}`,
-    );
-    if (step && pad instanceof HTMLElement)
-      performNoteAction(pad, step.slide ? "separate" : "join");
-  }
-  if (dataset.bassToggle) {
-    const step = project.bass.steps[Number(dataset.step)];
-    if (step) {
-      if (dataset.bassToggle === "on") step.on = !step.on;
-      refreshNoteStates("bass");
-      persist();
-    }
-  }
   if (id === "generate") {
+    clearMatrixUndo("bass");
     project.bass.steps = remixProject(project).bass.steps;
     renderBass();
     persist();
   }
   if (id === "keys-generate") {
+    clearMatrixUndo("keys");
     project.keys.steps = remixProject(project).keys.steps;
     renderKeys();
     persist();
@@ -630,21 +765,12 @@ document.addEventListener("click", async (event) => {
   }
   if (dataset.keySound !== undefined) {
     const sound = Number(dataset.keySound);
-    if ([0, 1, 2].includes(sound)) {
+    if (Number.isInteger(sound) && sound >= 0 && sound < KEYS_SOUNDS.length) {
       project.keys.sound = sound;
       renderKeys();
       persist();
       if (!engine.isPlaying)
         void previewKeys(project.keys.steps[0]?.note ?? 57);
-    }
-  }
-  if (dataset.keysGate !== undefined) {
-    const step = project.keys.steps[Number(dataset.keysGate)];
-    if (step) {
-      step.on = !step.on;
-      refreshNoteStates("keys");
-      persist();
-      if (step.on && !engine.isPlaying) void previewKeys(step.note);
     }
   }
   if (id === "motion") {
@@ -751,33 +877,16 @@ function updateControl(id: string, value: number): void {
     project.keys.volume = value / 100;
     setOutput(id, `${value}%`);
   }
-  if (id.startsWith("keys-note-")) {
-    const step = project.keys.steps[Number(id.slice(10))];
-    if (step) {
-      step.note = value;
-      setOutput(id, noteName(value));
-      if (!engine.isPlaying && performance.now() - lastPaintPreview > 110) {
-        lastPaintPreview = performance.now();
-        void previewNote("keys", step);
-      }
-    }
-  }
-  if (id.startsWith("note-")) {
-    const index = Number(id.slice(5));
-    const step = project.bass.steps[index];
-    if (step) {
-      step.note = value;
-      setOutput(id, noteName(value));
-      if (!engine.isPlaying && performance.now() - lastPaintPreview > 110) {
-        lastPaintPreview = performance.now();
-        void previewNote("bass", step);
-      }
-    }
-  }
   for (const track of project.drums) {
     if (id === `${track.id}-pitch`) {
-      track.pitch = value;
-      setOutput(id, `${value > 0 ? "+" : ""}${value} st`);
+      track.pitch = snapNote(
+        value,
+        { root: 0, mode: project.scale.mode },
+        -24,
+        24,
+      );
+      setInput(id, track.pitch);
+      setOutput(id, `${track.pitch > 0 ? "+" : ""}${track.pitch} st`);
     }
     if (id === `${track.id}-decay`) {
       track.decay = value / 1000;

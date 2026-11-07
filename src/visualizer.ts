@@ -1,13 +1,7 @@
 import { STEP_COUNT } from "./model";
 import type { DrumId, DrumTrack } from "./model";
 
-const TAU = Math.PI * 2;
 const FRAME_INTERVAL = 1000 / 30;
-
-interface Point {
-  x: number;
-  y: number;
-}
 
 interface DrumPulse {
   value: number;
@@ -16,39 +10,364 @@ interface DrumPulse {
   decay: number;
 }
 
-interface SpectralSheet {
-  offset: number;
-  width: number;
+interface FluidFrame {
   phase: number;
-  opacity: number;
-  colours: [string, string, string, string, string];
+  kick: number;
+  snare: number;
+  hat: number;
+  clap: number;
+  rim: number;
 }
 
-const SHEETS: SpectralSheet[] = [
-  {
-    offset: -0.13,
-    width: 0.2,
-    phase: 2.4,
-    opacity: 0.78,
-    colours: ["#242424", "#747474", "#ababab", "#515151", "#8e8e8e"],
-  },
-  {
-    offset: 0.08,
-    width: 0.23,
-    phase: 0.3,
-    opacity: 0.96,
-    colours: ["#454545", "#d7d7d7", "#f2f2f2", "#929292", "#c5c5c5"],
-  },
-];
+const VERTEX_SHADER = `
+attribute vec2 aPosition;
+varying vec2 vUv;
+void main() {
+  vUv = aPosition * 0.5 + 0.5;
+  gl_Position = vec4(aPosition, 0.0, 1.0);
+}`;
 
-/** Drum steps drive distinct geometric impulses; the interface owns opacity. */
+const FLUID_SHADER = `
+precision highp float;
+varying vec2 vUv;
+uniform vec2 uSize;
+uniform float uPhase;
+uniform vec4 uHits;
+uniform float uRim;
+
+float hash(vec2 p) {
+  vec3 q = fract(vec3(p.xyx) * 0.1031);
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+float noise(vec2 p) {
+  vec2 cell = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(cell), hash(cell + vec2(1.0, 0.0)), f.x),
+             mix(hash(cell + vec2(0.0, 1.0)), hash(cell + 1.0), f.x), f.y);
+}
+float fbm(vec2 p) {
+  float value = 0.0;
+  float weight = 0.5;
+  mat2 turn = mat2(0.8, -0.6, 0.6, 0.8);
+  for (int octave = 0; octave < 4; octave++) {
+    value += noise(p) * weight;
+    p = turn * p * 2.04 + vec2(12.7, 5.3);
+    weight *= 0.5;
+  }
+  return value * 1.06667;
+}
+vec2 whirl(vec2 p, vec2 centre, float amount) {
+  vec2 delta = p - centre;
+  float angle = amount * exp(-dot(delta, delta) * 0.65);
+  float c = cos(angle);
+  float s = sin(angle);
+  return centre + mat2(c, -s, s, c) * delta;
+}
+void main() {
+  vec2 p = (vUv - 0.5) * uSize / min(uSize.x, uSize.y);
+  if (uSize.y > uSize.x) p = vec2(p.y, -p.x);
+  p *= 3.5 / (1.0 + uHits.x * 0.24);
+  float time = uPhase * 0.7;
+  p = whirl(p, vec2(-0.65, 0.1), 1.5 * sin(time * 0.43) + uRim * 0.85);
+  p = whirl(p, vec2(0.75, -0.15), -1.4 * cos(time * 0.37) - uHits.x * 0.75);
+  p.x += sin(p.y * 2.2 + time) * uHits.w * 0.28;
+  p.y += sin(p.x * 3.2 - time * 1.3) * uHits.y * 0.18;
+  vec2 drift = vec2(time * 0.23, -time * 0.17);
+  vec2 q = vec2(fbm(p + drift), fbm(p + vec2(4.7, 1.3) - drift * 0.8));
+  vec2 r = vec2(fbm(p + q * 3.1 + vec2(1.7, 8.2) + drift * 0.6),
+                fbm(p + q * 3.1 + vec2(8.3, 2.8) - drift * 0.7));
+  vec2 flow = p + r * (3.6 + uHits.y * 0.5) + q * 0.6;
+  flow += sin(p.yx * 8.0 + time * 2.0) * uHits.z * 0.025;
+  float cloud = fbm(flow);
+  float wisps = pow(1.0 - abs(cloud * 2.0 - 1.0), 5.0);
+  float density = (cloud * cloud * cloud + cloud * cloud * 0.6 + cloud * 0.5);
+  density *= 0.42 + length(r) * 0.72;
+  density = smoothstep(0.12, 0.78, density);
+  float light = density * (0.65 + wisps * 0.35);
+  float vignette = 1.0 - smoothstep(0.25, 0.85, abs(vUv.y - 0.5)) * 0.35;
+  gl_FragColor = vec4(vec3(clamp(light * vignette, 0.0, 1.0)), 1.0);
+}`;
+
+const GRAIN_SHADER = `
+precision highp float;
+varying vec2 vUv;
+uniform vec2 uSize;
+uniform float uPhase;
+uniform sampler2D uField;
+uniform sampler2D uGrain;
+void main() {
+  float light = texture2D(uField, vUv).r;
+  vec2 grainUv = vUv * uSize / 256.0 + vec2(uPhase * 0.009, uPhase * -0.006);
+  float fine = texture2D(uGrain, grainUv).r - 0.5;
+  float detail = texture2D(uGrain, grainUv * 0.37 + 0.23).r - 0.5;
+  float grain = fine * 0.67 + detail * 0.1;
+  float luminance = clamp(light + grain * (0.32 + sqrt(light) * 0.68), 0.0, 1.0);
+  gl_FragColor = vec4(vec3(luminance), 1.0);
+}`;
+
+interface ShaderPass {
+  program: WebGLProgram;
+  position: number;
+  size: WebGLUniformLocation | null;
+  phase: WebGLUniformLocation | null;
+  hits: WebGLUniformLocation | null;
+  rim: WebGLUniformLocation | null;
+  field: WebGLUniformLocation | null;
+  grain: WebGLUniformLocation | null;
+}
+
+function createPass(
+  gl: WebGLRenderingContext,
+  fragment: string,
+): ShaderPass | null {
+  const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+  const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+  const program = gl.createProgram();
+  if (!vertexShader || !fragmentShader || !program) {
+    gl.deleteShader(vertexShader);
+    gl.deleteShader(fragmentShader);
+    gl.deleteProgram(program);
+    return null;
+  }
+  gl.shaderSource(vertexShader, VERTEX_SHADER);
+  gl.shaderSource(fragmentShader, fragment);
+  gl.compileShader(vertexShader);
+  gl.compileShader(fragmentShader);
+  if (
+    gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS) !== true ||
+    gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS) !== true
+  ) {
+    gl.deleteShader(vertexShader);
+    gl.deleteShader(fragmentShader);
+    gl.deleteProgram(program);
+    return null;
+  }
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  gl.deleteShader(vertexShader);
+  gl.deleteShader(fragmentShader);
+  if (gl.getProgramParameter(program, gl.LINK_STATUS) !== true) {
+    gl.deleteProgram(program);
+    return null;
+  }
+  const position = gl.getAttribLocation(program, "aPosition");
+  if (position < 0) {
+    gl.deleteProgram(program);
+    return null;
+  }
+  return {
+    program,
+    position,
+    size: gl.getUniformLocation(program, "uSize"),
+    phase: gl.getUniformLocation(program, "uPhase"),
+    hits: gl.getUniformLocation(program, "uHits"),
+    rim: gl.getUniformLocation(program, "uRim"),
+    field: gl.getUniformLocation(program, "uField"),
+    grain: gl.getUniformLocation(program, "uGrain"),
+  };
+}
+
+function createGrain(): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 256;
+  const context = canvas.getContext("2d");
+  if (!context) return canvas;
+  const image = context.createImageData(256, 256);
+  let seed = 0x13ac6f25;
+  const random = (): number => {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return (seed >>> 0) / 4294967296;
+  };
+  for (let index = 0; index < image.data.length; index += 4) {
+    const value = Math.round((random() + random() + random()) * 85);
+    image.data[index] = value;
+    image.data[index + 1] = value;
+    image.data[index + 2] = value;
+    image.data[index + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+  return canvas;
+}
+
+class FluidGpu {
+  private fieldWidth = 1;
+  private fieldHeight = 1;
+  private ready = false;
+
+  private constructor(
+    readonly canvas: HTMLCanvasElement,
+    private readonly gl: WebGLRenderingContext,
+    private readonly fluid: ShaderPass,
+    private readonly grain: ShaderPass,
+    private readonly vertices: WebGLBuffer,
+    private readonly fieldTexture: WebGLTexture,
+    private readonly grainTexture: WebGLTexture,
+    private readonly framebuffer: WebGLFramebuffer,
+  ) {}
+
+  static create(grainImage: HTMLCanvasElement): FluidGpu | null {
+    const canvas = document.createElement("canvas");
+    const gl = canvas.getContext("webgl", {
+      alpha: false,
+      antialias: false,
+      preserveDrawingBuffer: true,
+    });
+    if (!gl) return null;
+    const fluid = createPass(gl, FLUID_SHADER);
+    const grain = createPass(gl, GRAIN_SHADER);
+    const vertices = gl.createBuffer();
+    const fieldTexture = gl.createTexture();
+    const grainTexture = gl.createTexture();
+    const framebuffer = gl.createFramebuffer();
+    if (
+      !fluid ||
+      !grain ||
+      !vertices ||
+      !fieldTexture ||
+      !grainTexture ||
+      !framebuffer
+    ) {
+      gl.deleteProgram(fluid?.program ?? null);
+      gl.deleteProgram(grain?.program ?? null);
+      gl.deleteBuffer(vertices);
+      gl.deleteTexture(fieldTexture);
+      gl.deleteTexture(grainTexture);
+      gl.deleteFramebuffer(framebuffer);
+      return null;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+      gl.STATIC_DRAW,
+    );
+    gl.bindTexture(gl.TEXTURE_2D, grainTexture);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      grainImage,
+    );
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    gl.bindTexture(gl.TEXTURE_2D, fieldTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.disable(gl.DITHER);
+    return new FluidGpu(
+      canvas,
+      gl,
+      fluid,
+      grain,
+      vertices,
+      fieldTexture,
+      grainTexture,
+      framebuffer,
+    );
+  }
+
+  resize(width: number, height: number): void {
+    const gl = this.gl;
+    this.canvas.width = width;
+    this.canvas.height = height;
+    const scale = Math.min(1, 640 / Math.max(width, height));
+    this.fieldWidth = Math.max(1, Math.round(width * scale));
+    this.fieldHeight = Math.max(1, Math.round(height * scale));
+    gl.bindTexture(gl.TEXTURE_2D, this.fieldTexture);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      this.fieldWidth,
+      this.fieldHeight,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      null,
+    );
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER,
+      gl.COLOR_ATTACHMENT0,
+      gl.TEXTURE_2D,
+      this.fieldTexture,
+      0,
+    );
+    this.ready =
+      gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  private use(
+    pass: ShaderPass,
+    width: number,
+    height: number,
+    frame: FluidFrame,
+  ): void {
+    const gl = this.gl;
+    gl.useProgram(pass.program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vertices);
+    gl.enableVertexAttribArray(pass.position);
+    gl.vertexAttribPointer(pass.position, 2, gl.FLOAT, false, 0, 0);
+    gl.uniform2f(pass.size, width, height);
+    gl.uniform1f(pass.phase, frame.phase);
+    gl.uniform4f(pass.hits, frame.kick, frame.snare, frame.hat, frame.clap);
+    gl.uniform1f(pass.rim, frame.rim);
+  }
+
+  draw(frame: FluidFrame): boolean {
+    const gl = this.gl;
+    if (!this.ready || gl.isContextLost()) return false;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
+    gl.viewport(0, 0, this.fieldWidth, this.fieldHeight);
+    this.use(this.fluid, this.fieldWidth, this.fieldHeight, frame);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    this.use(this.grain, this.canvas.width, this.canvas.height, frame);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.fieldTexture);
+    gl.uniform1i(this.grain.field, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.grainTexture);
+    gl.uniform1i(this.grain.grain, 1);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    return true;
+  }
+
+  destroy(): void {
+    this.gl.deleteProgram(this.fluid.program);
+    this.gl.deleteProgram(this.grain.program);
+    this.gl.deleteBuffer(this.vertices);
+    this.gl.deleteTexture(this.fieldTexture);
+    this.gl.deleteTexture(this.grainTexture);
+    this.gl.deleteFramebuffer(this.framebuffer);
+    this.canvas.width = 1;
+    this.canvas.height = 1;
+  }
+}
+
+/** Programmed drum hits churn a continuous smoke field; opacity belongs to the UI. */
 export class FluidVisualizer {
-  private readonly canvas: HTMLCanvasElement;
   private readonly context: CanvasRenderingContext2D | null;
-  private readonly field = document.createElement("canvas");
-  private readonly fieldContext = this.field.getContext("2d", { alpha: false });
-  private ratio = 1;
-  private readonly resizeObserver: ResizeObserver;
+  private readonly grain = createGrain();
+  private readonly gpu = FluidGpu.create(this.grain);
+  private readonly fallback = document.createElement("canvas");
+  private readonly fallbackContext = this.fallback.getContext("2d");
+  private fallbackPixels: ImageData | null = null;
+  private readonly observer: ResizeObserver;
   private readonly pulses: Record<DrumId, DrumPulse> = {
     kick: { value: 0, target: 0, attack: 0.075, decay: 0.36 },
     snare: { value: 0, target: 0, attack: 0.065, decay: 0.24 },
@@ -56,8 +375,6 @@ export class FluidVisualizer {
     clap: { value: 0, target: 0, attack: 0.075, decay: 0.3 },
     rim: { value: 0, target: 0, attack: 0.065, decay: 0.25 },
   };
-  private width = 1;
-  private height = 1;
   private motionEnabled = true;
   private playing = false;
   private destroyed = false;
@@ -67,23 +384,10 @@ export class FluidVisualizer {
   private rimDirection = 1;
   private rimTurn = 0;
 
-  private get portrait(): boolean {
-    return this.height > this.width * 1.15;
-  }
-
-  private get sceneWidth(): number {
-    return this.portrait ? this.height : this.width;
-  }
-
-  private get sceneHeight(): number {
-    return this.portrait ? this.width : this.height;
-  }
-
-  constructor(canvas: HTMLCanvasElement) {
-    this.canvas = canvas;
+  constructor(private readonly canvas: HTMLCanvasElement) {
     this.context = canvas.getContext("2d", { alpha: false });
-    this.resizeObserver = new ResizeObserver(this.resize);
-    this.resizeObserver.observe(canvas);
+    this.observer = new ResizeObserver(this.resize);
+    this.observer.observe(canvas);
     document.addEventListener("visibilitychange", this.syncAnimation);
     this.resize();
   }
@@ -120,22 +424,29 @@ export class FluidVisualizer {
     this.destroyed = true;
     cancelAnimationFrame(this.animationId);
     this.animationId = 0;
-    this.resizeObserver.disconnect();
+    this.observer.disconnect();
     document.removeEventListener("visibilitychange", this.syncAnimation);
+    this.gpu?.destroy();
   }
 
   private readonly resize = (): void => {
     if (this.destroyed) return;
     const bounds = this.canvas.getBoundingClientRect();
-    this.width = Math.max(1, bounds.width);
-    this.height = Math.max(1, bounds.height);
-    this.ratio = Math.min(window.devicePixelRatio || 1, 2);
-    this.canvas.width = Math.round(this.width * this.ratio);
-    this.canvas.height = Math.round(this.height * this.ratio);
-    this.field.width = this.canvas.width;
-    this.field.height = this.canvas.height;
-    this.context?.setTransform(this.ratio, 0, 0, this.ratio, 0, 0);
-    this.fieldContext?.setTransform(this.ratio, 0, 0, this.ratio, 0, 0);
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvas.width = Math.max(1, Math.round(bounds.width * ratio));
+    this.canvas.height = Math.max(1, Math.round(bounds.height * ratio));
+    this.gpu?.resize(this.canvas.width, this.canvas.height);
+    const scale = Math.min(
+      1,
+      192 / Math.max(this.canvas.width, this.canvas.height),
+    );
+    this.fallback.width = Math.max(1, Math.round(this.canvas.width * scale));
+    this.fallback.height = Math.max(1, Math.round(this.canvas.height * scale));
+    this.fallbackPixels =
+      this.fallbackContext?.createImageData(
+        this.fallback.width,
+        this.fallback.height,
+      ) ?? null;
     this.draw();
   };
 
@@ -164,14 +475,6 @@ export class FluidVisualizer {
     if (elapsed < FRAME_INTERVAL - 1) return;
     const seconds = Math.min(elapsed / 1000, 0.08);
     this.lastFrame = now;
-    this.advancePulses(seconds);
-    this.phase +=
-      seconds *
-      (1.6 + this.pulses.kick.value * 0.9 + this.pulses.snare.value * 0.5);
-    this.draw();
-  };
-
-  private advancePulses(seconds: number): void {
     for (const pulse of Object.values(this.pulses)) {
       const response =
         pulse.target > pulse.value ? pulse.attack : pulse.decay * 0.7;
@@ -181,239 +484,80 @@ export class FluidVisualizer {
     }
     this.rimTurn +=
       (this.rimDirection - this.rimTurn) * (1 - Math.exp(-seconds / 0.16));
-  }
+    this.phase +=
+      seconds *
+      (1.6 + this.pulses.kick.value * 0.9 + this.pulses.snare.value * 0.5);
+    this.draw();
+  };
 
-  private point(position: number, strand: number, sheet: SpectralSheet): Point {
-    const angle = position * TAU;
-    const kick = this.pulses.kick.value;
-    const snare = this.pulses.snare.value;
-    const clap = this.pulses.clap.value;
-    const hat = this.pulses.hat.value;
-    const rim = this.pulses.rim.value * this.rimTurn;
-    const energy = 0.3 + kick * 0.95;
-    const ripple = snare * 0.8 + clap * 0.6;
-    const twist = Math.sin(
-      angle * 1.37 -
-        this.phase * 0.58 +
-        sheet.phase +
-        ripple * 1.2 +
-        rim * 0.45,
-    );
-    const width =
-      sheet.width *
-      (0.62 + 0.38 * Math.cos(angle + sheet.phase)) *
-      (1 + energy * 0.5);
-    const wave =
-      Math.sin(angle * 0.86 + this.phase * 0.46 + sheet.phase) *
-        (0.19 + energy * 0.18) +
-      Math.sin(angle * 1.72 - this.phase * 0.31 + sheet.phase) *
-        (0.11 + ripple * 0.08) +
-      Math.sin(angle * 0.6 + sheet.phase) * energy * 0.11 +
-      Math.sin(angle * 2.8 - this.phase * 1.4) * snare * 0.08 +
-      Math.sin(angle * 7 + this.phase * 3) * hat * 0.012;
-    const fold = Math.sin(strand * Math.PI + twist * 1.5) * width * 0.4;
-    const x =
-      this.sceneWidth *
-      (position +
-        Math.sin(strand * 1.8 + twist * 1.6) * (0.05 + ripple * 0.025) +
-        Math.sin(angle * 0.8 + sheet.phase) * rim * 0.075);
-    const y =
-      this.sceneHeight *
-      (0.5 + sheet.offset + wave + strand * width * twist + fold);
-    const centreX =
-      this.sceneWidth *
-      (0.57 +
-        Math.sin(this.phase * 0.17) * 0.08 +
-        Math.sin(this.phase * 0.55) * energy * 0.07);
-    const centreY =
-      this.sceneHeight * (0.51 + Math.cos(this.phase * 0.46) * energy * 0.09);
-    const radius = Math.min(this.sceneWidth * 0.31, this.sceneHeight * 1.6);
-    const dx = x - centreX;
-    const dy = y - centreY;
-    const distance = (dx * dx + dy * dy) / (radius * radius);
-    const rotation =
-      Math.exp(-distance * 1.4) *
-      (1.2 +
-        1.1 +
-        energy * 1.35 +
-        ripple * 0.8 +
-        Math.sin(this.phase * 0.27) * 0.55);
-    const warpedX = centreX + dx * Math.cos(rotation) - dy * Math.sin(rotation);
-    const warpedY = centreY + dx * Math.sin(rotation) + dy * Math.cos(rotation);
-    const counterX = this.sceneWidth * 0.22;
-    const counterY =
-      this.sceneHeight * (0.5 + Math.sin(this.phase * 0.43) * 0.11);
-    const offsetX = warpedX - counterX;
-    const offsetY = warpedY - counterY;
-    const counterRadius = Math.min(
-      this.sceneWidth * 0.36,
-      this.sceneHeight * 1.2,
-    );
-    const influence = Math.exp(
-      -(offsetX * offsetX + offsetY * offsetY) /
-        (counterRadius * counterRadius),
-    );
-    const counterRotation =
-      -influence *
-      Math.sin(this.phase * 0.52 + sheet.phase * 0.45) *
-      (0.3 + ripple * 0.5 + energy * 0.55);
-    return {
-      x:
-        counterX +
-        offsetX * Math.cos(counterRotation) -
-        offsetY * Math.sin(counterRotation),
-      y:
-        counterY +
-        offsetX * Math.sin(counterRotation) +
-        offsetY * Math.cos(counterRotation),
-    };
-  }
-
-  private sheetPath(
-    context: CanvasRenderingContext2D,
-    sheet: SpectralSheet,
-    strand: number,
-    reverse = false,
-  ): void {
-    const segments = this.sceneWidth < 600 ? 24 : 40;
-    for (let step = 0; step <= segments; step += 1) {
-      const index = reverse ? segments - step : step;
-      const point = this.point(-0.15 + (index / segments) * 1.3, strand, sheet);
-      if (step === 0 && !reverse) context.moveTo(point.x, point.y);
-      else context.lineTo(point.x, point.y);
+  private drawFallback(frame: FluidFrame): void {
+    const context = this.fallbackContext;
+    const output = this.context;
+    const pixels = this.fallbackPixels;
+    if (!context || !output || !pixels) return;
+    const width = this.fallback.width;
+    const height = this.fallback.height;
+    const size = Math.min(width, height);
+    const zoom = 1 + frame.kick * 0.24;
+    const time = frame.phase * 0.7;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const px = (((x - width * 0.5) / size) * 4) / zoom;
+        const py = (((y - height * 0.5) / size) * 4) / zoom;
+        const bend = Math.sin(py * 1.8 + time * 0.7) + frame.rim * 0.7;
+        const fx = px + bend * 0.6 + Math.sin(px + time) * frame.clap * 0.3;
+        const fy =
+          py +
+          Math.sin(px * 1.4 - time * 0.6) * 0.7 +
+          frame.snare * Math.sin(px * 3) * 0.2;
+        const cloud =
+          (Math.sin(fx * 2 + Math.sin(fy * 2.3 + time)) +
+            Math.sin(fy * 2.1 + Math.cos(fx * 1.7 - time)) +
+            Math.sin(fx * 3.4 + fy * 2.8 + time * 0.3 + frame.hat * 0.08)) /
+            6 +
+          0.5;
+        const value = Math.round(Math.pow(Math.max(0, cloud), 1.4) * 255);
+        const index = (y * width + x) * 4;
+        pixels.data[index] = value;
+        pixels.data[index + 1] = value;
+        pixels.data[index + 2] = value;
+        pixels.data[index + 3] = 255;
+      }
     }
-  }
-
-  private drawSheet(
-    context: CanvasRenderingContext2D,
-    sheet: SpectralSheet,
-  ): void {
-    const gradient = context.createLinearGradient(
+    context.putImageData(pixels, 0, 0);
+    output.drawImage(
+      this.fallback,
       0,
-      this.sceneHeight * 0.18,
-      this.sceneWidth,
-      this.sceneHeight * 0.85,
+      0,
+      this.canvas.width,
+      this.canvas.height,
     );
-    sheet.colours.forEach((colour, index) =>
-      gradient.addColorStop(index / 4, colour),
-    );
-    context.globalAlpha = sheet.opacity;
-    context.fillStyle = gradient;
-    context.beginPath();
-    this.sheetPath(context, sheet, -1);
-    this.sheetPath(context, sheet, 1, true);
-    context.closePath();
-    context.fill();
-
-    context.globalAlpha = 0.22;
-    context.strokeStyle = "#ffffff";
-    context.lineWidth = 1.5;
-    context.beginPath();
-    this.sheetPath(context, sheet, -0.2);
-    context.stroke();
-
-    for (const edge of [-1, 1]) {
-      context.globalAlpha = 0.9;
-      context.strokeStyle = "#000000";
-      context.lineWidth = 5;
-      context.beginPath();
-      this.sheetPath(context, sheet, edge);
-      context.stroke();
-      context.strokeStyle = edge < 0 ? "#eeeeee" : "#aaaaaa";
-      context.lineWidth = edge < 0 ? 1.8 : 1.3;
-      context.stroke();
+    const pattern = output.createPattern(this.grain, "repeat");
+    if (pattern) {
+      output.save();
+      output.globalCompositeOperation = "overlay";
+      output.globalAlpha = 0.85;
+      output.translate(
+        -((frame.phase * 2) % 256),
+        -((frame.phase * 1.4) % 256),
+      );
+      output.fillStyle = pattern;
+      output.fillRect(0, 0, this.canvas.width + 256, this.canvas.height + 256);
+      output.restore();
     }
-    context.globalAlpha = 1;
-  }
-
-  private drawPulseRing(
-    context: CanvasRenderingContext2D,
-    centre: number,
-    offset: number,
-    push: number,
-  ): void {
-    const centreX = this.sceneWidth * centre;
-    const centreY =
-      this.sceneHeight * (0.5 + Math.sin(this.phase * 0.18 + offset) * 0.07);
-    const radiusX =
-      Math.min(this.sceneWidth * 0.24, this.sceneHeight * 0.72) *
-      (0.7 + push * 0.85);
-    const radiusY =
-      Math.min(this.sceneHeight * 0.59, this.sceneWidth * 0.25) *
-      (0.7 + push * 0.85);
-    const vertices = 16;
-    context.beginPath();
-    for (let vertex = 0; vertex <= vertices; vertex += 1) {
-      const angle = (vertex / vertices) * TAU + this.phase * 0.08 + offset;
-      const radius = 1 + Math.sin(angle * 3 + offset) * 0.035;
-      const x = centreX + Math.cos(angle) * radiusX * radius;
-      const y = centreY + Math.sin(angle) * radiusY * radius;
-      if (vertex === 0) context.moveTo(x, y);
-      else context.lineTo(x, y);
-    }
-    context.closePath();
-    context.globalAlpha = 0.68;
-    context.strokeStyle = "#bdbdbd";
-    context.lineWidth = 2.5;
-    context.stroke();
-    context.globalAlpha = 1;
   }
 
   private draw(): void {
-    const context = this.fieldContext;
-    const output = this.context;
-    if (!context || !output || this.destroyed) return;
-    context.fillStyle = "#000000";
-    context.fillRect(0, 0, this.width, this.height);
-    context.save();
-    if (this.portrait) {
-      context.translate(this.width, 0);
-      context.rotate(Math.PI / 2);
-    }
-    const punch = this.pulses.kick.value;
-    context.translate(
-      this.sceneWidth * (0.5 + Math.sin(this.phase * 0.8) * punch * 0.035),
-      this.sceneHeight * (0.5 + Math.cos(this.phase * 0.67) * punch * 0.04),
-    );
-    context.rotate(
-      Math.sin(this.phase * 0.24) * 0.045 +
-        this.pulses.rim.value * this.rimTurn * 0.06,
-    );
-    context.scale(1 + punch * 0.22, 1 + punch * 0.22);
-    context.translate(-this.sceneWidth * 0.5, -this.sceneHeight * 0.5);
-    this.drawPulseRing(context, 0.22, 0.5, this.pulses.kick.value);
-    this.drawPulseRing(
-      context,
-      0.78,
-      3.5,
-      Math.max(this.pulses.snare.value, this.pulses.clap.value),
-    );
-    for (const sheet of SHEETS) this.drawSheet(context, sheet);
-    context.restore();
-
-    output.drawImage(this.field, 0, 0, this.width, this.height);
-    const clapShift = this.pulses.clap.value * Math.min(this.width * 0.055, 60);
-    if (clapShift > 0.5 && this.width > clapShift * 2) {
-      const y = this.height * 0.56;
-      const bandHeight = this.height * 0.1;
-      output.drawImage(
-        this.field,
-        clapShift * this.ratio,
-        y * this.ratio,
-        (this.width - clapShift * 2) * this.ratio,
-        bandHeight * this.ratio,
-        clapShift * (1 + Math.sin(this.phase)),
-        y,
-        this.width - clapShift * 2,
-        bandHeight,
-      );
-    }
-    const shade = output.createLinearGradient(0, 0, 0, this.height);
-    shade.addColorStop(0, "rgba(0, 0, 0, 0.65)");
-    shade.addColorStop(0.22, "rgba(0, 0, 0, 0.02)");
-    shade.addColorStop(0.74, "rgba(0, 0, 0, 0.01)");
-    shade.addColorStop(1, "rgba(0, 0, 0, 0.7)");
-    output.fillStyle = shade;
-    output.fillRect(0, 0, this.width, this.height);
+    if (!this.context || this.destroyed) return;
+    const frame: FluidFrame = {
+      phase: this.phase,
+      kick: this.pulses.kick.value,
+      snare: this.pulses.snare.value,
+      hat: this.pulses.hat.value,
+      clap: this.pulses.clap.value,
+      rim: this.pulses.rim.value * this.rimTurn,
+    };
+    if (this.gpu?.draw(frame)) this.context.drawImage(this.gpu.canvas, 0, 0);
+    else this.drawFallback(frame);
   }
 }
