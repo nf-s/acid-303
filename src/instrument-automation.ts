@@ -292,7 +292,11 @@ export function createInstrumentAutomation<Parameter extends string>(
   const startGesture = (event: PointerEvent): void => {
     if (!(event.target instanceof Element)) return;
     const element = event.target.closest(".gesture-control");
-    if (element && options.root.contains(element)) sweeps.delete(element.id);
+    if (
+      element instanceof HTMLElement &&
+      (options.root.contains(element) || element.dataset.sourceControl)
+    )
+      sweeps.delete(element.dataset.sourceControl ?? element.id);
   };
   const focusMatrix = (): void => pager.freezeFollow();
   container.addEventListener("click", click);
@@ -342,9 +346,13 @@ export function createInstrumentAutomation<Parameter extends string>(
       if (!control) return;
       const lane = options.getLane(control.parameter);
       if (lane) {
-        const held = options.root
-          .querySelector(`#${controlId}`)
-          ?.classList.contains("dragging");
+        const held =
+          options.root
+            .querySelector(`#${controlId}`)
+            ?.classList.contains("dragging") ||
+          document.querySelector(
+            `[data-source-control="${controlId}"].dragging`,
+          ) !== null;
         if (!held) sweeps.delete(controlId);
         if (held && !sweeps.has(controlId))
           sweeps.set(controlId, { base: before, values: [...lane] });

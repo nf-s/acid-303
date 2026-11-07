@@ -1,0 +1,87 @@
+.track-mixer {
+  border-top: 1px solid #666;
+  margin-top: 8px;
+}
+.track-mixer summary {
+  padding: 9px 2px 2px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.mixer-channels {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(45px, 1fr));
+  gap: 9px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 10px 2px 4px;
+  overscroll-behavior-x: contain;
+}
+.mixer-channel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+}
+.mixer-fader {
+  height: 98px;
+  width: 44px;
+  padding: 8px 12px;
+  touch-action: none;
+  background: #333;
+  border: 1px solid #777;
+}
+.fader-track {
+  display: block;
+  position: relative;
+  width: 4px;
+  height: 100%;
+  background: #151515;
+  border: 1px solid #111;
+}
+.fader-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--fader-level, 0%);
+  background: #777;
+}
+.fader-thumb {
+  position: absolute;
+  bottom: var(--fader-level, 0%);
+  left: -12px;
+  width: 26px;
+  height: 12px;
+  transform: translateY(50%);
+  border: 1px solid #fafafa;
+  border-right-color: #555;
+  border-bottom-color: #555;
+  background: linear-gradient(#aaa 45%, #222 45%, #222 55%, #aaa 55%);
+}
+.mixer-channel > button[data-mixer-mute] {
+  width: 44px;
+  min-height: 32px;
+  font: inherit;
+  border: 1px solid #777;
+  background: #333;
+  color: #eee;
+  cursor: pointer;
+}
+.mixer-channel > button[aria-pressed="true"] {
+  background: #ddd;
+  color: #111;
+}
+.mixer-channel output {
+  min-height: 12px;
+  font-size: 9px;
+}
+@media (max-width: 650px) {
+  .mixer-channels {
+    gap: 5px;
+    grid-template-columns: repeat(9, 49px);
+  }
+  .mixer-fader {
+    height: 82px;
+  }
+}

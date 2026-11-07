@@ -48,7 +48,7 @@ const attachmentSchema = z.object({
   active: z.boolean(),
   playing: z.boolean(),
   absoluteTick: z.number().finite().nonnegative().default(0),
-  protocol: z.union([z.literal(1),z.literal(2)]).default(1),
+  protocol: z.union([z.literal(1), z.literal(2)]).default(1),
   window: z.number(),
   packets: z.number().int().nonnegative(),
   patches: z.number().int().nonnegative(),
@@ -106,13 +106,19 @@ export class SessionRoom extends DurableObject<SessionEnv> {
   private closing = false;
   constructor(ctx: DurableObjectState, env: SessionEnv) {
     super(ctx, env);
-    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping","pong"));
+    ctx.setWebSocketAutoResponse(
+      new WebSocketRequestResponsePair("ping", "pong"),
+    );
     for (const socket of ctx.getWebSockets()) {
       const data = attachment(socket);
       if (data && data.protocol !== 2 && data.active) {
-        error(socket,"reload-required","Reload Grain to continue this session");
-        socket.serializeAttachment({ ...data,active:false,playing:false });
-        socket.close(4010,"Reload Grain to continue");
+        error(
+          socket,
+          "reload-required",
+          "Reload Grain to continue this session",
+        );
+        socket.serializeAttachment({ ...data, active: false, playing: false });
+        socket.close(4010, "Reload Grain to continue");
       }
     }
   }
@@ -207,7 +213,8 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       request.headers.get("Upgrade")?.toLowerCase() !== "websocket" ||
       !clientId.success ||
       protocols.length !== 2 ||
-      (protocols[0] !== SESSION_PROTOCOL && protocols[0] !== "grain-session-v1") ||
+      (protocols[0] !== SESSION_PROTOCOL &&
+        protocols[0] !== "grain-session-v1") ||
       !token.success
     )
       return new Response("Invalid connection", { status: 400 });
@@ -228,10 +235,29 @@ export class SessionRoom extends DurableObject<SessionEnv> {
     if (protocols[0] !== SESSION_PROTOCOL) {
       const pair = new WebSocketPair();
       this.ctx.acceptWebSocket(pair[1]);
-      pair[1].serializeAttachment({ clientId: clientId.data,role,expiresAt:record.expiresAt,active:false,playing:false,absoluteTick:0,protocol:1,window:Date.now(),packets:0,patches:0 });
-      error(pair[1],"reload-required","Reload Grain to continue this session");
-      pair[1].close(4010,"Reload Grain to continue");
-      return new Response(null,{status:101,webSocket:pair[0],headers:{"Sec-WebSocket-Protocol":"grain-session-v1"}});
+      pair[1].serializeAttachment({
+        clientId: clientId.data,
+        role,
+        expiresAt: record.expiresAt,
+        active: false,
+        playing: false,
+        absoluteTick: 0,
+        protocol: 1,
+        window: Date.now(),
+        packets: 0,
+        patches: 0,
+      });
+      error(
+        pair[1],
+        "reload-required",
+        "Reload Grain to continue this session",
+      );
+      pair[1].close(4010, "Reload Grain to continue");
+      return new Response(null, {
+        status: 101,
+        webSocket: pair[0],
+        headers: { "Sec-WebSocket-Protocol": "grain-session-v1" },
+      });
     }
     const existing = this.sockets();
     if (

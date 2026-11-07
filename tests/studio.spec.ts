@@ -8,6 +8,18 @@ import {
   scaleNotes,
 } from "../src/model";
 import { PRESETS } from "../src/presets";
+import { trackStepCount } from "../src/timing";
+
+async function openTrackControls(page: Page): Promise<void> {
+  const button = page.locator("#studio-tools");
+  if ((await button.getAttribute("aria-expanded")) !== "true")
+    await button.click();
+}
+
+async function openVisualizerControls(page: Page): Promise<void> {
+  const controls = page.locator("#visualizer-toolbar");
+  if (!(await controls.isVisible())) await page.locator("#studio-view").click();
+}
 
 async function dragUp(
   page: Page,
@@ -144,6 +156,7 @@ test("one-tap remix preserves sound settings and Undo restores the beat", async 
 
 test("exports valid audible stereo audio", async ({ page }) => {
   await page.goto("/");
+  await openTrackControls(page);
   const downloaded = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export WAV", exact: true }).click();
   const path = await (await downloaded).path();
@@ -218,6 +231,7 @@ test("recovers from corrupted saved data", async ({ page }) => {
     localStorage.setItem("acid-303-project-v1", '{"version":1,"bpm":0}'),
   );
   await page.goto("/");
+  await openTrackControls(page);
   await expect(
     page.getByRole("slider", { name: "Tempo in BPM", exact: true }),
   ).toHaveAttribute("aria-valuenow", "126");
@@ -250,6 +264,7 @@ test("upgrades saved cowbell and slide patterns without losing user steps", asyn
     JSON.stringify(legacy),
   );
   await page.goto("/");
+  await openTrackControls(page);
   await expect(
     page.getByRole("slider", { name: "Tempo in BPM", exact: true }),
   ).toHaveAttribute("aria-valuenow", "137");
@@ -272,7 +287,7 @@ test("upgrades saved cowbell and slide patterns without losing user steps", asyn
     .poll(() =>
       page.evaluate(() => localStorage.getItem("acid-303-project-v1")),
     )
-    .toContain('"version":2');
+    .toContain('"version":3');
 });
 
 async function savedProject(page: Page) {
@@ -439,6 +454,8 @@ test("scale picker locks drawing, keyboard tuning, presets and remix to the sele
   page,
 }) => {
   await page.goto("/");
+  await openTrackControls(page);
+  await openTrackControls(page);
   await page.getByRole("button", { name: "Root F♯", exact: true }).click();
   await page.getByRole("button", { name: "Dorian", exact: true }).click();
   await page
@@ -492,6 +509,7 @@ test("scale picker locks drawing, keyboard tuning, presets and remix to the sele
     )
     .toBe(true);
   await page.reload();
+  await openTrackControls(page);
   await expect(
     page.getByRole("button", { name: "Dorian", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -606,6 +624,7 @@ test("visualizer defaults on at 30%, responds silently, and pauses all grain and
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
+  await openTrackControls(page);
   await page.evaluate(() => document.fonts.ready);
   const stage = page.locator("#visualizer-panel");
   await expect(stage).toHaveCSS("opacity", "0.3");
@@ -671,13 +690,14 @@ test("examples swipe horizontally and swirl changes visuals without changing the
   if (!box) throw new Error("Example strip is missing");
   const session = await context.newCDPSession(page);
   const y = box.y + box.height / 2;
+  const scrollBefore = await page.evaluate(() => scrollY);
   await session.send("Input.dispatchTouchEvent", {
     type: "touchStart",
     touchPoints: [{ id: 1, x: box.x + box.width - 10, y }],
   });
   await session.send("Input.dispatchTouchEvent", {
     type: "touchMove",
-    touchPoints: [{ id: 1, x: box.x + 10, y }],
+    touchPoints: [{ id: 1, x: box.x + 10, y: y + 40 }],
   });
   await session.send("Input.dispatchTouchEvent", {
     type: "touchEnd",
@@ -686,6 +706,28 @@ test("examples swipe horizontally and swirl changes visuals without changing the
   await expect
     .poll(() => strip.evaluate((element) => element.scrollLeft))
     .toBeGreaterThan(30);
+  expect(await page.evaluate(() => scrollY)).toBe(scrollBefore);
+  expect(await strip.evaluate((element) => element.scrollTop)).toBe(0);
+  await expect(strip).toHaveCSS("overflow-y", "hidden");
+  const heading = await page.locator("#drums-title").boundingBox();
+  if (!heading) throw new Error("Drum heading is missing.");
+  const outsideX = heading.x + heading.width / 2;
+  const outsideY = heading.y + heading.height / 2;
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ id: 2, x: outsideX, y: outsideY }],
+  });
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchMove",
+    touchPoints: [{ id: 2, x: outsideX, y: outsideY - 160 }],
+  });
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+  });
+  await expect
+    .poll(() => page.evaluate(() => scrollY))
+    .toBeGreaterThan(scrollBefore);
   await expect(page.locator(".preset-section")).toHaveCSS(
     "overflow-x",
     "visible",
@@ -696,9 +738,12 @@ test("examples swipe horizontally and swirl changes visuals without changing the
       .evaluate((element) => element.clientHeight),
   ).toBeLessThan(125);
   await expect(page.locator("[data-preset]")).toHaveCount(20);
+  await openTrackControls(page);
   await page
     .getByRole("slider", { name: "Master volume", exact: true })
     .press("Home");
+  await page.locator("#studio-tools").click();
+  await openVisualizerControls(page);
   const before = await page.evaluate(() =>
     localStorage.getItem("acid-303-project-v1"),
   );
@@ -720,6 +765,7 @@ test("examples swipe horizontally and swirl changes visuals without changing the
     await page.evaluate(() => localStorage.getItem("acid-303-project-v1")),
   ).toBe(before);
   await page.reload();
+  await openVisualizerControls(page);
   await expect(swirl).toHaveAttribute("aria-valuenow", "100");
   await swirl.dblclick();
   await expect(swirl).toHaveAttribute("aria-valuenow", "0");
@@ -735,6 +781,7 @@ test("phone fullscreen visualizer and sticky playback remain accessible", async 
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/");
+  await openVisualizerControls(page);
   await expect(page.locator("#fullscreen svg")).toBeVisible();
   await page.locator("#keys-matrix-canvas").scrollIntoViewIfNeeded();
   await expect(
@@ -776,6 +823,7 @@ test("visualizer palettes colour the fluid, persist locally and freeze with moti
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/");
+  await openVisualizerControls(page);
   const colour = page.getByRole("button", { name: "Colour", exact: true });
   await colour.click();
   await expect(
@@ -813,6 +861,7 @@ test("visualizer palettes colour the fluid, persist locally and freeze with moti
     });
   expect(colouredPixels).toBeGreaterThan(100);
   await page.reload();
+  await openVisualizerControls(page);
   await colour.click();
   await expect(
     page.getByRole("button", { name: "Rainbow", exact: true }),
@@ -823,9 +872,11 @@ test("visualizer palettes colour the fluid, persist locally and freeze with moti
     page.getByRole("button", { name: "Rainbow", exact: true }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
+  await openTrackControls(page);
   await page
     .getByRole("slider", { name: "Master volume", exact: true })
     .press("Home");
+  await page.locator("#studio-tools").click();
   await page.getByRole("button", { name: "Play pattern", exact: true }).click();
   const moving = await frame();
   await expect.poll(frame).not.toBe(moving);
@@ -840,6 +891,7 @@ test("visualizer palettes colour the fluid, persist locally and freeze with moti
   await page.getByRole("button", { name: "Mono", exact: true }).click();
   await expect(page.locator("#visualizer-panel")).toHaveCSS("opacity", "0.3");
   await page.reload();
+  await openVisualizerControls(page);
   await colour.click();
   await expect(
     page.getByRole("button", { name: "Mono", exact: true }),
@@ -1037,8 +1089,8 @@ test("every Bass and Texture knob opens editable automation and manual changes s
   );
   await page.getByRole("button", { name: "Play pattern", exact: true }).click();
   await expect
-    .poll(() => page.locator("#position").textContent())
-    .not.toBe("01");
+    .poll(() => page.locator("#bar-position").textContent())
+    .not.toBe("Beat 1");
   await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
   await page.reload();
   await expect(page.locator("[data-automated=true]")).toHaveCount(16);
@@ -1144,10 +1196,12 @@ test("phone twist adjusts only held knobs and releases without opening automatio
     }),
   );
   await page.goto("/");
+  await openTrackControls(page);
   const motion = page.locator("#phone-motion");
   await motion.tap();
   await expect(motion).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Twist", exact: true }).tap();
+  await page.locator("#studio-tools").tap();
   let clock = 1000;
   const twist = async (rate: number) => {
     await page.evaluate(
@@ -1203,6 +1257,7 @@ test("phone twist adjusts only held knobs and releases without opening automatio
   await expect(page.locator("#bass-automation")).toBeHidden();
   await twist(90);
   await expect(knob).toHaveAttribute("aria-valuenow", returned ?? "");
+  await openTrackControls(page);
   await motion.tap();
   await expect(motion).toHaveAttribute("aria-pressed", "false");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
@@ -1306,6 +1361,7 @@ test("global undo and redo restore the whole track across examples and gestures"
   page,
 }) => {
   await page.goto("/");
+  await openTrackControls(page);
   await dragUp(page, page.locator("#cutoff"), 48);
   await expect
     .poll(async () => (await savedProject(page)).bass.cutoff)
@@ -1367,6 +1423,10 @@ test("share link loads the full track into a fresh browser context", async ({
     .poll(async () => (await savedProject(page)).pad.automation.tone?.[15])
     .toBeCloseTo(0.8, 1);
   const original = await savedProject(page);
+  expect(original.pad.automation.tone).toHaveLength(
+    trackStepCount(original.pad.timing),
+  );
+  await openTrackControls(page);
   await page.getByRole("button", { name: "Share", exact: true }).click();
   const field = page.locator("#share-url");
   await expect(field).toBeVisible();
@@ -1381,6 +1441,7 @@ test("share link loads the full track into a fresh browser context", async ({
     "true",
   );
   await expect.poll(() => new URL(other.url()).hash).toBe("");
+  await openTrackControls(other);
   await other.locator("#bpm").press("End");
   await expect.poll(async () => (await savedProject(other)).bpm).toBe(180);
   const edited = await savedProject(other);
@@ -1394,6 +1455,7 @@ test("fluid overlay reaches transport, scale, knobs and matrices", async ({
   page,
 }) => {
   await page.goto("/");
+  await openTrackControls(page);
   await page.evaluate(() => document.fonts.ready);
   const intensity = page.locator("#intensity");
   for (const selector of [
@@ -1420,6 +1482,7 @@ test("arpeggiator notes, order, rhythm and all eight controls persist with globa
   page,
 }) => {
   await page.goto("/");
+  await openTrackControls(page);
   await expect(page.locator("#arp-panel .gesture-control")).toHaveCount(8);
   await expect(
     page
@@ -1434,7 +1497,7 @@ test("arpeggiator notes, order, rhythm and all eight controls persist with globa
   await page.getByRole("button", { name: "Played", exact: true }).click();
   await page.getByRole("button", { name: "1/32", exact: true }).click();
   await page
-    .getByRole("button", { name: "Arpeggiator step 2", exact: true })
+    .getByRole("button", { name: "Arpeggiator step 2, bar 1", exact: true })
     .click();
   await page.locator("#arp-shape").press("End");
   await expect.poll(async () => (await savedProject(page)).arp.shape).toBe(1);
@@ -1457,6 +1520,7 @@ test("arpeggiator notes, order, rhythm and all eight controls persist with globa
   await expect(
     page.getByRole("button", { name: "Played", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
+  await openTrackControls(page);
   await page.getByRole("button", { name: "Root F♯", exact: true }).click();
   await expect
     .poll(async () =>
@@ -1495,8 +1559,9 @@ test("pad progression length, chord edits and play position work across bars", a
   await expect.poll(async () => (await savedProject(page)).pad.tone).toBe(1);
   const pad = (await savedProject(page)).pad;
   expect(pad.chords[1]).toEqual({ degree: 3, inversion: 2 });
-  expect(pad.bars).toBe(2);
+  expect(pad.timing.bars).toBe(2);
   expect(pad.muted).toBe(false);
+  await openTrackControls(page);
   await page.locator("#bpm").press("End");
   await page.getByRole("button", { name: "Play pattern", exact: true }).click();
   await expect
@@ -1514,7 +1579,8 @@ test("pad progression length, chord edits and play position work across bars", a
       after: document.querySelector("#bar-position")?.textContent,
     };
   });
-  expect(barPosition).toEqual({ before: "Bar 2 / 2", after: "Bar 2 / 2" });
+  expect(barPosition.before).toMatch(/^Beat [5-8]$/);
+  expect(barPosition.after).toBe(barPosition.before);
   await expect(page.locator("[data-pad-slot].current")).toHaveCount(1);
   await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
   await page.reload();
@@ -1531,6 +1597,8 @@ test("WAV export includes all eight progression bars and release tails", async (
   page,
 }) => {
   await page.goto("/");
+  await openTrackControls(page);
+  await openTrackControls(page);
   await page.locator("#bpm").press("End");
   await page
     .getByRole("button", { name: "Enable chord pads", exact: true })
@@ -1587,9 +1655,7 @@ test("every Arp and Pad knob opens drawable automation with clear and undo", asy
       .toEqual(curve);
   }
   await page.getByRole("button", { name: "16 bars", exact: true }).click();
-  await expect(page.locator("#pad-lane-duration")).toHaveText(
-    "16 bars · 16 points",
-  );
+  await expect(page.locator("#pad-lane-duration")).toHaveText("256 points");
   await page.reload();
   await expect(page.locator("#arp-tone")).toHaveAttribute(
     "data-automated",
@@ -1599,7 +1665,309 @@ test("every Arp and Pad knob opens drawable automation with clear and undo", asy
     "data-automated",
     "true",
   );
-  await expect(page.locator("#pad-lane-duration")).toHaveText(
-    "16 bars · 16 points",
+  await expect(page.locator("#pad-lane-duration")).toHaveText("256 points");
+});
+
+async function changeTiming(
+  controls: Locator,
+  bars: number,
+  meter: string,
+  grid: string,
+): Promise<void> {
+  const details = controls.locator(".pattern-timing");
+  if (!(await details.locator(".pattern-settings").isVisible()))
+    await details.locator("summary").click();
+  for (const [setting, value] of [
+    ["bars", String(bars)],
+    ["meter", meter],
+    ["grid", grid],
+  ])
+    await controls
+      .locator(
+        `[data-pattern-setting="${setting}"][data-pattern-value="${value}"]`,
+      )
+      .click();
+  await details.locator("summary").click();
+}
+
+test("long triplet Arp and Pad patterns edit the final partial page and survive reload", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const arpPages = page.locator("#arp-pattern-controls");
+  await changeTiming(arpPages, 8, "5/4", "triplet");
+  await arpPages.locator('[data-pattern-page="23"]').click();
+  await expect(page.locator("[data-arp-step]")).toHaveCount(6);
+  const finalArpGate = page.locator('[data-arp-step="239"]');
+  const gateWasOn =
+    (await finalArpGate.getAttribute("aria-pressed")) === "true";
+  await finalArpGate.click();
+  await page.locator("#arp-tone").press("Enter");
+  await page
+    .locator('#arp-matrix-access [data-matrix-step="239"]')
+    .press("End");
+  await expect
+    .poll(async () => (await savedProject(page)).arp.automation.tone?.[239])
+    .toBe(1);
+  const arp = (await savedProject(page)).arp;
+  expect(arp.steps).toHaveLength(240);
+  expect(arp.steps[239]).toBe(!gateWasOn);
+  expect(arp.steps[0]).toBe(true);
+  expect(arp.automation.tone?.slice(0, 239)).toEqual(Array(239).fill(arp.tone));
+  await expect(
+    arpPages.locator('[data-pattern-action="follow"]'),
+  ).toHaveAttribute("aria-pressed", "false");
+
+  const padPages = page.locator("#pad-pattern-controls");
+  await changeTiming(padPages, 16, "5/4", "triplet");
+  await padPages.locator('[data-pattern-page="47"]').click();
+  await page.locator("#pad-tone").press("Enter");
+  await expect(page.locator("#pad-matrix-access [role=slider]")).toHaveCount(6);
+  await page
+    .locator('#pad-matrix-access [data-matrix-step="479"]')
+    .press("End");
+  await expect
+    .poll(async () => (await savedProject(page)).pad.automation.tone?.[479])
+    .toBe(1);
+  const pad = (await savedProject(page)).pad;
+  expect(pad.automation.tone?.slice(0, 479)).toEqual(Array(479).fill(pad.tone));
+  await page.keyboard.press("Control+z");
+  await expect
+    .poll(async () => (await savedProject(page)).pad.automation.tone)
+    .toBeNull();
+  await page.keyboard.press("Control+Shift+z");
+  await expect
+    .poll(async () => (await savedProject(page)).pad.automation.tone)
+    .toEqual(pad.automation.tone);
+  await page.reload();
+  await expect.poll(async () => (await savedProject(page)).arp).toEqual(arp);
+  await expect.poll(async () => (await savedProject(page)).pad).toEqual(pad);
+  await padPages.locator('[data-pattern-page="47"]').click();
+  await page.locator("#pad-tone").press("Enter");
+  await expect(
+    page.locator('#pad-matrix-access [data-matrix-step="479"]'),
+  ).toHaveAttribute("aria-valuenow", "100");
+});
+
+test("drum and bass timing stays independent while later bars remain editable", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const kickPages = page
+    .locator("#drum-editors .pattern-controls")
+    .filter({ has: page.locator('summary[aria-label="Kick timing"]') });
+  await changeTiming(kickPages, 2, "3/4", "straight");
+  await kickPages.locator('[data-pattern-page="1"]').click();
+  const laterKick = page.locator('[data-drum-step="kick"][data-step="23"]');
+  await expect(laterKick).toHaveAttribute("aria-pressed", "false");
+  await laterKick.press("Enter");
+  await expect
+    .poll(
+      async () =>
+        (await savedProject(page)).drums.find((drum) => drum.id === "kick")
+          ?.steps[23],
+    )
+    .toBe(true);
+  const bassPages = page.locator("#bass-pattern");
+  await changeTiming(bassPages, 4, "7/8", "triplet");
+  await bassPages.locator('[data-pattern-page="7"]').click();
+  const lastNote = page.locator('#bass-matrix-access [data-matrix-step="83"]');
+  await lastNote.press("End");
+  await expect
+    .poll(async () => (await savedProject(page)).bass.steps[83]?.note)
+    .toBe(60);
+  const project = await savedProject(page);
+  expect(project.bass.steps).toHaveLength(84);
+  expect(project.drums.find((drum) => drum.id === "kick")?.steps).toHaveLength(
+    24,
+  );
+  expect(project.drums.find((drum) => drum.id === "snare")?.steps).toHaveLength(
+    16,
+  );
+  expect(project.keys.steps).toHaveLength(16);
+  await page.reload();
+  await expect.poll(() => savedProject(page)).toEqual(project);
+});
+
+test("automation rings move during playback while the knob base value stays fixed", async ({
+  page,
+}) => {
+  const project = createProject();
+  project.bpm = 180;
+  project.arp.muted = false;
+  project.pad.muted = false;
+  project.bass.automation.cutoff = Array.from({ length: 16 }, (_, index) =>
+    index % 2 ? 0.9 : 0.1,
+  );
+  project.arp.automation.tone = Array.from({ length: 16 }, (_, index) =>
+    index % 2 ? 0.85 : 0.15,
+  );
+  project.pad.automation.tone = Array.from(
+    { length: trackStepCount(project.pad.timing) },
+    (_, index) => (index % 2 ? 0.8 : 0.2),
+  );
+  const kick = project.drums.find((drum) => drum.id === "kick");
+  if (!kick) throw new Error("Kick is missing.");
+  kick.automation.tone = Array.from({ length: 16 }, (_, index) =>
+    index % 2 ? 0.95 : 0.05,
+  );
+  await page.addInitScript(
+    (saved) => localStorage.setItem("acid-303-project-v1", saved),
+    JSON.stringify(project),
+  );
+  await page.goto("/");
+  const ids = ["kick-tone", "cutoff", "arp-tone", "pad-tone"];
+  const bases = await Promise.all(
+    ids.map((id) => page.locator(`#${id}`).getAttribute("aria-valuenow")),
+  );
+  await page.getByRole("button", { name: "Play pattern", exact: true }).click();
+  for (const [index, id] of ids.entries()) {
+    const knob = page.locator(`#${id}`);
+    await expect(knob).toHaveClass(/automation-playing/);
+    await expect(knob.locator(".automation-live")).toHaveCSS(
+      "display",
+      "block",
+    );
+    await expect(knob).toHaveAttribute("aria-valuenow", bases[index] ?? "");
+  }
+  const movingValues = await page.evaluate(async (controlIds) => {
+    const samples = controlIds.map(() => new Set<string>());
+    const start = performance.now();
+    await new Promise<void>((resolve) => {
+      function sample(): void {
+        controlIds.forEach((id, index) => {
+          const value = document.getElementById(id)?.dataset.liveValue;
+          if (value) samples[index]?.add(value);
+        });
+        if (performance.now() - start < 700) requestAnimationFrame(sample);
+        else resolve();
+      }
+      requestAnimationFrame(sample);
+    });
+    return samples.map((values) => values.size);
+  }, ids);
+  for (const count of movingValues) expect(count).toBeGreaterThan(1);
+  await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
+  await expect(page.locator(".automation-playing")).toHaveCount(0);
+  await expect(
+    page.locator("[data-arp-step].current, [data-pad-slot].current"),
+  ).toHaveCount(0);
+});
+
+test("global performance effects support both drag axes, reset and track undo", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const sweep = page.locator("#fx-sweep");
+  const box = await sweep.boundingBox();
+  if (!box) throw new Error("Global sweep control is missing.");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 48, box.y + box.height / 2, {
+    steps: 6,
+  });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await savedProject(page)).fx.sweep)
+    .toBeGreaterThan(0);
+  await dragUp(page, page.locator("#fx-space"), 36);
+  await page.locator("#fx-echo").press("Home");
+  await expect.poll(async () => (await savedProject(page)).fx.echo).toBe(-1);
+  const effects = (await savedProject(page)).fx;
+  expect(effects.space).toBeGreaterThan(0);
+  await sweep.dblclick();
+  await expect.poll(async () => (await savedProject(page)).fx.sweep).toBe(0);
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await savedProject(page)).fx).toEqual(effects);
+  await page.reload();
+  await expect.poll(async () => (await savedProject(page)).fx).toEqual(effects);
+  await expect(page.locator("#fx-echo")).toHaveAttribute(
+    "aria-valuenow",
+    "-100",
+  );
+});
+
+for (const width of [320, 375]) {
+  test(`phone navigation keeps performance controls accessible at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 812 });
+    await page.goto("/");
+    await expect(page.locator("#studio-tools-panel")).toBeHidden();
+    await expect(page.locator("#visualizer-toolbar")).toBeHidden();
+    await page.locator('[data-instrument-jump="pad-panel"]').click();
+    await expect(page.locator("#pad-title")).toBeInViewport();
+    await expect(page.locator("#play")).toBeInViewport();
+    await expect(page.locator("#fx-sweep")).toBeInViewport();
+    await page.locator('[data-pad-bars="16"]').click();
+    const pages = page.locator("#pad-pattern-controls");
+    await pages.locator('[data-pattern-page="15"]').click();
+    await expect(pages.locator('[data-pattern-page="15"]')).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await page.locator("#pad-tone").press("Enter");
+    await expect(
+      page.locator('#pad-matrix-access [data-matrix-step="255"]'),
+    ).toHaveCount(1);
+    await page.locator("#studio-view").click();
+    await expect(page.locator("#visualizer-toolbar")).toBeVisible();
+    await page.locator("#intensity").press("Home");
+    await expect(page.locator("#visualizer-panel")).toHaveCSS(
+      "visibility",
+      "hidden",
+    );
+    await page.locator("#studio-view").click();
+    await openTrackControls(page);
+    await expect(page.locator("#share-track")).toBeVisible();
+    await page.locator('[data-instrument-jump="drums-panel"]').click();
+    await expect(page.locator("#studio-tools-panel")).toBeHidden();
+    await expect(page.locator("#drums-title")).toBeInViewport();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBe(width);
+  });
+}
+
+test("phone progression choices open above their button and close with selection or Escape", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/");
+  await page.locator('[data-instrument-jump="pad-panel"]').click();
+  const trigger = page.locator("[data-pad-presets]");
+  const menu = page.locator("#pad-progressions");
+  await trigger.click();
+  await expect(menu).toBeVisible();
+  const buttonBounds = await trigger.boundingBox();
+  const menuBounds = await menu.boundingBox();
+  if (!buttonBounds || !menuBounds)
+    throw new Error("Progression picker is missing.");
+  expect(menuBounds.y + menuBounds.height).toBeLessThanOrEqual(buttonBounds.y);
+  expect(buttonBounds.y - menuBounds.y - menuBounds.height).toBeLessThan(12);
+  expect(menuBounds.x).toBeGreaterThanOrEqual(0);
+  expect(menuBounds.x + menuBounds.width).toBeLessThanOrEqual(375);
+  expect(menuBounds.y).toBeGreaterThanOrEqual(0);
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await trigger.press("ArrowDown");
+  const first = menu.locator("[data-pad-progression]").first();
+  await expect(first).toBeFocused();
+  await expect(first.locator('[role="tooltip"]')).toBeVisible();
+  const description = await menu
+    .locator('[data-pad-progression="descent"] [role="tooltip"]')
+    .textContent();
+  await menu.locator('[data-pad-progression="descent"]').click();
+  await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await expect(page.locator("#pad-progression-description")).toHaveText(
+    description ?? "",
+  );
+  await trigger.click();
+  await page.locator('[data-pad-bars="4"]').click();
+  await expect(menu).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    375,
   );
 });

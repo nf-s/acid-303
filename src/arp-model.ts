@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { createTiming, sequenceTimingSchema, trackStepCount, resizePattern, resizeAutomationLane, ticksPerStep } from "./timing";
+import {
+  createTiming,
+  sequenceTimingSchema,
+  trackStepCount,
+  resizePattern,
+  resizeAutomationLane,
+  ticksPerStep,
+} from "./timing";
 import type { SequenceTiming } from "./timing";
 import { automationLaneSchema, scaleNotes, snapNote } from "./model";
 import type { MusicalScale } from "./model";
@@ -61,11 +68,13 @@ export const arpBaseSchema = z.object({
   seed: z.number().int().min(0).max(2147483647).default(92731),
   steps: z
     .array(z.boolean())
-    .min(1).max(240)
+    .min(1)
+    .max(240)
     .default(() => Array.from({ length: 16 }, () => true)),
   accents: z
     .array(z.boolean())
-    .min(1).max(240)
+    .min(1)
+    .max(240)
     .default(() => Array.from({ length: 16 }, (_, index) => index % 4 === 0)),
   gate: z.number().min(0.05).max(1).default(0.65),
   decay: z.number().min(0.03).max(1.5).default(0.24),
@@ -78,8 +87,17 @@ export const arpBaseSchema = z.object({
 });
 export const arpSchema = arpBaseSchema.superRefine((track, context) => {
   const count = trackStepCount(track.timing);
-  if (track.steps.length !== count || track.accents.length !== count || Object.values(track.automation).some((lane) => lane !== null && lane.length !== count))
-    context.addIssue({ code: "custom", message: "Arpeggiator arrays must match its timing" });
+  if (
+    track.steps.length !== count ||
+    track.accents.length !== count ||
+    Object.values(track.automation).some(
+      (lane) => lane !== null && lane.length !== count,
+    )
+  )
+    context.addIssue({
+      code: "custom",
+      message: "Arpeggiator arrays must match its timing",
+    });
 });
 export type ArpTrack = z.infer<typeof arpSchema>;
 export interface ArpEvent {
@@ -206,26 +224,75 @@ export function arpEvents(
   return events;
 }
 
-export function resizeArpTrack(track: ArpTrack, timing: SequenceTiming): ArpTrack {
+export function resizeArpTrack(
+  track: ArpTrack,
+  timing: SequenceTiming,
+): ArpTrack {
   const automation = { ...track.automation };
   for (const parameter of arpAutomationSchema.keyof().options)
-    automation[parameter] = resizeAutomationLane(track.automation[parameter], track.timing, timing, normalizedArpValue(track, parameter));
-  return { ...track, timing: { ...timing }, automation,
-    steps: resizePattern(track.steps, track.timing, timing, () => false, (value) => value),
-    accents: resizePattern(track.accents, track.timing, timing, () => false, (value) => value),
+    automation[parameter] = resizeAutomationLane(
+      track.automation[parameter],
+      track.timing,
+      timing,
+      normalizedArpValue(track, parameter),
+    );
+  return {
+    ...track,
+    timing: { ...timing },
+    automation,
+    steps: resizePattern(
+      track.steps,
+      track.timing,
+      timing,
+      () => false,
+      (value) => value,
+    ),
+    accents: resizePattern(
+      track.accents,
+      track.timing,
+      timing,
+      () => false,
+      (value) => value,
+    ),
   };
 }
 
-export function arpRateTicks(rate: ArpTrack["rate"]): number { return Math.round(arpInterval(rate) * 6); }
-export function arpEventsAtTick(track: ArpTrack, scale: MusicalScale, logicalTick: number): ArpEvent[] {
+export function arpRateTicks(rate: ArpTrack["rate"]): number {
+  return Math.round(arpInterval(rate) * 6);
+}
+export function arpEventsAtTick(
+  track: ArpTrack,
+  scale: MusicalScale,
+  logicalTick: number,
+): ArpEvent[] {
   const interval = arpRateTicks(track.rate);
-  if (!Number.isInteger(logicalTick) || logicalTick < 0 || logicalTick % interval !== 0 || track.muted) return [];
-  const cell = Math.floor(logicalTick / ticksPerStep(track.timing)) % track.steps.length;
+  if (
+    !Number.isInteger(logicalTick) ||
+    logicalTick < 0 ||
+    logicalTick % interval !== 0 ||
+    track.muted
+  )
+    return [];
+  const cell =
+    Math.floor(logicalTick / ticksPerStep(track.timing)) % track.steps.length;
   if (!track.steps[cell]) return [];
   const pool = arpNotePool(track, scale);
   if (!pool.length) return [];
   const eventIndex = logicalTick / interval;
-  const index = track.direction === "random" ? randomIndex(track.seed,eventIndex,pool.length) : eventIndex % pool.length;
+  const index =
+    track.direction === "random"
+      ? randomIndex(track.seed, eventIndex, pool.length)
+      : eventIndex % pool.length;
   const note = pool[index];
-  return note === undefined ? [] : [{ note, offset: 0, duration: arpInterval(track.rate) * track.gate, eventIndex, accent: track.accents[cell] ?? false }];
+  return note === undefined
+    ? []
+    : [
+        {
+          note,
+          offset: 0,
+          duration: arpInterval(track.rate) * track.gate,
+          eventIndex,
+          accent: track.accents[cell] ?? false,
+        },
+      ];
 }

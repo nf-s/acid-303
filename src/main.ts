@@ -65,6 +65,7 @@ import type { VisualizerPaletteId } from "./visualizer-palettes";
 import { BeatCanvas } from "./beat-canvas";
 import { installGestures } from "./gestures";
 import { installStudioNavigation } from "./studio-navigation";
+import { TrackMixer, mixerTrack } from "./track-mixer";
 import { MotionControls } from "./motion-controls";
 import { PatternControls } from "./pattern-controls";
 import type { PatternViewport } from "./pattern-controls";
@@ -317,6 +318,7 @@ app.innerHTML = `
       <div id="studio-tools-panel" class="studio-tools" hidden><div class="mix-controls">${slider("bpm", "Tempo", 60, 180, project.bpm, `${project.bpm}`, "1")}${slider("swing", "Swing", 0, 50, project.swing * 100, `${Math.round(project.swing * 100)}%`)}${slider("drive", "Crunch", 0, 100, project.drive * 100, `${Math.round(project.drive * 100)}%`)}${slider("volume", "Volume", 0, 100, project.volume * 100, `${Math.round(project.volume * 100)}%`)}</div>
     <section class="scale-panel panel" aria-label="Musical scale"><div class="scale-row"><span>ROOT</span><div class="scale-roots" role="group" aria-label="Root note">${Array.from({ length: 12 }, (_, root) => `<button data-root="${root}" aria-label="Root ${noteName(root + 60).slice(0, -1)}" aria-pressed="${project.scale.root === root}">${noteName(root + 60).slice(0, -1)}</button>`).join("")}</div></div><div class="scale-row"><span>SCALE</span><div class="scale-modes" role="group" aria-label="Scale type">${SCALE_MODES.map((scale) => `<button data-scale="${scale.id}" aria-pressed="${project.scale.mode === scale.id}">${scale.name}</button>`).join("")}</div></div></section>
 <div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="global-undo" aria-label="Undo last edit" disabled>Undo</button><button class="button secondary" id="global-redo" aria-label="Redo last edit" disabled>Redo</button><button class="button secondary" id="share-track">Share</button><button class="button secondary" id="session-toggle" aria-expanded="false" aria-controls="session-panel">Session</button><button class="button secondary" id="phone-motion" aria-label="Enable phone motion control" aria-pressed="false" title="Hold a knob and tilt or move your phone">Motion</button><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div></div>
+      <div id="track-mixer"></div>
     </section>
     <section class="preset-section panel" aria-label="Examples">
         <div class="preset-bar"><div class="preset-navigation"><button class="preset-scroll" data-example-scroll="-1" aria-label="Scroll examples left">‹</button><div class="preset-options" role="group" aria-label="Genre examples">${PRESETS.map((preset) => `<button data-preset="${preset.id}" aria-label="${preset.name} — ${preset.genre}"><strong>${preset.name}</strong><span>${preset.genre}</span></button>`).join("")}</div><button class="preset-scroll" data-example-scroll="1" aria-label="Scroll examples right">›</button></div><div class="preset-actions"><button id="remix" class="remix-button">${icon("shuffle")} Remix</button><button id="undo-remix" class="text-button undo-remix" disabled>Undo</button></div></div>
@@ -781,6 +783,7 @@ function updatePresetLabels(): void {
   if (label) label.textContent = selected?.name ?? project.name;
 }
 function refreshProject(): void {
+  mixer.update(project);
   automationSweeps.clear();
   arpPanel.render();
   padPanel.render();
@@ -1131,11 +1134,19 @@ const padPanel = createPadPanel(padContainer, {
   },
   renderControl: slider,
 });
+const mixerContainer = document.getElementById("track-mixer");
+if (!mixerContainer) throw new Error("Mixer is missing.");
+const mixer = new TrackMixer(mixerContainer);
 const gestures = installGestures(
   app,
-  (control, value) => updateControl(control.id, value),
+  (control, value) => {
+    const id = control.dataset.sourceControl ?? control.id;
+    if (control.dataset.sourceControl) setInput(id, value);
+    updateControl(id, value);
+  },
   {
     activate: (control) => {
+      if (control.dataset.sourceControl) return;
       if (
         arpPanel.activateControl(control.id) ||
         padPanel.activateControl(control.id)
@@ -1145,13 +1156,15 @@ const gestures = installGestures(
     },
     begin: (element) => {
       const control = automationControls.find(
-        (control) => control.id === element.id,
+        (control) =>
+          control.id === (element.dataset.sourceControl ?? element.id),
       );
       if (control?.target.track === "drums")
         drumEditor.cancel(control.target.id);
       else if (control) matrices[control.target.track].cancelStroke();
     },
-    end: (control) => automationSweeps.delete(control.id),
+    end: (control) =>
+      automationSweeps.delete(control.dataset.sourceControl ?? control.id),
   },
 );
 const phoneMotion = new MotionControls(
@@ -1210,6 +1223,7 @@ function persist(record = true, broadcast = true): void {
   if (record) editHistory.record(project, historyGroup);
   updateHistoryButtons();
   engine.update(project);
+  mixer.update(project);
   if (broadcast) sessionClient?.edit(project);
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
@@ -1435,6 +1449,14 @@ document.addEventListener("click", async (event) => {
       renderInstrumentControls();
       persist();
       void audition(track.id);
+    }
+  }
+  if (dataset.mixerMute) {
+    const track = mixerTrack(project, dataset.mixerMute);
+    if (track) {
+      track.muted = !track.muted;
+      refreshProject();
+      persist();
     }
   }
   if (dataset.mute) {
@@ -1815,7 +1837,10 @@ function updateControl(id: string, value: number): void {
   if (automation) {
     const lane = automationValues(automation.target);
     if (lane) {
-      const held = document.getElementById(id)?.classList.contains("dragging");
+      const held =
+        document.getElementById(id)?.classList.contains("dragging") ||
+        document.querySelector(`[data-source-control="${id}"].dragging`) !==
+          null;
       if (held && !automationSweeps.has(id))
         automationSweeps.set(id, { base: baseBefore, values: [...lane] });
       const sweep = held ? automationSweeps.get(id) : undefined;

@@ -35,10 +35,43 @@ function jsonSchema(depth: number): z.ZodType<JsonValue> {
   ]);
 }
 const jsonValueSchema = jsonSchema(8);
-const pathSchema = z.array(z.union([keySchema,z.number().int().min(0).max(MAX_TRACK_STEPS - 1)])).min(1).max(8);
+const pathSchema = z
+  .array(
+    z.union([
+      keySchema,
+      z
+        .number()
+        .int()
+        .min(0)
+        .max(MAX_TRACK_STEPS - 1),
+    ]),
+  )
+  .min(1)
+  .max(8);
 export const projectChangeSchema = z.union([
   z.object({ path: pathSchema, value: jsonValueSchema }).strict(),
-  z.object({ path: pathSchema, entries: z.array(z.tuple([z.number().int().min(0).max(MAX_TRACK_STEPS - 1),jsonValueSchema])).min(1).max(MAX_TRACK_STEPS).refine((entries) => new Set(entries.map(([index]) => index)).size === entries.length) }).strict(),
+  z
+    .object({
+      path: pathSchema,
+      entries: z
+        .array(
+          z.tuple([
+            z
+              .number()
+              .int()
+              .min(0)
+              .max(MAX_TRACK_STEPS - 1),
+            jsonValueSchema,
+          ]),
+        )
+        .min(1)
+        .max(MAX_TRACK_STEPS)
+        .refine(
+          (entries) =>
+            new Set(entries.map(([index]) => index)).size === entries.length,
+        ),
+    })
+    .strict(),
 ]);
 export type ProjectChange = z.infer<typeof projectChangeSchema>;
 export const clientIdSchema = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/);
@@ -80,9 +113,12 @@ export const sessionCreatedSchema = z
   })
   .strict();
 export type SessionCreated = z.infer<typeof sessionCreatedSchema>;
-export const sessionProjectSchema = z.unknown().transform((value,context) => {
+export const sessionProjectSchema = z.unknown().transform((value, context) => {
   const project = readProject(value);
-  if (!project) { context.addIssue({ code: "custom", message: "Invalid project" }); return z.NEVER; }
+  if (!project) {
+    context.addIssue({ code: "custom", message: "Invalid project" });
+    return z.NEVER;
+  }
   return project;
 });
 export const createSessionSchema = z
@@ -158,18 +194,23 @@ export function diffProject(before: Project, after: Project): ProjectChange[] {
       Array.isArray(next) &&
       previous.length === next.length
     ) {
-      const primitive = (value: JsonValue): boolean => value === null || typeof value !== "object";
+      const primitive = (value: JsonValue): boolean =>
+        value === null || typeof value !== "object";
       if (path.length && previous.every(primitive) && next.every(primitive)) {
-        const entries: Array<[number,JsonValue]> = [];
-        next.forEach((value,index) => { if (!Object.is(previous[index],value)) entries.push([index,value]); });
+        const entries: Array<[number, JsonValue]> = [];
+        next.forEach((value, index) => {
+          if (!Object.is(previous[index], value)) entries.push([index, value]);
+        });
         if (entries.length === 1) {
           const entry = entries[0];
-          if (entry) changes.push({ path: [...path,entry[0]], value: entry[1] });
+          if (entry)
+            changes.push({ path: [...path, entry[0]], value: entry[1] });
         } else if (entries.length) changes.push({ path, entries });
-      } else next.forEach((value,index) => {
-        const old = previous[index];
-        if (old !== undefined) visit(old,value,[...path,index]);
-      });
+      } else
+        next.forEach((value, index) => {
+          const old = previous[index];
+          if (old !== undefined) visit(old, value, [...path, index]);
+        });
       return;
     }
     if (object(previous) && object(next)) {
@@ -206,17 +247,28 @@ export function applyProjectChanges(
   const parsed = jsonValueSchema.safeParse(current);
   if (!parsed.success) return null;
   const updated = parsed.data;
-  function write(target: JsonValue, key: string | number | undefined, change: ProjectChange): boolean {
-    const existing = Array.isArray(target) && typeof key === "number" ? target[key] : object(target) && typeof key === "string" ? target[key] : undefined;
+  function write(
+    target: JsonValue,
+    key: string | number | undefined,
+    change: ProjectChange,
+  ): boolean {
+    const existing =
+      Array.isArray(target) && typeof key === "number"
+        ? target[key]
+        : object(target) && typeof key === "string"
+          ? target[key]
+          : undefined;
     if (existing === undefined) return false;
     if ("entries" in change) {
       if (!Array.isArray(existing)) return false;
-      for (const [index,value] of change.entries) {
+      for (const [index, value] of change.entries) {
         if (index >= existing.length) return false;
         existing[index] = value;
       }
-    } else if (Array.isArray(target) && typeof key === "number") target[key] = change.value;
-    else if (object(target) && typeof key === "string") target[key] = change.value;
+    } else if (Array.isArray(target) && typeof key === "number")
+      target[key] = change.value;
+    else if (object(target) && typeof key === "string")
+      target[key] = change.value;
     else return false;
     return true;
   }
@@ -227,16 +279,18 @@ export function applyProjectChanges(
       const final = index === change.path.length - 1;
       if (Array.isArray(target)) {
         if (typeof key !== "number" || key >= target.length) return null;
-        if (final) { if (!write(target,key,change)) return null; }
-        else {
+        if (final) {
+          if (!write(target, key, change)) return null;
+        } else {
           const next = target[key];
           if (next === undefined) return null;
           target = next;
         }
       } else if (object(target)) {
         if (typeof key !== "string" || !Object.hasOwn(target, key)) return null;
-        if (final) { if (!write(target,key,change)) return null; }
-        else {
+        if (final) {
+          if (!write(target, key, change)) return null;
+        } else {
           const next = target[key];
           if (next === undefined) return null;
           target = next;

@@ -1355,21 +1355,22 @@ kbd {
   gap: 5px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
+  overflow-y: hidden;
   scroll-snap-type: x proximity;
   scrollbar-width: thin;
-  touch-action: pan-x pan-y;
+  touch-action: pan-x pinch-zoom;
 }
 .preset-options button {
-  flex: 0 0 152px;
+  flex: 0 0 118px;
   scroll-snap-align: start;
   display: flex;
   flex-direction: column;
   gap: 4px;
   align-items: flex-start;
   text-align: left;
-  white-space: normal;
-  padding: 8px 10px;
-  min-height: 50px;
+  white-space: nowrap;
+  padding: 5px 7px;
+  min-height: 40px;
 }
 .preset-options button strong {
   font: 500 12px var(--mono);
@@ -1377,6 +1378,9 @@ kbd {
 .preset-options button span {
   font-size: 9px;
   opacity: 0.7;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 @media (max-width: 650px) {
   .preset-navigation {
@@ -1483,8 +1487,8 @@ kbd {
     flex: 1 1 auto;
   }
   .preset-options button {
-    padding: 7px 6px;
-    min-height: 50px;
+    padding: 5px 6px;
+    min-height: 40px;
   }
   .preset-options button strong {
     font-size: 10px;
@@ -2090,7 +2094,7 @@ kbd {
 .visualizer-toolbar {
   bottom: 62px;
 }
-.visualizer-expanded #app > .visualizer-toolbar {
+.visualizer-expanded #app > #visualizer-toolbar {
   visibility: visible;
 }
 .visualizer-expanded .visualizer-toolbar {

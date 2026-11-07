@@ -7,10 +7,23 @@ import {
 } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createProject } from "../../../src/model";
+import {
+  createProject,
+  resizeDrumTrack,
+  resizeBassTrack,
+  resizeKeysTrack,
+} from "../../../src/model";
+import { resizeArpTrack } from "../../../src/arp-model";
+import { resizePadTrack } from "../../../src/pad-model";
+import {
+  sequenceTimingSchema,
+  padTimingSchema,
+  trackStepCount,
+} from "../../../src/timing";
 import {
   SESSION_PROTOCOL,
   MAX_SESSION_BYTES,
+  diffProject,
   sessionCreatedSchema,
   serverMessageSchema,
 } from "../../../src/session-protocol";
@@ -44,6 +57,7 @@ async function upgrade(
   room: SessionCreated,
   token: string,
   clientId = crypto.randomUUID(),
+  protocol = SESSION_PROTOCOL,
 ): Promise<Response> {
   return SELF.fetch(
     `https://sessions.test/sessions/${room.roomId}?clientId=${clientId}`,
@@ -51,7 +65,7 @@ async function upgrade(
       headers: {
         Origin: origin,
         Upgrade: "websocket",
-        "Sec-WebSocket-Protocol": `${SESSION_PROTOCOL}, ${token}`,
+        "Sec-WebSocket-Protocol": `${protocol}, ${token}`,
         "CF-Connecting-IP": `198.51.100.${++ip}`,
       },
     },
@@ -138,7 +152,10 @@ describe("session rooms in the Workers runtime", () => {
     await host.next("welcome");
     await guest.next("welcome");
     const ascending = Array.from({ length: 16 }, (_, index) => index / 15);
-    const descending = Array.from({length:128},(_,index) => 1 - index / 127);
+    const descending = Array.from(
+      { length: 128 },
+      (_, index) => 1 - index / 127,
+    );
     host.send({
       type: "patch",
       clientId: host.clientId,
@@ -164,6 +181,169 @@ describe("session rooms in the Workers runtime", () => {
     const edited = await guest.next("welcome");
     expect(edited.project.arp.automation.tone?.[4]).toBe(0.8);
     expect(edited.project.pad.automation.motion).toEqual(descending);
+  });
+  it("rejects old clocks without replacing a valid host and migrates persisted v2 music", async () => {
+    const room = await create(),
+      host = await connect(room, room.hostToken);
+    await host.next("welcome");
+    host.patch(1, ["bpm"], 137);
+    await host.next("patch");
+    const old = await upgrade(
+      room,
+      room.hostToken,
+      crypto.randomUUID(),
+      "grain-session-v1",
+    );
+    expect(old.status).toBe(101);
+    if (!old.webSocket) throw new Error("No legacy WebSocket");
+    const closed = closeCode(old.webSocket);
+    const peer = new Peer(old.webSocket, crypto.randomUUID());
+    expect(await peer.next("error")).toMatchObject({ code: "reload-required" });
+    expect(await closed).toBe(4010);
+    host.send({ type: "sync" });
+    expect(await host.next("welcome")).toMatchObject({
+      hostConnected: true,
+      revision: 1,
+    });
+    const stub = env.ROOMS.getByName(room.roomId);
+    await runInDurableObject(stub, (_instance, state) => {
+      const row = z
+        .object({ data: z.string() })
+        .parse(
+          state.storage.sql
+            .exec("SELECT data FROM session_state WHERE id = 1")
+            .one(),
+        );
+      const record = z
+        .record(z.string(), z.unknown())
+        .parse(JSON.parse(row.data));
+      const project = createProject();
+      const legacy = {
+        ...project,
+        version: 2,
+        bpm: 137,
+        pad: { ...project.pad, bars: 8 },
+      };
+      state.storage.sql.exec(
+        "UPDATE session_state SET data = ? WHERE id = 1",
+        JSON.stringify({ ...record, project: legacy }),
+      );
+    });
+    await evictDurableObject(stub);
+    host.send({ type: "sync" });
+    const restored = await host.next("welcome");
+    expect(restored).toMatchObject({
+      revision: 1,
+      acknowledgedSequence: 1,
+      role: "host",
+      hostConnected: true,
+    });
+    expect(restored.project.version).toBe(3);
+    expect(restored.project.pad.timing.bars).toBe(8);
+    expect(restored.project.bass.timing).toEqual({
+      bars: 1,
+      meter: "4/4",
+      grid: "straight",
+    });
+    host.patch(1, ["bpm"], 99);
+    expect(await host.next("ack")).toMatchObject({ revision: 1, sequence: 1 });
+  });
+  it("persists maximum-length automation in one indexed row and merges sparse remote cells", async () => {
+    const room = await create(),
+      host = await connect(room, room.hostToken);
+    const original = await host.next("welcome");
+    const project = structuredClone(original.project);
+    const timing = sequenceTimingSchema.parse({
+      bars: 8,
+      meter: "5/4",
+      grid: "triplet",
+    });
+    project.drums = project.drums.map((track) =>
+      resizeDrumTrack(track, timing),
+    );
+    project.bass = resizeBassTrack(project.bass, timing);
+    project.keys = resizeKeysTrack(project.keys, timing);
+    project.arp = resizeArpTrack(project.arp, timing);
+    project.pad = resizePadTrack(
+      project.pad,
+      padTimingSchema.parse({ ...timing, bars: 16 }),
+    );
+    let seed = 9123;
+    for (const track of [
+      ...project.drums,
+      project.bass,
+      project.keys,
+      project.arp,
+      project.pad,
+    ]) {
+      const automation: Record<string, number[] | null> = track.automation;
+      for (const key of Object.keys(automation))
+        automation[key] = Array.from(
+          { length: trackStepCount(track.timing) },
+          () => {
+            seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+            return seed / 4294967295;
+          },
+        );
+    }
+    const changes = diffProject(original.project, project);
+    const message = {
+      type: "patch",
+      clientId: host.clientId,
+      sequence: 1,
+      changes,
+    };
+    expect(
+      new TextEncoder().encode(JSON.stringify(message)).length,
+    ).toBeLessThan(MAX_SESSION_BYTES);
+    host.send(message);
+    expect(await host.next("patch")).toMatchObject({ revision: 1 });
+    host.send({
+      type: "patch",
+      clientId: host.clientId,
+      sequence: 2,
+      changes: [
+        {
+          path: ["pad", "automation", "tone"],
+          entries: [
+            [478, 0.1],
+            [479, 0.9],
+          ],
+        },
+      ],
+    });
+    expect(await host.next("patch")).toMatchObject({ revision: 2 });
+    const cost = await runInDurableObject(
+      env.ROOMS.getByName(room.roomId),
+      (_instance, state) => {
+        const query = state.storage.sql.exec(
+          "SELECT data FROM session_state WHERE id = 1",
+        );
+        const row = z.object({ data: z.string() }).parse(query.one());
+        const update = state.storage.sql.exec(
+          "UPDATE session_state SET data = ? WHERE id = 1",
+          row.data,
+        );
+        return {
+          read: query.rowsRead,
+          written: update.rowsWritten,
+          updateRead: update.rowsRead,
+          bytes: new TextEncoder().encode(row.data).length,
+        };
+      },
+    );
+    expect(cost).toMatchObject({ read: 1, written: 1, updateRead: 1 });
+    expect(cost.bytes).toBeGreaterThan(380000);
+    expect(cost.bytes).toBeLessThan(MAX_SESSION_BYTES);
+    await evictDurableObject(env.ROOMS.getByName(room.roomId));
+    host.send({ type: "sync" });
+    const restored = await host.next("welcome");
+    expect(restored.project.pad.automation.tone?.slice(478)).toEqual([
+      0.1, 0.9,
+    ]);
+    expect(restored.project.drums[0]?.automation.tone).toEqual(
+      project.drums[0]?.automation.tone,
+    );
   });
   it("authenticates distinct credentials and denies untrusted origins", async () => {
     const room = await create();

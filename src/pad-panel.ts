@@ -73,9 +73,83 @@ export function createPadPanel(
   container.innerHTML = `
     <div class="section-header"><div class="section-title"><span class="section-number">05</span><h2 id="pad-title">Chord pads</h2></div><button class="text-button" data-pad-enable></button></div>
     <div class="bass-meta"><div class="waveform-switch pad-sounds" role="group" aria-label="Pad sound">${PAD_SOUNDS.map((sound, index) => `<button data-pad-sound="${index}">${sound}</button>`).join("")}</div><span class="pad-position"></span></div>
-    <div class="pad-composition"><div class="pad-timeline"><div class="pad-timeline-tools"><div class="pad-length" role="group" aria-label="Progression length">${[2, 4, 8, 16].map((bars) => `<button data-pad-bars="${bars}">${bars} bars</button>`).join("")}</div><button data-pad-presets aria-controls="pad-progressions" aria-expanded="false">Progressions</button></div><p class="pad-progression-description" id="pad-progression-description"></p><div class="pad-chords" role="group" aria-label="Chord progression timeline">${Array.from({ length: 4 }, (_, index) => `<button data-pad-slot="${index}"><span class="pad-chord-number">${index + 1}</span><span class="pad-chord-content"><strong></strong><small></small></span><span class="pad-chord-duration"></span></button>`).join("")}</div></div><div class="pad-chord-editor"><h3 id="pad-selected-label"></h3><div class="pad-edit-group"><span>Degree</span><div class="pad-degrees" role="group"></div></div><div class="pad-edit-group"><span>Inversion</span><div class="pad-inversions" role="group">${["Root", "1st", "2nd", "3rd"].map((name, inversion) => `<button data-pad-inversion="${inversion}">${name}</button>`).join("")}</div></div></div></div>
-    <div class="pad-progressions" id="pad-progressions" role="group" aria-label="Chord progressions" hidden>${PAD_PROGRESSIONS.map((progression) => `<button data-pad-progression="${progression.id}" aria-describedby="pad-progression-help-${progression.id}"><span class="pad-progression-name"></span><span class="pad-progression-tooltip" id="pad-progression-help-${progression.id}" role="tooltip"></span></button>`).join("")}</div>
+    <div class="pad-composition"><div class="pad-timeline"><div class="pad-timeline-tools"><div class="pad-length" role="group" aria-label="Progression length">${[2, 4, 8, 16].map((bars) => `<button data-pad-bars="${bars}">${bars} bars</button>`).join("")}</div><div class="pad-progression-picker"><button data-pad-presets aria-controls="pad-progressions" aria-expanded="false">Progressions</button><div class="pad-progressions" id="pad-progressions" role="group" aria-label="Chord progressions" hidden>${PAD_PROGRESSIONS.map((progression) => `<button data-pad-progression="${progression.id}" aria-describedby="pad-progression-help-${progression.id}"><span class="pad-progression-name"></span><span class="pad-progression-tooltip" id="pad-progression-help-${progression.id}" role="tooltip"></span></button>`).join("")}</div></div></div><p class="pad-progression-description" id="pad-progression-description"></p><div class="pad-chords" role="group" aria-label="Chord progression timeline">${Array.from({ length: 4 }, (_, index) => `<button data-pad-slot="${index}"><span class="pad-chord-number">${index + 1}</span><span class="pad-chord-content"><strong></strong><small></small></span><span class="pad-chord-duration"></span></button>`).join("")}</div></div><div class="pad-chord-editor"><h3 id="pad-selected-label"></h3><div class="pad-edit-group"><span>Degree</span><div class="pad-degrees" role="group"></div></div><div class="pad-edit-group"><span>Inversion</span><div class="pad-inversions" role="group">${["Root", "1st", "2nd", "3rd"].map((name, inversion) => `<button data-pad-inversion="${inversion}">${name}</button>`).join("")}</div></div></div></div>
     <div class="acid-controls pad-controls">${controls.map((control) => options.renderControl(`pad-${control.parameter}`, control.label, 0, 100, Math.round(initial[control.parameter] * 100), `${Math.round(initial[control.parameter] * 100)}%`, "1", `Pad ${control.label.toLowerCase()}`)).join("")}</div><div id="pad-automation"></div>`;
+  const progressionPicker = container.querySelector<HTMLElement>(
+    ".pad-progression-picker",
+  );
+  const progressionButton =
+    container.querySelector<HTMLButtonElement>("[data-pad-presets]");
+  const progressionMenu =
+    container.querySelector<HTMLElement>("#pad-progressions");
+  if (!progressionPicker || !progressionButton || !progressionMenu)
+    throw new Error("Pad progression picker is missing.");
+  function positionProgressions(makeRoom = false): void {
+    if (
+      !presetsOpen ||
+      !progressionPicker ||
+      !progressionMenu ||
+      !progressionButton
+    )
+      return;
+    const width = Math.min(440, window.innerWidth - 32);
+    const top = Math.max(
+      8,
+      (document.querySelector(".transport")?.getBoundingClientRect().bottom ??
+        0) + 8,
+    );
+    progressionMenu.style.width = `${width}px`;
+    if (makeRoom) {
+      const needed = Math.min(300, progressionMenu.scrollHeight) + 10;
+      const space = progressionButton.getBoundingClientRect().top - top;
+      if (space < needed)
+        window.scrollBy({ top: space - needed, behavior: "instant" });
+    }
+    const anchor = progressionPicker.getBoundingClientRect();
+    progressionMenu.style.left = `${Math.max(16, Math.min(anchor.left, window.innerWidth - width - 16)) - anchor.left}px`;
+    progressionMenu.style.maxHeight = `${Math.max(80, progressionButton.getBoundingClientRect().top - top - 10)}px`;
+  }
+  function closeProgressions(restoreFocus = false): void {
+    presetsOpen = false;
+    if (progressionMenu) progressionMenu.hidden = true;
+    progressionButton?.setAttribute("aria-expanded", "false");
+    if (restoreFocus) progressionButton?.focus({ preventScroll: true });
+  }
+  function outsideProgressions(event: Event): void {
+    if (
+      presetsOpen &&
+      event.target instanceof Node &&
+      !progressionPicker?.contains(event.target)
+    )
+      closeProgressions();
+  }
+  function progressionKey(event: KeyboardEvent): void {
+    if (presetsOpen && event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeProgressions(true);
+    }
+    if (
+      event.target === progressionButton &&
+      (event.key === "ArrowDown" || event.key === "ArrowUp")
+    ) {
+      event.preventDefault();
+      presetsOpen = true;
+      render(false);
+      positionProgressions(true);
+      const choices = progressionMenu?.querySelectorAll<HTMLButtonElement>(
+        "[data-pad-progression]",
+      );
+      const choice =
+        event.key === "ArrowUp"
+          ? choices?.item((choices?.length ?? 1) - 1)
+          : choices?.item(0);
+      choice?.focus({ preventScroll: true });
+    }
+  }
+  function resizeProgressions(): void {
+    positionProgressions();
+  }
   const automationContainer =
     container.querySelector<HTMLElement>("#pad-automation");
   if (!automationContainer)
@@ -330,8 +404,11 @@ export function createPadPanel(
       presetsOpen = !presetsOpen;
       local = true;
     }
-    if (dataset.padProgression)
+    if (dataset.padProgression) {
       changed = applyPadProgression(track, dataset.padProgression, scale);
+      closeProgressions();
+      local = true;
+    }
     if (dataset.padSlot !== undefined) {
       const slot = Number(dataset.padSlot);
       if (Number.isInteger(slot) && slot >= 0 && slot < track.chords.length) {
@@ -360,11 +437,19 @@ export function createPadPanel(
     }
     if (changed || local) {
       render(changed);
-      button.focus({ preventScroll: true });
+      if (dataset.padProgression)
+        progressionButton?.focus({ preventScroll: true });
+      else button.focus({ preventScroll: true });
+      if (dataset.padPresets !== undefined && presetsOpen)
+        positionProgressions(true);
     }
     if (changed) options.onChange();
   }
   container.addEventListener("click", click);
+  document.addEventListener("pointerdown", outsideProgressions);
+  document.addEventListener("focusin", outsideProgressions);
+  document.addEventListener("keydown", progressionKey);
+  window.addEventListener("resize", resizeProgressions);
   render();
   return {
     render,
@@ -381,6 +466,10 @@ export function createPadPanel(
       destroyed = true;
       automation.destroy();
       container.removeEventListener("click", click);
+      document.removeEventListener("pointerdown", outsideProgressions);
+      document.removeEventListener("focusin", outsideProgressions);
+      document.removeEventListener("keydown", progressionKey);
+      window.removeEventListener("resize", resizeProgressions);
       container.replaceChildren();
     },
   };

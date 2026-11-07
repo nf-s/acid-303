@@ -149,8 +149,27 @@
   min-height: 32px;
   padding: 7px 9px;
 }
+.pad-instrument .pad-progression-picker {
+  position: relative;
+}
 .pad-instrument .pad-progressions {
-  margin: 0 14px 16px;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 35;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(440px, calc(100vw - 32px));
+  max-height: 300px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  margin: 0;
+  border: 1px solid #a5abb1;
+  background: #202328;
+  box-shadow: 4px 4px #0009;
+}
+.pad-instrument .pad-progressions[hidden] {
+  display: none;
 }
 .pad-instrument .pad-progression-description {
   margin: 0 0 10px;
@@ -167,27 +186,11 @@
 }
 .pad-instrument .pad-progression-tooltip {
   display: none;
-  position: absolute;
-  top: calc(100% + 5px);
-  left: 0;
-  width: min(240px, calc(100vw - 48px));
-  padding: 9px 10px;
-  border: 1px solid #8b939b;
-  background: #e1e4e7;
-  color: #171b20;
+  padding-top: 7px;
   text-align: left;
-  font-size: 10px;
+  font-size: 9px;
   line-height: 1.5;
-  z-index: 40;
-  pointer-events: none;
-  box-shadow: 3px 3px #0008;
-}
-.pad-instrument
-  .pad-progressions
-  button:nth-child(4n)
-  .pad-progression-tooltip {
-  left: auto;
-  right: 0;
+  font-weight: 400;
 }
 .pad-instrument .pad-progressions button:hover .pad-progression-tooltip,
 .pad-instrument
@@ -261,16 +264,6 @@
   .pad-instrument .pad-chord-editor {
     gap: 12px;
     padding: 12px;
-  }
-  .pad-instrument .pad-progressions {
-    margin: 0 9px 16px;
-  }
-  .pad-instrument
-    .pad-progressions
-    button:nth-child(even)
-    .pad-progression-tooltip {
-    left: auto;
-    right: 0;
   }
   .pad-instrument .pad-controls,
   .arp-controls {

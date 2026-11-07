@@ -21,8 +21,8 @@ both credentials. Local projects and snapshot Share links remain independent.
   It returns a random 128-bit room ID, distinct 256-bit host and guest tokens,
   and `expiresAt`. Creation also normalizes scale-locked pitches.
 - `GET /sessions/:roomId?clientId=<id>` upgrades to a WebSocket. The browser sends
-  protocols `["grain-session-v1", token]`. The response selects only
-  `grain-session-v1`; credentials are never put in an API URL or echoed as the
+  protocols `["grain-session-v2", token]`. The response selects only
+  `grain-session-v2`; credentials are never put in an API URL or echoed as the
   selected protocol. The server derives the role from the token.
 - Only token SHA-256 hashes are stored. Comparison uses the Workers
   constant-time comparison API. Guest links contain only the guest token in the
@@ -31,8 +31,10 @@ both credentials. Local projects and snapshot Share links remain independent.
   The development config additionally accepts HTTP/HTTPS `localhost` and
   `127.0.0.1`, including ports 4317 and 4319. Missing and other origins fail.
   Origin checks complement token authentication; they are not authentication.
-- HTTP bodies and incoming WebSocket messages are limited to 128 KiB. Patches
-  contain at most 2,048 changes, eight path segments, and bounded JSON values.
+- HTTP bodies and incoming WebSocket messages are limited to 1 MiB. Patches
+  contain at most 4,096 changes, eight path segments, array indexes up to 479,
+  and bounded JSON values. Sparse array changes group up to 480 unique cell
+  entries without replacing untouched cells.
   Prototype keys, unknown paths and invalid resulting projects are rejected.
 - One room retains at most 16 writer identities until expiry for reconnect
   deduplication. Up to eight connections are active at once; a host slot is
@@ -41,7 +43,8 @@ both credentials. Local projects and snapshot Share links remain independent.
 `src/session-protocol.ts` defines the complete Zod-validated wire contract and
 shared `diffProject` / `applyProjectChanges` functions. Equal-length arrays merge
 per index. Variable-length collections, such as selected arp notes, replace
-atomically. Accepted changes are applied to the current authoritative project,
+atomically. Changing a pattern length replaces its arrays and timing in the
+same validated transaction. Accepted changes are applied to the current authoritative project,
 normalized through the musical schema and broadcast in server revision order.
 The server's canonical diff includes any additional scale corrections.
 
@@ -53,12 +56,36 @@ project and its acknowledged sequence. The browser rebases pending changes on
 that authoritative state. Concurrent changes to different fields survive;
 concurrent changes to the same field follow server order.
 
-The host sends `clock` messages containing `playing` and `absoluteStep`.
+The host sends `clock` messages containing `playing` and `absoluteTick`, in
+24 ticks per quarter note. Steady playback clocks are capped at 20 per second;
+Play, Stop and Restart transitions send immediately. Each client resolves its
+per-instrument pages from that shared clock, timing metadata and swing.
 Guests cannot send authoritative clocks or end the room. Guest transport
 requests are routed to the host; they do not claim playback has started.
 Guest patches are rejected while the host is disconnected. Presence and clock
 state are stored in hibernating WebSocket attachments, not SQLite. Plaintext
 `ping` / `pong` is reserved for the hibernation auto-response heartbeat.
+
+## Timing migration and coordinated rollout
+
+Project version 3 adds independent instrument timing and centered global FX.
+Older projects retain their one-bar, 16-step sequencers. Pad progression lengths
+move from `pad.bars` to `pad.timing.bars`; the old 16 automation knots expand by
+cyclic interpolation across the existing progression. Musical controls and
+scale remain intact. Maximum lengths are 240 cells for each sequencer and 480
+for Pads, with all non-null automation lanes matching their instrument length.
+
+The Worker accepts old project snapshots through the same validated migration
+used by local imports. Existing room credentials, expiry, revision and client
+sequence acknowledgements remain intact. A migrated snapshot is written on the
+next accepted edit; migration itself does not add a storage write.
+
+Deploy the v2 Worker before the matching Pages client. Existing v1 sockets and
+authenticated v1 upgrade attempts receive `reload-required` and nonretryable
+close code `4010`, with no welcome or project data. A legacy host reconnect
+cannot displace a v2 host. Old Pages tabs must reload after the Pages deployment.
+This avoids interpreting old sixteenth-step clocks as the new tick clock. No
+Durable Object namespace migration or deletion is required.
 
 ## Runtime and tests
 
@@ -97,7 +124,9 @@ host loss/reconnect/replacement, capacity, malformed/oversized messages,
 creation and packet-rate limits, heartbeat auto-response, unknown-room storage,
 expiration and revocation. A regression test concurrently edits the final arp
 and pad automation lanes, recovers them after hibernation and edits a single
-restored curve cell. Disposable room storage also verifies query plans
+restored curve cell. Additional tests cover old-client rejection without host
+displacement, stored v2 migration with preserved deduplication, and a maximum
+72-lane project with sparse edits to cells 478–479. Disposable room storage also verifies query plans
 and measured SQLite row costs. The frontend additionally tests separate host
 and guest browsers against the local Worker.
 
@@ -152,18 +181,24 @@ snapshot reads 1 row and writes 1 row. The disposable probe verifies that
 runs on a user action. The cached snapshot saves a read per warm edit; the
 client batches continuous gestures to at most 20 messages/second. Full-project
 replacement can be a larger message, but remains one bounded snapshot write.
+The maximum-length randomized 72-lane fixture exceeds 380 kB and stays below
+1 MiB. Its indexed lookup and update still measure one row read and one row
+written; byte size, serialization and schema validation CPU increase despite
+that unchanged row count. Sparse curve patches reduce wire duplication, while
+each accepted edit still persists the complete authoritative snapshot.
 
-For a one-hour room with three people, 128 BPM, one accepted edit/second total
-and a heartbeat every 15 seconds per device: approximately 30,720 clocks +
-3,600 edits + 720 heartbeats = 35,040 incoming messages, or about 1,752 billed
-DO request units before upgrades/creation/expiry. There are 3,600 edit-row writes
-plus creation and deletion overhead, and 3,600 UPSERT row reads plus cold loads.
-Outgoing fan-out adds no request fee. At an explicitly assumed average 5 ms of
-active handler time per non-heartbeat message, duration is approximately
-22 GB-s; actual duration must be checked in account metrics. Charging the whole
-hour at the allocated 128 MB would be a conservative 460.8 GB-s upper bound,
-not the expected hibernation behavior. This example is not a guarantee of
-available free quota or a bill estimate for other account applications.
+For a one-hour room with three people, clocks at the 20/second ceiling, one
+accepted edit/second total and a heartbeat every 15 seconds per device:
+72,000 clocks + 3,600 edits + 720 heartbeats = 76,320 incoming messages, or about
+3,816 billed DO request units before upgrades/creation/expiry. There are 3,600
+edit-row writes plus creation and deletion overhead, and 3,600 UPSERT row reads
+plus cold loads. Outgoing fan-out adds no request fee. At an explicitly assumed
+average 5 ms active handler time per non-heartbeat message, duration is about
+48.4 GB-s. This is an assumption, not a measured CPU guarantee for maximum-size
+projects; inspect actual duration after release. Charging the whole hour at the
+allocated 128 MB gives a conservative 460.8 GB-s upper bound, not expected
+hibernation behavior. These examples do not guarantee available free quota or
+estimate other account applications' usage.
 
 Creation checks a 6/minute per-IP limiter and a 60/minute aggregate limiter.
 Upgrades check 60/minute per IP. These limits are approximate **per Cloudflare
@@ -214,6 +249,10 @@ The public launcher continues to point to the app's existing Pages URL. The
 backend API is not a separate launcher application.
 
 ## Production release evidence
+
+The evidence below records the original protocol-v1 deployment. The protocol-v2
+source and cost changes above await the coordinated Phase 2 deployment; they
+are not yet claimed as production verification.
 
 Released 7 November 2026 at 08:01:57 UTC from commit `1ccce3c`, using the
 authenticated Cloudflare API and the frozen cf production build. The script's

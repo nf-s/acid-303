@@ -1,4 +1,9 @@
-import { trackCycleTicks, trackStepCount, ticksPerStep, tickSpanSeconds } from "./timing";
+import {
+  trackCycleTicks,
+  trackStepCount,
+  ticksPerStep,
+  tickSpanSeconds,
+} from "./timing";
 import { midiFrequency } from "./audio";
 import type { MusicalScale } from "./model";
 import { automatedPad, padChordNotes } from "./pad-model";
@@ -398,14 +403,34 @@ export class PadInstrument {
     }
   }
 
-  schedule(track: PadTrack, scale: MusicalScale, absoluteStep: number, time: number, duration: number, bpm: number): void {
+  schedule(
+    track: PadTrack,
+    scale: MusicalScale,
+    absoluteStep: number,
+    time: number,
+    duration: number,
+    bpm: number,
+  ): void {
     const swing = Math.min(0.5, Math.abs(duration / (60 / bpm / 4) - 1));
-    this.scheduleTick(track,scale,absoluteStep * 6,time,bpm,swing);
+    this.scheduleTick(track, scale, absoluteStep * 6, time, bpm, swing);
   }
 
-  scheduleTick(track: PadTrack, scale: MusicalScale, logicalTick: number, time: number, bpm: number, swing: number): void {
+  scheduleTick(
+    track: PadTrack,
+    scale: MusicalScale,
+    logicalTick: number,
+    time: number,
+    bpm: number,
+    swing: number,
+  ): void {
     const absoluteStep = logicalTick / ticksPerStep(track.timing);
-    const duration = tickSpanSeconds(logicalTick, logicalTick + ticksPerStep(track.timing), bpm, swing, track.timing.grid);
+    const duration = tickSpanSeconds(
+      logicalTick,
+      logicalTick + ticksPerStep(track.timing),
+      bpm,
+      swing,
+      track.timing.grid,
+    );
     if (
       this.stopped ||
       absoluteStep < 0 ||
@@ -455,7 +480,9 @@ export class PadInstrument {
       this.current.finished ||
       (boundary && absoluteStep !== this.lastStep);
     const remainingEnd = (Math.floor(logicalTick / span) + 1) * span;
-    const end = time + tickSpanSeconds(logicalTick, remainingEnd, bpm, swing, track.timing.grid);
+    const end =
+      time +
+      tickSpanSeconds(logicalTick, remainingEnd, bpm, swing, track.timing.grid);
     if (newChord) {
       if (this.current && time < this.current.endsAt)
         this.current.release(time, padReleaseSeconds(track));

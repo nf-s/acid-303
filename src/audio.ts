@@ -1,4 +1,11 @@
-import { ticksPerStep, trackStepCount, trackCycleTicks, swungTick, tickSeconds, tickSpanSeconds } from "./timing";
+import {
+  ticksPerStep,
+  trackStepCount,
+  trackCycleTicks,
+  swungTick,
+  tickSeconds,
+  tickSpanSeconds,
+} from "./timing";
 import { arpRateTicks } from "./arp-model";
 import {
   automatedBass,
@@ -94,9 +101,10 @@ export function performanceFxTail(project: Project): number {
   const space = project.fx.space === 0 ? 0 : project.fx.space < 0 ? 0.36 : 4.5;
   const amount = Math.abs(project.fx.echo);
   const feedback = 0.15 + amount * 0.4;
-  const repeats = amount === 0 ? 0 : Math.ceil(Math.log(0.0001) / Math.log(feedback));
-  const delay = 60 / project.bpm * (project.fx.echo < 0 ? 1 / 3 : 0.75);
-  return Math.max(space,repeats * delay + (amount > 0 ? 0.08 : 0));
+  const repeats =
+    amount === 0 ? 0 : Math.ceil(Math.log(0.0001) / Math.log(feedback));
+  const delay = (60 / project.bpm) * (project.fx.echo < 0 ? 1 / 3 : 0.75);
+  return Math.max(space, repeats * delay + (amount > 0 ? 0.08 : 0));
 }
 
 class PerformanceFx {
@@ -115,58 +123,146 @@ class PerformanceFx {
   private readonly feedback: GainNode;
   private readonly damping: BiquadFilterNode;
   private readonly nodes: AudioNode[] = [];
-  constructor(private readonly context: BaseAudioContext, private readonly source: AudioNode, destination: AudioNode, project: Project) {
+  constructor(
+    private readonly context: BaseAudioContext,
+    private readonly source: AudioNode,
+    destination: AudioNode,
+    project: Project,
+  ) {
     this.input = context.createGain();
     this.output = context.createGain();
     const bus = context.createGain();
     this.sweepDry = context.createGain();
-    this.low = context.createBiquadFilter(); this.low.type = "lowpass"; this.low.Q.value = 0.7;
-    this.high = context.createBiquadFilter(); this.high.type = "highpass"; this.high.Q.value = 0.7;
-    this.lowGain = context.createGain(); this.highGain = context.createGain();
-    this.input.connect(this.sweepDry); this.sweepDry.connect(bus);
-    this.input.connect(this.low); this.low.connect(this.lowGain); this.lowGain.connect(bus);
-    this.input.connect(this.high); this.high.connect(this.highGain); this.highGain.connect(bus);
+    this.low = context.createBiquadFilter();
+    this.low.type = "lowpass";
+    this.low.Q.value = 0.7;
+    this.high = context.createBiquadFilter();
+    this.high.type = "highpass";
+    this.high.Q.value = 0.7;
+    this.lowGain = context.createGain();
+    this.highGain = context.createGain();
+    this.input.connect(this.sweepDry);
+    this.sweepDry.connect(bus);
+    this.input.connect(this.low);
+    this.low.connect(this.lowGain);
+    this.lowGain.connect(bus);
+    this.input.connect(this.high);
+    this.high.connect(this.highGain);
+    this.highGain.connect(bus);
     bus.connect(this.output);
-    this.roomGain = context.createGain(); this.washGain = context.createGain();
-    for (const [duration,gain] of [[0.36,this.roomGain],[4.5,this.washGain]] satisfies Array<[number,GainNode]>) {
+    this.roomGain = context.createGain();
+    this.washGain = context.createGain();
+    for (const [duration, gain] of [
+      [0.36, this.roomGain],
+      [4.5, this.washGain],
+    ] satisfies Array<[number, GainNode]>) {
       const convolver = context.createConvolver();
-      const buffer = context.createBuffer(2,Math.ceil(context.sampleRate * duration),context.sampleRate);
+      const buffer = context.createBuffer(
+        2,
+        Math.ceil(context.sampleRate * duration),
+        context.sampleRate,
+      );
       let seed = 4049;
       for (let channel = 0; channel < 2; channel++) {
-        const data = buffer.getChannelData(channel); let filtered = 0;
+        const data = buffer.getChannelData(channel);
+        let filtered = 0;
         for (let index = 0; index < data.length; index++) {
-          seed = (Math.imul(seed,1664525) + 1013904223) >>> 0;
+          seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
           filtered = filtered * 0.35 + (seed / 2147483648 - 1) * 0.65;
           const time = index / context.sampleRate;
-          data[index] = time < 0.014 ? 0 : filtered * Math.min(1,(time - 0.014) / 0.02) * (1 - index / data.length) ** 3;
+          data[index] =
+            time < 0.014
+              ? 0
+              : filtered *
+                Math.min(1, (time - 0.014) / 0.02) *
+                (1 - index / data.length) ** 3;
         }
       }
-      convolver.buffer = buffer; bus.connect(convolver); convolver.connect(gain); gain.connect(this.output);
-      this.nodes.push(convolver,gain);
+      convolver.buffer = buffer;
+      bus.connect(convolver);
+      convolver.connect(gain);
+      gain.connect(this.output);
+      this.nodes.push(convolver, gain);
     }
-    this.echoSend = context.createGain(); this.echoReturn = context.createGain();
-    this.delay = context.createDelay(2); this.feedback = context.createGain(); this.damping = context.createBiquadFilter(); this.damping.type = "lowpass"; this.damping.Q.value = 0.5;
-    const rumble = context.createBiquadFilter(); rumble.type = "highpass"; rumble.frequency.value = 140; rumble.Q.value = 0.5;
-    const saturation = context.createWaveShaper(); saturation.curve = localDriveCurve(0.2);
-    bus.connect(this.echoSend); this.echoSend.connect(this.delay); this.delay.connect(this.damping); this.damping.connect(rumble); rumble.connect(saturation); saturation.connect(this.echoReturn); this.echoReturn.connect(this.output); saturation.connect(this.feedback); this.feedback.connect(this.delay);
-    this.nodes.push(this.input,this.output,bus,this.sweepDry,this.low,this.high,this.lowGain,this.highGain,this.echoSend,this.echoReturn,this.delay,this.feedback,this.damping,rumble,saturation);
-    this.update(project,true);
-    source.connect(this.input); this.output.connect(destination);
+    this.echoSend = context.createGain();
+    this.echoReturn = context.createGain();
+    this.delay = context.createDelay(2);
+    this.feedback = context.createGain();
+    this.damping = context.createBiquadFilter();
+    this.damping.type = "lowpass";
+    this.damping.Q.value = 0.5;
+    const rumble = context.createBiquadFilter();
+    rumble.type = "highpass";
+    rumble.frequency.value = 140;
+    rumble.Q.value = 0.5;
+    const saturation = context.createWaveShaper();
+    saturation.curve = localDriveCurve(0.2);
+    bus.connect(this.echoSend);
+    this.echoSend.connect(this.delay);
+    this.delay.connect(this.damping);
+    this.damping.connect(rumble);
+    rumble.connect(saturation);
+    saturation.connect(this.echoReturn);
+    this.echoReturn.connect(this.output);
+    saturation.connect(this.feedback);
+    this.feedback.connect(this.delay);
+    this.nodes.push(
+      this.input,
+      this.output,
+      bus,
+      this.sweepDry,
+      this.low,
+      this.high,
+      this.lowGain,
+      this.highGain,
+      this.echoSend,
+      this.echoReturn,
+      this.delay,
+      this.feedback,
+      this.damping,
+      rumble,
+      saturation,
+    );
+    this.update(project, true);
+    source.connect(this.input);
+    this.output.connect(destination);
   }
   update(project: Project, immediate = false): void {
     const time = this.context.currentTime;
-    const set = (parameter: AudioParam,value: number): void => { parameter.cancelAndHoldAtTime(time); if (immediate) parameter.setValueAtTime(value,time); else parameter.setTargetAtTime(value,time,0.018); };
-    const sweep = project.fx.sweep, amount = Math.abs(sweep), echo = Math.abs(project.fx.echo);
-    set(this.sweepDry.gain,1 - amount); set(this.lowGain.gain,sweep < 0 ? amount : 0); set(this.highGain.gain,sweep > 0 ? amount : 0);
-    set(this.low.frequency,Math.min(this.context.sampleRate * 0.45,20000) * (80 / 20000) ** amount);
-    set(this.high.frequency,22 * (4000 / 22) ** amount);
-    set(this.roomGain.gain,project.fx.space < 0 ? -project.fx.space * 0.28 : 0);
-    set(this.washGain.gain,project.fx.space > 0 ? project.fx.space * 0.32 : 0);
-    set(this.echoSend.gain,echo > 0 ? 1 : 0); set(this.echoReturn.gain,echo * 0.42); set(this.feedback.gain,echo > 0 ? 0.15 + echo * 0.4 : 0);
-    set(this.damping.frequency,project.fx.echo < 0 ? 4000 : 1800);
-    set(this.delay.delayTime,60 / project.bpm * (project.fx.echo < 0 ? 1 / 3 : 0.75));
+    const set = (parameter: AudioParam, value: number): void => {
+      parameter.cancelAndHoldAtTime(time);
+      if (immediate) parameter.setValueAtTime(value, time);
+      else parameter.setTargetAtTime(value, time, 0.018);
+    };
+    const sweep = project.fx.sweep,
+      amount = Math.abs(sweep),
+      echo = Math.abs(project.fx.echo);
+    set(this.sweepDry.gain, 1 - amount);
+    set(this.lowGain.gain, sweep < 0 ? amount : 0);
+    set(this.highGain.gain, sweep > 0 ? amount : 0);
+    set(
+      this.low.frequency,
+      Math.min(this.context.sampleRate * 0.45, 20000) * (80 / 20000) ** amount,
+    );
+    set(this.high.frequency, 22 * (4000 / 22) ** amount);
+    set(
+      this.roomGain.gain,
+      project.fx.space < 0 ? -project.fx.space * 0.28 : 0,
+    );
+    set(this.washGain.gain, project.fx.space > 0 ? project.fx.space * 0.32 : 0);
+    set(this.echoSend.gain, echo > 0 ? 1 : 0);
+    set(this.echoReturn.gain, echo * 0.42);
+    set(this.feedback.gain, echo > 0 ? 0.15 + echo * 0.4 : 0);
+    set(this.damping.frequency, project.fx.echo < 0 ? 4000 : 1800);
+    set(
+      this.delay.delayTime,
+      (60 / project.bpm) * (project.fx.echo < 0 ? 1 / 3 : 0.75),
+    );
   }
-  destroy(): void { this.source.disconnect(this.input); for (const node of this.nodes) node.disconnect(); }
+  destroy(): void {
+    this.source.disconnect(this.input);
+    for (const node of this.nodes) node.disconnect();
+  }
 }
 
 function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
@@ -219,7 +315,7 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   wet.connect(highpass);
   cleanInput.connect(highpass);
   melodicInput.connect(highpass);
-  const fx = new PerformanceFx(context,highpass,compressor,project);
+  const fx = new PerformanceFx(context, highpass, compressor, project);
   compressor.connect(master);
   master.connect(safety);
   safety.connect(analyser);
@@ -254,11 +350,19 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   };
 }
 
-function updateGraph(graph: AudioGraph, project: Project): void {
+function updateGraph(
+  graph: AudioGraph,
+  project: Project,
+  outputEnabled = true,
+): void {
   graph.fx.update(project);
   const now = graph.context.currentTime;
   graph.master.gain.cancelAndHoldAtTime(now);
-  graph.master.gain.setTargetAtTime(project.volume * 0.8, now, 0.015);
+  graph.master.gain.setTargetAtTime(
+    outputEnabled ? project.volume * 0.8 : 0,
+    now,
+    0.015,
+  );
   graph.bpm = project.bpm;
   graph.scale = project.scale;
   if (graph.drive !== project.drive) {
@@ -1186,8 +1290,9 @@ export function exportTailDuration(project: Project): number {
         decay = track.decay * 1.2 + 0.945;
       return Math.max(longest, decay + 0.12 + (track.space > 0 ? 0.92 : 0));
     }, 0);
-  const automated = Array.from({ length: project.keys.steps.length }, (_, step) =>
-    automatedKeys(project.keys, step),
+  const automated = Array.from(
+    { length: project.keys.steps.length },
+    (_, step) => automatedKeys(project.keys, step),
   );
   const keysTail =
     project.keys.muted || automated.every((track) => track.volume === 0)
@@ -1197,13 +1302,15 @@ export function exportTailDuration(project: Project): number {
           ...automated.map((track) => keysEchoTail(track, project.bpm)),
         ) +
         0.08;
-  return Math.max(
-    0.35,
-    drumTail,
-    keysTail,
-    arpTailDuration(project.arp, project.bpm),
-    padTailDuration(project.pad, project.bpm),
-  ) + performanceFxTail(project);
+  return (
+    Math.max(
+      0.35,
+      drumTail,
+      keysTail,
+      arpTailDuration(project.arp, project.bpm),
+      padTailDuration(project.pad, project.bpm),
+    ) + performanceFxTail(project)
+  );
 }
 
 interface KeysTone {
@@ -1920,33 +2027,106 @@ export function encodeWav(channels: Float32Array[], sampleRate: number): Blob {
   return new Blob([buffer], { type: "audio/wav" });
 }
 
-export interface ScheduledTrackEvent { instrument: InstrumentId; index: number; logicalTick: number; audibleTick: number; duration: number }
-export function projectEventsAtTick(project: Project, logicalTick: number): ScheduledTrackEvent[] {
+export interface ScheduledTrackEvent {
+  instrument: InstrumentId;
+  index: number;
+  logicalTick: number;
+  audibleTick: number;
+  duration: number;
+}
+export function projectEventsAtTick(
+  project: Project,
+  logicalTick: number,
+): ScheduledTrackEvent[] {
   if (!Number.isInteger(logicalTick) || logicalTick < 0) return [];
   const events: ScheduledTrackEvent[] = [];
-  const add = (instrument: InstrumentId, timing: Project["bass"]["timing"] | Project["pad"]["timing"], extra = false): void => {
+  const add = (
+    instrument: InstrumentId,
+    timing: Project["bass"]["timing"] | Project["pad"]["timing"],
+    extra = false,
+  ): void => {
     const stepTicks = ticksPerStep(timing);
     if (!extra && logicalTick % stepTicks !== 0) return;
-    events.push({ instrument, index: Math.floor(logicalTick / stepTicks) % trackStepCount(timing), logicalTick, audibleTick: swungTick(logicalTick,project.swing,timing.grid), duration: tickSpanSeconds(logicalTick,logicalTick + stepTicks,project.bpm,project.swing,timing.grid) });
+    events.push({
+      instrument,
+      index: Math.floor(logicalTick / stepTicks) % trackStepCount(timing),
+      logicalTick,
+      audibleTick: swungTick(logicalTick, project.swing, timing.grid),
+      duration: tickSpanSeconds(
+        logicalTick,
+        logicalTick + stepTicks,
+        project.bpm,
+        project.swing,
+        timing.grid,
+      ),
+    });
   };
-  for (const drum of project.drums) add(drum.id,drum.timing);
-  add("bass",project.bass.timing);
-  add("keys",project.keys.timing);
-  add("arp",project.arp.timing,logicalTick % arpRateTicks(project.arp.rate) === 0);
-  add("pad",project.pad.timing,logicalTick % (trackCycleTicks(project.pad.timing) / 4) === 0);
+  for (const drum of project.drums) add(drum.id, drum.timing);
+  add("bass", project.bass.timing);
+  add("keys", project.keys.timing);
+  add(
+    "arp",
+    project.arp.timing,
+    logicalTick % arpRateTicks(project.arp.rate) === 0,
+  );
+  add(
+    "pad",
+    project.pad.timing,
+    logicalTick % (trackCycleTicks(project.pad.timing) / 4) === 0,
+  );
   return events;
 }
-function scheduleProjectTick(graph: AudioGraph, project: Project, voices: { bass: BassVoice; keys: KeysSequencer; arp: ArpInstrument; pad: PadInstrument }, logicalTick: number, nominalTime: number): void {
-  for (const event of projectEventsAtTick(project,logicalTick)) {
-    const time = nominalTime + tickSeconds(event.audibleTick - logicalTick,project.bpm);
+function scheduleProjectTick(
+  graph: AudioGraph,
+  project: Project,
+  voices: {
+    bass: BassVoice;
+    keys: KeysSequencer;
+    arp: ArpInstrument;
+    pad: PadInstrument;
+  },
+  logicalTick: number,
+  nominalTime: number,
+): void {
+  for (const event of projectEventsAtTick(project, logicalTick)) {
+    const time =
+      nominalTime + tickSeconds(event.audibleTick - logicalTick, project.bpm);
     const index = event.index;
-    if (event.instrument === "bass") voices.bass.schedule(automatedBass(project.bass,index),index,time,event.duration);
-    else if (event.instrument === "keys") voices.keys.schedule(automatedKeys(project.keys,index),index,time,event.duration);
-    else if (event.instrument === "arp") voices.arp.scheduleTick(project.arp,project.scale,logicalTick,time,project.bpm);
-    else if (event.instrument === "pad") voices.pad.scheduleTick(project.pad,project.scale,logicalTick,time,project.bpm,project.swing);
+    if (event.instrument === "bass")
+      voices.bass.schedule(
+        automatedBass(project.bass, index),
+        index,
+        time,
+        event.duration,
+      );
+    else if (event.instrument === "keys")
+      voices.keys.schedule(
+        automatedKeys(project.keys, index),
+        index,
+        time,
+        event.duration,
+      );
+    else if (event.instrument === "arp")
+      voices.arp.scheduleTick(
+        project.arp,
+        project.scale,
+        logicalTick,
+        time,
+        project.bpm,
+      );
+    else if (event.instrument === "pad")
+      voices.pad.scheduleTick(
+        project.pad,
+        project.scale,
+        logicalTick,
+        time,
+        project.bpm,
+        project.swing,
+      );
     else {
       const drum = project.drums.find((track) => track.id === event.instrument);
-      if (drum && !drum.muted && drum.steps[index]) drumVoice(graph,automatedDrum(drum,index,project.scale),time);
+      if (drum && !drum.muted && drum.steps[index])
+        drumVoice(graph, automatedDrum(drum, index, project.scale), time);
     }
   }
 }
@@ -1963,11 +2143,18 @@ export class AudioEngine {
   private visualTimers = new Set<ReturnType<typeof setTimeout>>();
   private nextStepTime = 0;
   private absoluteTick = 0;
+  private needsFxReset = false;
   private playing = false;
   private generation = 0;
   private silent = false;
 
-  constructor(private onStep: (step: number, absoluteStep: number, frame: PlaybackFrame) => void) {}
+  constructor(
+    private onStep: (
+      step: number,
+      absoluteStep: number,
+      frame: PlaybackFrame,
+    ) => void,
+  ) {}
 
   get isPlaying(): boolean {
     return this.playing;
@@ -1992,6 +2179,16 @@ export class AudioEngine {
     if (!this.context)
       this.context = new AudioContext({ latencyHint: "interactive" });
     if (!this.graph) this.graph = createGraph(this.context, project);
+    if (this.needsFxReset) {
+      this.graph.fx.destroy();
+      this.graph.fx = new PerformanceFx(
+        this.graph.context,
+        this.graph.fxInput,
+        this.graph.compressor,
+        project,
+      );
+      this.needsFxReset = false;
+    }
     if (this.context.state !== "running") await this.context.resume();
     if (this.silent) throw new Error("Audio plays on the session host.");
     updateGraph(this.graph, project);
@@ -2005,7 +2202,12 @@ export class AudioEngine {
     if (generation !== this.generation) return;
     this.project = project;
     graph.fx.destroy();
-    graph.fx = new PerformanceFx(graph.context,graph.fxInput,graph.compressor,project);
+    graph.fx = new PerformanceFx(
+      graph.context,
+      graph.fxInput,
+      graph.compressor,
+      project,
+    );
     this.bass = new BassVoice(graph);
     this.keys = new KeysSequencer(graph);
     this.arp = new ArpInstrument(graph.context, graph.melodicInput);
@@ -2024,30 +2226,41 @@ export class AudioEngine {
     const now = graph.context.currentTime;
     // A suspended browser tab must not emit all missed beats at once.
     if (this.nextStepTime < now - LOOKAHEAD) this.nextStepTime = now + 0.01;
-    const bass = this.bass, keys = this.keys, arp = this.arp, pad = this.pad;
+    const bass = this.bass,
+      keys = this.keys,
+      arp = this.arp,
+      pad = this.pad;
     if (!bass || !keys || !arp || !pad) return;
     while (this.nextStepTime < now + LOOKAHEAD) {
       const tick = this.absoluteTick;
       const time = this.nextStepTime;
-      scheduleProjectTick(graph,project,{bass,keys,arp,pad},tick,time);
+      scheduleProjectTick(graph, project, { bass, keys, arp, pad }, tick, time);
       if (tick % 2 === 0) {
-        const timer = setTimeout(() => {
-          this.visualTimers.delete(timer);
-          if (this.playing && this.project) {
-            const frame = playbackFrame(this.project,tick);
-            this.onStep(Math.floor(tick / 6) % 16,Math.floor(tick / 6),frame);
-          }
-        },Math.max(0,(time - now) * 1000));
+        const timer = setTimeout(
+          () => {
+            this.visualTimers.delete(timer);
+            if (this.playing && this.project) {
+              const frame = playbackFrame(this.project, tick);
+              this.onStep(
+                Math.floor(tick / 6) % 16,
+                Math.floor(tick / 6),
+                frame,
+              );
+            }
+          },
+          Math.max(0, (time - now) * 1000),
+        );
         this.visualTimers.add(timer);
       }
       this.absoluteTick++;
-      this.nextStepTime += tickSeconds(1,project.bpm);
+      this.nextStepTime += tickSeconds(1, project.bpm);
     }
   }
 
   stop(): void {
     this.generation += 1;
     this.playing = false;
+    this.needsFxReset = true;
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
     for (const timer of this.visualTimers) clearTimeout(timer);
@@ -2070,12 +2283,13 @@ export class AudioEngine {
     this.keys = null;
     this.arp = null;
     this.pad = null;
-    if (this.project) this.onStep(-1,-1,playbackFrame(this.project,0,false));
+    if (this.project)
+      this.onStep(-1, -1, playbackFrame(this.project, 0, false));
   }
 
   update(project: Project): void {
     this.project = project;
-    if (this.graph) updateGraph(this.graph, project);
+    if (this.graph) updateGraph(this.graph, project, !this.needsFxReset);
   }
 
   async audition(track: DrumTrack): Promise<void> {
@@ -2153,14 +2367,29 @@ export class AudioEngine {
     const arp = new ArpInstrument(context, graph.melodicInput);
     const pad = new PadInstrument(context, graph.melodicInput);
     for (let tick = 0; tick < plan.ticks; tick++)
-      scheduleProjectTick(graph,project,{bass,keys,arp,pad},tick,tickSeconds(tick,project.bpm));
+      scheduleProjectTick(
+        graph,
+        project,
+        { bass, keys, arp, pad },
+        tick,
+        tickSeconds(tick, project.bpm),
+      );
     bass.stop(loopDuration);
     keys.release(
       loopDuration,
-      automatedKeys(project.keys,(Math.ceil(plan.ticks / ticksPerStep(project.keys.timing)) - 1) % project.keys.steps.length).decay,
+      automatedKeys(
+        project.keys,
+        (Math.ceil(plan.ticks / ticksPerStep(project.keys.timing)) - 1) %
+          project.keys.steps.length,
+      ).decay,
     );
-    if (plan.ticks % trackCycleTicks(project.pad.timing) !== 0)
-      pad.finish(project.pad, (plan.ticks / ticksPerStep(project.pad.timing)) % trackStepCount(project.pad.timing), loopDuration);
+    if (plan.ticks % (trackCycleTicks(project.pad.timing) / 4) !== 0)
+      pad.finish(
+        project.pad,
+        (plan.ticks / ticksPerStep(project.pad.timing)) %
+          trackStepCount(project.pad.timing),
+        loopDuration,
+      );
     const rendered = await context.startRendering();
     const channels: Float32Array[] = [];
     for (let index = 0; index < rendered.numberOfChannels; index += 1)

@@ -224,29 +224,46 @@ describe("independent tick scheduling", () => {
     project.swing = 0.5;
     const snare = project.drums.find((track) => track.id === "snare");
     if (!snare) throw new Error("Missing snare");
-    project.drums = project.drums.map((track) => track.id === "snare" ? resizeDrumTrack(track,{bars:2,meter:"5/4",grid:"triplet"}) : track);
-    const events = Array.from({length:240},(_,tick)=>projectEventsAtTick(project,tick)).flat();
-    const kick = events.filter((event)=>event.instrument === "kick");
-    const triplets = events.filter((event)=>event.instrument === "snare");
-    expect(kick.slice(0,4).map((event)=>event.audibleTick)).toEqual([0,9,12,21]);
+    project.drums = project.drums.map((track) =>
+      track.id === "snare"
+        ? resizeDrumTrack(track, { bars: 2, meter: "5/4", grid: "triplet" })
+        : track,
+    );
+    const events = Array.from({ length: 240 }, (_, tick) =>
+      projectEventsAtTick(project, tick),
+    ).flat();
+    const kick = events.filter((event) => event.instrument === "kick");
+    const triplets = events.filter((event) => event.instrument === "snare");
+    expect(kick.slice(0, 4).map((event) => event.audibleTick)).toEqual([
+      0, 9, 12, 21,
+    ]);
     expect(triplets).toHaveLength(60);
-    expect(triplets.every((event,index)=>event.audibleTick === index * 4)).toBe(true);
+    expect(
+      triplets.every((event, index) => event.audibleTick === index * 4),
+    ).toBe(true);
     expect(triplets.at(-1)?.index).toBe(59);
-    expect(projectEventsAtTick(project,240).find((event)=>event.instrument === "snare")?.index).toBe(0);
+    expect(
+      projectEventsAtTick(project, 240).find(
+        (event) => event.instrument === "snare",
+      )?.index,
+    ).toBe(0);
   });
   it("wraps slides only at the instrument's own cycle", async () => {
     const { tiesNextStep } = await import("./audio");
-    const steps = Array.from({length:48},(_,index)=>({on:index===47 || index===0,slide:index===47}));
-    expect(tiesNextStep(steps,47)).toBe(true);
-    steps[0] = {on:false,slide:false};
-    expect(tiesNextStep(steps,47)).toBe(false);
+    const steps = Array.from({ length: 48 }, (_, index) => ({
+      on: index === 47 || index === 0,
+      slide: index === 47,
+    }));
+    expect(tiesNextStep(steps, 47)).toBe(true);
+    steps[0] = { on: false, slide: false };
+    expect(tiesNextStep(steps, 47)).toBe(false);
   });
   it("bounds bipolar performance tails and bypasses them at center", async () => {
     const { performanceFxTail } = await import("./audio");
     const project = createProject();
     expect(performanceFxTail(project)).toBe(0);
     project.bpm = 60;
-    project.fx = {sweep:1,space:1,echo:1};
+    project.fx = { sweep: 1, space: 1, echo: 1 };
     expect(performanceFxTail(project)).toBeGreaterThan(4.5);
     expect(performanceFxTail(project)).toBeLessThan(15);
     project.fx.echo = -1;

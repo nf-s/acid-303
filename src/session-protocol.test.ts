@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createProject, scaleNotes } from "./model";
+import { createProject, scaleNotes, resizeBassTrack } from "./model";
 import {
   applyProjectChanges,
   clientMessageSchema,
   diffProject,
+  MAX_SESSION_BYTES,
   serverMessageSchema,
 } from "./session-protocol";
 
@@ -80,6 +81,56 @@ describe("collaborative project patches", () => {
     expect(applyProjectChanges(base, diffProject(base, updated))).toEqual(
       updated,
     );
+  });
+  it("packs long curves into sparse entries while preserving concurrent untouched cells", () => {
+    const base = createProject();
+    base.bass = resizeBassTrack(base.bass, {
+      bars: 8,
+      meter: "5/4",
+      grid: "triplet",
+    });
+    base.bass.automation.cutoff = Array(240).fill(0.5);
+    const first = structuredClone(base),
+      second = structuredClone(base);
+    first.bass.automation.cutoff?.splice(210, 3, 0.2, 0.3, 0.4);
+    second.bass.automation.cutoff?.splice(225, 2, 0.8, 0.9);
+    const changes = diffProject(base, first);
+    expect(changes).toEqual([
+      {
+        path: ["bass", "automation", "cutoff"],
+        entries: [
+          [210, 0.2],
+          [211, 0.3],
+          [212, 0.4],
+        ],
+      },
+    ]);
+    const a = applyProjectChanges(base, changes);
+    if (!a) throw new Error("Expected sparse edit");
+    const merged = applyProjectChanges(a, diffProject(base, second));
+    expect(merged?.bass.automation.cutoff?.slice(210, 213)).toEqual([
+      0.2, 0.3, 0.4,
+    ]);
+    expect(merged?.bass.automation.cutoff?.slice(225, 227)).toEqual([0.8, 0.9]);
+    expect(
+      applyProjectChanges(base, [
+        { path: ["bass", "automation", "cutoff"], entries: [[240, 0.8]] },
+      ]),
+    ).toBeNull();
+    expect(
+      applyProjectChanges(base, [
+        {
+          path: ["bass", "automation", "cutoff"],
+          entries: [
+            [2, 0.8],
+            [2, 0.2],
+          ],
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      new TextEncoder().encode(JSON.stringify({ project: base })).length,
+    ).toBeLessThan(MAX_SESSION_BYTES);
   });
   it("validates bounded message contracts without accepting a claimed role", () => {
     expect(

@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { createPadTiming, padTimingSchema, trackStepCount, trackCycleTicks, unswungTick, swungTick, resampleCycleLane } from "./timing";
+import {
+  createPadTiming,
+  padTimingSchema,
+  trackStepCount,
+  trackCycleTicks,
+  unswungTick,
+  swungTick,
+  resampleCycleLane,
+} from "./timing";
 import type { PadTiming } from "./timing";
 import { automationLaneSchema, noteName, scaleNotes } from "./model";
 import type { MusicalScale } from "./model";
@@ -57,8 +65,15 @@ export const padBaseSchema = z.object({
   volume: unit.default(0.28),
 });
 export const padSchema = padBaseSchema.superRefine((track, context) => {
-  if (Object.values(track.automation).some((lane) => lane !== null && lane.length !== trackStepCount(track.timing)))
-    context.addIssue({ code: "custom", message: "Pad curves must match its timing" });
+  if (
+    Object.values(track.automation).some(
+      (lane) => lane !== null && lane.length !== trackStepCount(track.timing),
+    )
+  )
+    context.addIssue({
+      code: "custom",
+      message: "Pad curves must match its timing",
+    });
 });
 export type PadTrack = z.infer<typeof padSchema>;
 export type PadChord = z.infer<typeof padChordSchema>;
@@ -69,14 +84,57 @@ export const PAD_PROGRESSIONS: ReadonlyArray<{
   degrees: readonly number[];
   description: string;
 }> = [
-  { id: "lift", description: "A tonic opening, a warm lift, then a stepwise return.", name: "I · VI · III · VII", degrees: [0, 5, 2, 6] },
-  { id: "return", description: "Moves away from the tonic, then builds tension on the dominant.", name: "I · IV · VI · V", degrees: [0, 3, 5, 4] },
-  { id: "descent", description: "Descends through neighboring roots toward the dominant.", name: "I · VII · VI · V", degrees: [0, 6, 5, 4] },
-  { id: "orbit", description: "An open cycle with gradual movement away from the tonic.", name: "I · III · IV · VI", degrees: [0, 2, 3, 5] },
-  { id: "resolve", description: "A dominant-to-tonic resolution followed by a softer turn.", name: "II · V · I · VI", degrees: [1, 4, 0, 5] },
-  { id: "suspended", description: "Alternates tonic and subdominant before a neighboring-root turn.", name: "I · IV · I · VII", degrees: [0, 3, 0, 6] },
-  { id: "rise", description: "Starts away from the tonic and resolves through a rising cadence.", name: "VI · IV · I · V", degrees: [5, 3, 0, 4] },
-  { id: "drift", description: "A close-root opening followed by wider harmonic movement.", name: "I · II · VI · IV", degrees: [0, 1, 5, 3] },
+  {
+    id: "lift",
+    description: "A tonic opening, a warm lift, then a stepwise return.",
+    name: "I · VI · III · VII",
+    degrees: [0, 5, 2, 6],
+  },
+  {
+    id: "return",
+    description:
+      "Moves away from the tonic, then builds tension on the dominant.",
+    name: "I · IV · VI · V",
+    degrees: [0, 3, 5, 4],
+  },
+  {
+    id: "descent",
+    description: "Descends through neighboring roots toward the dominant.",
+    name: "I · VII · VI · V",
+    degrees: [0, 6, 5, 4],
+  },
+  {
+    id: "orbit",
+    description: "An open cycle with gradual movement away from the tonic.",
+    name: "I · III · IV · VI",
+    degrees: [0, 2, 3, 5],
+  },
+  {
+    id: "resolve",
+    description: "A dominant-to-tonic resolution followed by a softer turn.",
+    name: "II · V · I · VI",
+    degrees: [1, 4, 0, 5],
+  },
+  {
+    id: "suspended",
+    description:
+      "Alternates tonic and subdominant before a neighboring-root turn.",
+    name: "I · IV · I · VII",
+    degrees: [0, 3, 0, 6],
+  },
+  {
+    id: "rise",
+    description:
+      "Starts away from the tonic and resolves through a rising cadence.",
+    name: "VI · IV · I · V",
+    degrees: [5, 3, 0, 4],
+  },
+  {
+    id: "drift",
+    description: "A close-root opening followed by wider harmonic movement.",
+    name: "I · II · VI · IV",
+    degrees: [0, 1, 5, 3],
+  },
 ];
 
 export function createPad(): PadTrack {
@@ -188,19 +246,37 @@ export function applyPadProgression(
   return true;
 }
 
-export function padChordBounds(track: PadTrack, absoluteTick: number, swing = 0): { slot: number; startTick: number; endTick: number } {
-  const logical = Math.max(0, unswungTick(absoluteTick, swing, track.timing.grid));
+export function padChordBounds(
+  track: PadTrack,
+  absoluteTick: number,
+  swing = 0,
+): { slot: number; startTick: number; endTick: number } {
+  const logical = Math.max(
+    0,
+    unswungTick(absoluteTick, swing, track.timing.grid),
+  );
   const span = trackCycleTicks(track.timing) / 4;
   const chord = Math.floor(logical / span + 1e-9);
-  return { slot: chord % 4, startTick: swungTick(chord * span, swing, track.timing.grid), endTick: swungTick((chord + 1) * span, swing, track.timing.grid) };
+  return {
+    slot: chord % 4,
+    startTick: swungTick(chord * span, swing, track.timing.grid),
+    endTick: swungTick((chord + 1) * span, swing, track.timing.grid),
+  };
 }
-export function padChordAtTick(track: PadTrack, absoluteTick: number, swing = 0): number {
+export function padChordAtTick(
+  track: PadTrack,
+  absoluteTick: number,
+  swing = 0,
+): number {
   if (!Number.isFinite(absoluteTick) || absoluteTick < 0) return -1;
   return padChordBounds(track, absoluteTick, swing).slot;
 }
 export function resizePadTrack(track: PadTrack, timing: PadTiming): PadTrack {
   const automation = { ...track.automation };
   for (const parameter of padAutomationSchema.keyof().options)
-    automation[parameter] = resampleCycleLane(track.automation[parameter], trackStepCount(timing));
+    automation[parameter] = resampleCycleLane(
+      track.automation[parameter],
+      trackStepCount(timing),
+    );
   return { ...track, timing: { ...timing }, automation };
 }

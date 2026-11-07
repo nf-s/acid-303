@@ -1,17 +1,110 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 354 76" aria-hidden="true">
-  <g fill="currentColor" transform="translate(24 2) skewX(-18)">
-    <path
-      d="M12 0H58L66 10V22H46V16H22V56H44V44H34V30H66V62L56 72H10L0 60V12Z"
-    />
-    <path
-      fill-rule="evenodd"
-      d="M76 0H130L140 12V34L128 46H119L142 72H116L98 48V72H76ZM98 16V32H118V16Z"
-    />
-    <path
-      fill-rule="evenodd"
-      d="M164 0H204L216 12V72H194V50H174V72H152V12ZM174 16V34H194V16Z"
-    />
-    <path d="M228 0H250V72H228Z" />
-    <path d="M262 0H282L304 36V0H326V60L314 72H304L284 38V72H262Z" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 354 82" aria-hidden="true">
+  <style>
+    .grain-wordmark-still {
+      display: none;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .grain-wordmark-liquid {
+        display: none;
+      }
+      .grain-wordmark-still {
+        display: inline;
+      }
+    }
+  </style>
+  <defs>
+    <filter
+      id="grain-letter-flow"
+      x="-5%"
+      y="-10%"
+      width="110%"
+      height="120%"
+      color-interpolation-filters="sRGB"
+    >
+      <feTurbulence
+        type="fractalNoise"
+        baseFrequency="0.05 0.12"
+        numOctaves="2"
+        seed="17"
+        result="flow"
+      >
+        <animate
+          attributeName="baseFrequency"
+          values="0.05 0.12;0.07 0.09;0.05 0.12"
+          dur="9s"
+          repeatCount="indefinite"
+        />
+      </feTurbulence>
+      <feDisplacementMap
+        in="SourceGraphic"
+        in2="flow"
+        scale="2"
+        xChannelSelector="R"
+        yChannelSelector="G"
+      >
+        <animate
+          attributeName="scale"
+          values="2;3.5;2"
+          dur="7s"
+          repeatCount="indefinite"
+        />
+      </feDisplacementMap>
+    </filter>
+    <clipPath id="grain-letter-crown"><path d="M0 0H354V27H0Z" /></clipPath>
+    <clipPath id="grain-letter-core"><path d="M0 27H354V49H0Z" /></clipPath>
+    <clipPath id="grain-letter-base"><path d="M0 49H354V82H0Z" /></clipPath>
+    <g id="grain-block-letters" fill="currentColor" fill-rule="evenodd">
+      <path
+        d="M24 5L61 3L76 15L71 28L51 29L53 22L33 23L25 34L23 49L31 55L47 54L50 43L37 44L40 33L74 31L67 61L52 73L14 70L3 54L9 24ZM9 58L26 62L28 66L13 64Z"
+      />
+      <path
+        d="M90 6L130 3L150 15L146 34L133 44L148 70L125 74L110 47L103 49L99 70L77 71L84 42L81 30ZM107 20L127 19L130 25L126 33L104 35ZM128 48L137 58L135 63L126 51Z"
+      />
+      <path
+        d="M181 4L209 5L225 27L223 71L200 74L200 54L178 53L170 71L149 70L163 31ZM190 23L183 39L199 40L197 24ZM204 46L224 42L224 47L204 49Z"
+      />
+      <path
+        d="M240 7L269 5L265 23L260 25L254 53L261 57L255 73L225 71L230 54L235 51L241 25L235 22ZM236 59L252 61L250 64L234 62Z"
+      />
+      <path
+        d="M284 5L305 7L321 41L328 8L348 5L340 68L327 74L312 69L296 35L290 71L269 71L277 25ZM281 20L294 15L296 19L280 24ZM319 59L334 64L329 67L320 64Z"
+      />
+    </g>
+  </defs>
+  <g class="grain-wordmark-liquid" filter="url(#grain-letter-flow)">
+    <g clip-path="url(#grain-letter-crown)">
+      <use href="#grain-block-letters">
+        <animateTransform
+          attributeName="transform"
+          type="translate"
+          values="0 0;1.3 0;-0.6 0;0 0"
+          dur="6.8s"
+          repeatCount="indefinite"
+        />
+      </use>
+    </g>
+    <g clip-path="url(#grain-letter-core)">
+      <use href="#grain-block-letters">
+        <animateTransform
+          attributeName="transform"
+          type="translate"
+          values="0 0;-1.8 0;0.8 0;0 0"
+          dur="5.4s"
+          repeatCount="indefinite"
+        />
+      </use>
+    </g>
+    <g clip-path="url(#grain-letter-base)">
+      <use href="#grain-block-letters">
+        <animateTransform
+          attributeName="transform"
+          type="translate"
+          values="0 0;0.8 0;-1.2 0;0 0"
+          dur="7.3s"
+          repeatCount="indefinite"
+        />
+      </use>
+    </g>
   </g>
+  <use class="grain-wordmark-still" href="#grain-block-letters" />
 </svg>
