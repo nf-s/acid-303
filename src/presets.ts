@@ -1,3 +1,4 @@
+import { createTiming, resampleCycleLane, trackStepCount } from "./timing";
 import {
   createProject,
   emptyBassAutomation,
@@ -1116,7 +1117,7 @@ const GENRE_PALETTES: Record<string, GenrePalette> = {
     pad: {
       muted: false,
       sound: 0,
-      bars: 4,
+      timing: { bars: 4, meter: "4/4", grid: "straight" },
       attack: 0.22,
       release: 0.28,
       tone: 0.38,
@@ -1148,7 +1149,7 @@ const GENRE_PALETTES: Record<string, GenrePalette> = {
     pad: {
       muted: true,
       sound: 3,
-      bars: 2,
+      timing: { bars: 2, meter: "4/4", grid: "straight" },
       attack: 0.08,
       release: 0.18,
       tone: 0.3,
@@ -1200,7 +1201,13 @@ const GENRE_PALETTES: Record<string, GenrePalette> = {
       space: 0.38,
       volume: 0.26,
     },
-    pad: { muted: true, sound: 0, bars: 8, tone: 0.26, volume: 0.12 },
+    pad: {
+      muted: true,
+      sound: 0,
+      timing: { bars: 8, meter: "4/4", grid: "straight" },
+      tone: 0.26,
+      volume: 0.12,
+    },
     progression: "suspended",
     bassSweep: [0, -0.01, 0.015, 0],
     bassPulse: [0.58, 0.58, 0.62, 0.58],
@@ -1213,7 +1220,7 @@ const GENRE_PALETTES: Record<string, GenrePalette> = {
     pad: {
       muted: false,
       sound: 4,
-      bars: 8,
+      timing: { bars: 8, meter: "4/4", grid: "straight" },
       attack: 0.68,
       release: 0.6,
       tone: 0.26,
@@ -1258,7 +1265,7 @@ const GENRE_PALETTES: Record<string, GenrePalette> = {
     pad: {
       muted: false,
       sound: 1,
-      bars: 8,
+      timing: { bars: 8, meter: "4/4", grid: "straight" },
       attack: 0.6,
       release: 0.4,
       tone: 0.26,
@@ -1343,7 +1350,7 @@ const GENRE_PALETTES: Record<string, GenrePalette> = {
     pad: {
       muted: false,
       sound: 5,
-      bars: 8,
+      timing: { bars: 8, meter: "4/4", grid: "straight" },
       attack: 0.6,
       release: 0.4,
       tone: 0.22,
@@ -1378,7 +1385,7 @@ const GENRE_PALETTES: Record<string, GenrePalette> = {
     pad: {
       muted: false,
       sound: 0,
-      bars: 4,
+      timing: { bars: 4, meter: "4/4", grid: "straight" },
       attack: 0.22,
       release: 0.24,
       tone: 0.31,
@@ -1571,6 +1578,7 @@ export function createPreset(id: string): Project {
     );
   });
   project.bass = {
+    timing: createTiming(),
     pulse: 0.5,
     shape: preset.bass.shape,
     drive: preset.bass.drive,
@@ -1586,6 +1594,7 @@ export function createPreset(id: string): Project {
     steps: noteSteps(preset.bass),
   };
   project.keys = {
+    timing: createTiming(),
     width: 0.5,
     attack: 0,
     grit: 0,
@@ -1615,12 +1624,15 @@ export function createPreset(id: string): Project {
     if (palette.textureSpace)
       project.keys.automation.space = curve(palette.textureSpace);
     if (palette.arpTone) project.arp.automation.tone = curve(palette.arpTone);
-    if (palette.padTone) project.pad.automation.tone = curve(palette.padTone);
+    if (palette.padTone)
+      project.pad.automation.tone = resampleCycleLane(
+        curve(palette.padTone),
+        trackStepCount(project.pad.timing),
+      );
     if (palette.padLevels)
-      project.pad.automation.volume = curve(
-        palette.padLevels,
-        project.pad.volume,
-        true,
+      project.pad.automation.volume = resampleCycleLane(
+        curve(palette.padLevels, project.pad.volume, true),
+        trackStepCount(project.pad.timing),
       );
     const hat = project.drums.find((drum) => drum.id === "hat");
     if (hat) {

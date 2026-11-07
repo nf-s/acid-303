@@ -1,12 +1,14 @@
 import type { MusicalScale } from "./model";
 import { noteName } from "./model";
+import { PPQ, padTimingSchema, trackPosition, trackStepCount } from "./timing";
 import { createInstrumentAutomation } from "./instrument-automation";
 import {
   PAD_PROGRESSIONS,
   PAD_SOUNDS,
   applyPadProgression,
   normalizedPadValue,
-  padChordAtStep,
+  padChordAtTick,
+  resizePadTrack,
   padChordLabel,
   padChordNotes,
   padScaleDegrees,
@@ -49,9 +51,10 @@ interface PadPanelOptions {
 const degrees = ["I", "II", "III", "IV", "V", "VI", "VII"];
 
 function chordDuration(track: PadTrack, slot: number): string {
-  const length = track.bars / 4;
+  const length = track.timing.bars / 4;
   const first = Math.floor(slot * length) + 1;
-  if (length < 1) return `Bar ${first}, beats ${slot % 2 ? "3–4" : "1–2"}`;
+  if (length < 1)
+    return `Bar ${first}, ${slot % 2 ? "second half" : "first half"}`;
   return length === 1 ? `Bar ${first}` : `Bars ${first}–${first + length - 1}`;
 }
 
@@ -60,7 +63,8 @@ export function createPadPanel(
   options: PadPanelOptions,
 ) {
   let selected = 0;
-  let playingStep = -1;
+  let playingTick = -1;
+  let currentSwing = 0;
   let presetsOpen = false;
   let destroyed = false;
   let degreeSignature = "";
@@ -69,8 +73,8 @@ export function createPadPanel(
   container.innerHTML = `
     <div class="section-header"><div class="section-title"><span class="section-number">05</span><h2 id="pad-title">Chord pads</h2></div><button class="text-button" data-pad-enable></button></div>
     <div class="bass-meta"><div class="waveform-switch pad-sounds" role="group" aria-label="Pad sound">${PAD_SOUNDS.map((sound, index) => `<button data-pad-sound="${index}">${sound}</button>`).join("")}</div><span class="pad-position"></span></div>
-    <div class="pad-composition"><div class="pad-timeline"><div class="pad-timeline-tools"><div class="pad-length" role="group" aria-label="Progression length">${[2, 4, 8, 16].map((bars) => `<button data-pad-bars="${bars}">${bars} bars</button>`).join("")}</div><button data-pad-presets aria-controls="pad-progressions" aria-expanded="false">Progressions</button></div><div class="pad-chords" role="group" aria-label="Chord progression timeline">${Array.from({ length: 4 }, (_, index) => `<button data-pad-slot="${index}"><span class="pad-chord-number">${index + 1}</span><span class="pad-chord-content"><strong></strong><small></small></span><span class="pad-chord-duration"></span></button>`).join("")}</div></div><div class="pad-chord-editor"><h3 id="pad-selected-label"></h3><div class="pad-edit-group"><span>Degree</span><div class="pad-degrees" role="group"></div></div><div class="pad-edit-group"><span>Inversion</span><div class="pad-inversions" role="group">${["Root", "1st", "2nd", "3rd"].map((name, inversion) => `<button data-pad-inversion="${inversion}">${name}</button>`).join("")}</div></div></div></div>
-    <div class="pad-progressions" id="pad-progressions" role="group" aria-label="Chord progressions" hidden>${PAD_PROGRESSIONS.map((progression) => `<button data-pad-progression="${progression.id}"></button>`).join("")}</div>
+    <div class="pad-composition"><div class="pad-timeline"><div class="pad-timeline-tools"><div class="pad-length" role="group" aria-label="Progression length">${[2, 4, 8, 16].map((bars) => `<button data-pad-bars="${bars}">${bars} bars</button>`).join("")}</div><button data-pad-presets aria-controls="pad-progressions" aria-expanded="false">Progressions</button></div><p class="pad-progression-description" id="pad-progression-description"></p><div class="pad-chords" role="group" aria-label="Chord progression timeline">${Array.from({ length: 4 }, (_, index) => `<button data-pad-slot="${index}"><span class="pad-chord-number">${index + 1}</span><span class="pad-chord-content"><strong></strong><small></small></span><span class="pad-chord-duration"></span></button>`).join("")}</div></div><div class="pad-chord-editor"><h3 id="pad-selected-label"></h3><div class="pad-edit-group"><span>Degree</span><div class="pad-degrees" role="group"></div></div><div class="pad-edit-group"><span>Inversion</span><div class="pad-inversions" role="group">${["Root", "1st", "2nd", "3rd"].map((name, inversion) => `<button data-pad-inversion="${inversion}">${name}</button>`).join("")}</div></div></div></div>
+    <div class="pad-progressions" id="pad-progressions" role="group" aria-label="Chord progressions" hidden>${PAD_PROGRESSIONS.map((progression) => `<button data-pad-progression="${progression.id}" aria-describedby="pad-progression-help-${progression.id}"><span class="pad-progression-name"></span><span class="pad-progression-tooltip" id="pad-progression-help-${progression.id}" role="tooltip"></span></button>`).join("")}</div>
     <div class="acid-controls pad-controls">${controls.map((control) => options.renderControl(`pad-${control.parameter}`, control.label, 0, 100, Math.round(initial[control.parameter] * 100), `${Math.round(initial[control.parameter] * 100)}%`, "1", `Pad ${control.label.toLowerCase()}`)).join("")}</div><div id="pad-automation"></div>`;
   const automationContainer =
     container.querySelector<HTMLElement>("#pad-automation");
@@ -90,26 +94,40 @@ export function createPadPanel(
     getBase: (parameter) => normalizedPadValue(options.getTrack(), parameter),
     getScale: options.getScale,
     getMuted: () => options.getTrack().muted,
-    getBars: () => options.getTrack().bars,
-    getSteps: () =>
-      Array.from({ length: 16 }, (_, index) => ({
-        note:
-          padChordNotes(
-            options.getTrack(),
-            options.getScale(),
-            Math.floor(index / 4),
-          )[0] ?? 60,
+    getTiming: () => options.getTrack().timing,
+    allowedBars: [2, 4, 8, 16],
+    onTimingChange: (timing) => {
+      const parsed = padTimingSchema.safeParse(timing);
+      if (!parsed.success) return;
+      Object.assign(
+        options.getTrack(),
+        resizePadTrack(options.getTrack(), parsed.data),
+      );
+      render();
+      options.onChange();
+    },
+    getSteps: () => {
+      const track = options.getTrack();
+      const roots = Array.from(
+        { length: 4 },
+        (_, slot) => padChordNotes(track, options.getScale(), slot)[0] ?? 60,
+      );
+      const count = trackStepCount(track.timing);
+      return Array.from({ length: count }, (_, index) => ({
+        note: roots[Math.floor((index * 4) / count)] ?? 60,
         on: true,
         accent: false,
         slide: false,
-      })),
+      }));
+    },
     onChange: options.onChange,
   });
 
-  function setStep(absoluteStep: number): void {
-    playingStep = absoluteStep;
+  function setPosition(absoluteTick: number, swing: number): void {
+    playingTick = absoluteTick;
+    currentSwing = swing;
     const track = options.getTrack();
-    const current = padChordAtStep(track, absoluteStep);
+    const current = padChordAtTick(track, absoluteTick, swing);
     container
       .querySelectorAll<HTMLElement>("[data-pad-slot]")
       .forEach((button) => {
@@ -122,10 +140,13 @@ export function createPadPanel(
     const position = container.querySelector(".pad-position");
     if (position)
       position.textContent =
-        absoluteStep < 0
-          ? `${track.bars} bars`
-          : `Bar ${(Math.floor(absoluteStep / 16) % track.bars) + 1} / ${track.bars}`;
-    automation.setStep(absoluteStep);
+        absoluteTick < 0
+          ? `${track.timing.bars} bars`
+          : `Bar ${trackPosition(track.timing, absoluteTick, swing).bar + 1} / ${track.timing.bars}`;
+    automation.setPosition(absoluteTick, swing);
+  }
+  function setStep(absoluteStep: number): void {
+    setPosition(absoluteStep < 0 ? -1 : (absoluteStep * PPQ) / 4, 0);
   }
   function displayControl(parameter: PadParameter): void {
     const value = Math.round(options.getTrack()[parameter] * 100);
@@ -163,7 +184,7 @@ export function createPadPanel(
     ))
       button.setAttribute(
         "aria-pressed",
-        String(Number(button.dataset.padBars) === track.bars),
+        String(Number(button.dataset.padBars) === track.timing.bars),
       );
     for (const button of container.querySelectorAll<HTMLElement>(
       "[data-pad-slot]",
@@ -232,9 +253,13 @@ export function createPadPanel(
         (item) => item.id === button.dataset.padProgression,
       );
       if (!progression) continue;
-      button.textContent = progression.degrees
-        .map((degree) => degrees[degree % count])
-        .join(" · ");
+      const name = button.querySelector(".pad-progression-name");
+      const tooltip = button.querySelector(".pad-progression-tooltip");
+      if (name)
+        name.textContent = progression.degrees
+          .map((degree) => degrees[degree % count])
+          .join(" · ");
+      if (tooltip) tooltip.textContent = progression.description;
       button.setAttribute(
         "aria-pressed",
         String(
@@ -248,9 +273,18 @@ export function createPadPanel(
         `Progression ${progression.degrees.map((degree) => degrees[degree % count]).join(" ")}`,
       );
     }
+    const activeProgression = PAD_PROGRESSIONS.find((progression) =>
+      progression.degrees.every(
+        (degree, index) => degree % count === track.chords[index]?.degree,
+      ),
+    );
+    const description = container.querySelector("#pad-progression-description");
+    if (description)
+      description.textContent =
+        activeProgression?.description ?? "Custom progression";
     controls.forEach((control) => displayControl(control.parameter));
     automation.refresh(resetHistory);
-    setStep(playingStep);
+    setPosition(playingTick, currentSwing);
   }
   function updateControl(id: string, value: number): boolean {
     const control = controls.find((item) => id === `pad-${item.parameter}`);
@@ -288,7 +322,7 @@ export function createPadPanel(
     if (dataset.padBars !== undefined) {
       const bars = Number(dataset.padBars);
       if (bars === 2 || bars === 4 || bars === 8 || bars === 16) {
-        track.bars = bars;
+        Object.assign(track, resizePadTrack(track, { ...track.timing, bars }));
         changed = true;
       }
     }
@@ -335,10 +369,14 @@ export function createPadPanel(
   return {
     render,
     setStep,
+    setPosition,
     updateControl,
     activateControl: automation.activateControl,
     rebaseIncoming: (next: PadTrack) =>
-      automation.rebaseIncoming((parameter) => next.automation[parameter]),
+      automation.rebaseIncoming(
+        (parameter) => next.automation[parameter],
+        next.timing,
+      ),
     destroy(): void {
       destroyed = true;
       automation.destroy();

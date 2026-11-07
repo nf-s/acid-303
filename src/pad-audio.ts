@@ -1,6 +1,7 @@
+import { trackCycleTicks, trackStepCount, ticksPerStep, tickSpanSeconds } from "./timing";
 import { midiFrequency } from "./audio";
 import type { MusicalScale } from "./model";
-import { automatedPad, padChordAtStep, padChordNotes } from "./pad-model";
+import { automatedPad, padChordNotes } from "./pad-model";
 import type { PadTrack } from "./pad-model";
 
 interface PadProfile {
@@ -397,14 +398,14 @@ export class PadInstrument {
     }
   }
 
-  schedule(
-    track: PadTrack,
-    scale: MusicalScale,
-    absoluteStep: number,
-    time: number,
-    duration: number,
-    bpm: number,
-  ): void {
+  schedule(track: PadTrack, scale: MusicalScale, absoluteStep: number, time: number, duration: number, bpm: number): void {
+    const swing = Math.min(0.5, Math.abs(duration / (60 / bpm / 4) - 1));
+    this.scheduleTick(track,scale,absoluteStep * 6,time,bpm,swing);
+  }
+
+  scheduleTick(track: PadTrack, scale: MusicalScale, logicalTick: number, time: number, bpm: number, swing: number): void {
+    const absoluteStep = logicalTick / ticksPerStep(track.timing);
+    const duration = tickSpanSeconds(logicalTick, logicalTick + ticksPerStep(track.timing), bpm, swing, track.timing.grid);
     if (
       this.stopped ||
       absoluteStep < 0 ||
@@ -413,10 +414,11 @@ export class PadInstrument {
       bpm <= 0
     )
       return;
-    track = automatedPad(track, absoluteStep);
-    const slot = padChordAtStep(track, absoluteStep);
+    track = automatedPad(track, absoluteStep % trackStepCount(track.timing));
+    const span = trackCycleTicks(track.timing) / 4;
+    const slot = Math.floor(logicalTick / span) % 4;
     const notes = padChordNotes(track, scale, slot);
-    const signature = `${slot}:${track.bars}:${track.sound}:${notes.join(",")}`;
+    const signature = `${slot}:${trackCycleTicks(track.timing)}:${track.sound}:${notes.join(",")}`;
     this.level.gain.setTargetAtTime(
       track.muted ? 0 : track.volume * 1.25,
       time,
@@ -446,19 +448,14 @@ export class PadInstrument {
       this.lastStep = absoluteStep;
       return;
     }
-    const boundary = absoluteStep % (track.bars * 4) === 0;
+    const boundary = logicalTick % span === 0;
     const newChord =
       signature !== this.signature ||
       !this.current ||
       this.current.finished ||
       (boundary && absoluteStep !== this.lastStep);
-    const remainingSteps = track.bars * 4 - (absoluteStep % (track.bars * 4));
-    // Complete swung pairs have their nominal duration; an odd remainder starts
-    // with the current short sixteenth and must retain its actual duration.
-    const remainingSeconds =
-      ((remainingSteps - (remainingSteps % 2)) * 60) / bpm / 4 +
-      (remainingSteps % 2 ? duration : 0);
-    const end = time + Math.max(duration, remainingSeconds);
+    const remainingEnd = (Math.floor(logicalTick / span) + 1) * span;
+    const end = time + tickSpanSeconds(logicalTick, remainingEnd, bpm, swing, track.timing.grid);
     if (newChord) {
       if (this.current && time < this.current.endsAt)
         this.current.release(time, padReleaseSeconds(track));
@@ -481,6 +478,12 @@ export class PadInstrument {
       this.signature = signature;
     } else this.current?.update(track, time, end);
     this.lastStep = absoluteStep;
+  }
+
+  finish(track: PadTrack, localStep: number, time: number): void {
+    const resolved = automatedPad(track, localStep);
+    this.current?.release(time, padReleaseSeconds(resolved));
+    this.current = null;
   }
 
   stop(time = this.context.currentTime): void {

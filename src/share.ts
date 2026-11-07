@@ -1,23 +1,29 @@
 import { readProject } from "./model";
 import type { Project } from "./model";
+import { MAX_PROJECT_BYTES } from "./timing";
 
-const MAX_BYTES = 200000;
+const MAX_ENCODED_LENGTH = 500000;
 
 export async function encodeTrack(project: Project): Promise<string> {
   const data = new TextEncoder().encode(JSON.stringify(project));
+  if (data.byteLength > MAX_PROJECT_BYTES)
+    throw new Error("Track exceeds the share limit.");
   const stream = new Blob([data])
     .stream()
     .pipeThrough(new CompressionStream("gzip"));
   const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return `v1.${btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")}`;
+  const encoded = `v1.${btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")}`;
+  if (encoded.length > MAX_ENCODED_LENGTH)
+    throw new Error("Track link is too large.");
+  return encoded;
 }
 
 export async function decodeTrack(encoded: string): Promise<Project | null> {
   if (
     !encoded.startsWith("v1.") ||
-    encoded.length > MAX_BYTES ||
+    encoded.length > MAX_ENCODED_LENGTH ||
     !/^v1\.[\w-]+$/.test(encoded)
   )
     return null;
@@ -36,7 +42,7 @@ export async function decodeTrack(encoded: string): Promise<Project | null> {
       const next = await reader.read();
       if (next.done) break;
       size += next.value.length;
-      if (size > MAX_BYTES) {
+      if (size > MAX_PROJECT_BYTES) {
         await reader.cancel();
         return null;
       }

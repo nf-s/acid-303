@@ -26,6 +26,9 @@ async function countAudioContexts(page: Page): Promise<void> {
 }
 async function hostSession(page: Page): Promise<string> {
   await page.goto("/");
+  await page
+    .getByRole("button", { name: "Track controls", exact: true })
+    .click();
   await page.getByRole("button", { name: "Session", exact: true }).click();
   await page
     .getByRole("button", { name: "Create session", exact: true })
@@ -45,6 +48,9 @@ test("a failed session request keeps the local instrument usable", async ({
     route.fulfill({ status: 500, body: "Unavailable" }),
   );
   await page.goto("/");
+  await page
+    .getByRole("button", { name: "Track controls", exact: true })
+    .click();
   await page.getByRole("button", { name: "Session", exact: true }).click();
   await page
     .getByRole("button", { name: "Create session", exact: true })

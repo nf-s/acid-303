@@ -1,3 +1,4 @@
+import { resampleCycleLane, trackStepCount } from "./timing";
 import { describe, expect, it } from "vitest";
 import { scaleNotes, SCALE_MODES } from "./model";
 import {
@@ -20,7 +21,7 @@ describe("chord progression model", () => {
   it("adds a silent eight-bar progression with four editable chord slots", () => {
     const pad = createPad();
     expect(pad.muted).toBe(true);
-    expect(pad.bars).toBe(8);
+    expect(pad.timing.bars).toBe(8);
     expect(pad.chords).toHaveLength(4);
     expect(padSchema.parse(JSON.parse(JSON.stringify(pad)))).toEqual(pad);
   });
@@ -28,7 +29,7 @@ describe("chord progression model", () => {
   it("rejects unsafe lengths, sound choices and chord positions at the boundary", () => {
     const pad = createPad();
     for (const bars of [0, -1, 3, 32, Infinity])
-      expect(padSchema.safeParse({ ...pad, bars }).success).toBe(false);
+      expect(padSchema.safeParse({ ...pad, timing: { ...pad.timing, bars } }).success).toBe(false);
     expect(padSchema.safeParse({ ...pad, sound: 6 }).success).toBe(false);
     expect(
       padSchema.safeParse({ ...pad, chords: pad.chords.slice(1) }).success,
@@ -54,16 +55,13 @@ describe("chord progression model", () => {
       "volume",
     ];
     for (const bars of [2, 4, 8, 16]) {
-      const pad = padSchema.parse({ bars });
+      const pad = padSchema.parse({ timing: { bars, meter: "4/4", grid: "straight" } });
       expect(Object.values(pad.automation)).toEqual(
         Array.from({ length: 8 }, () => null),
       );
       for (const parameter of parameters) {
         expect(normalizedPadValue(pad, parameter)).toBe(pad[parameter]);
-        pad.automation[parameter] = Array.from(
-          { length: 16 },
-          (_, index) => index / 15,
-        );
+        pad.automation[parameter] = resampleCycleLane(Array.from({ length: 16 }, (_, index) => index / 15),trackStepCount(pad.timing));
       }
       const before = structuredClone(pad);
       for (const parameter of parameters) {
@@ -101,13 +99,13 @@ describe("chord progression model", () => {
       "space",
       "volume",
     ] satisfies PadParameter[])
-      pad.automation[parameter] = Array(16).fill(1);
+      pad.automation[parameter] = Array(trackStepCount(pad.timing)).fill(1);
     expect(padTailDuration(pad, 60)).toBeGreaterThanOrEqual(4.4);
   });
 
   it("holds each chord for its share of every supported progression length", () => {
     for (const bars of [2, 4, 8, 16]) {
-      const pad = padSchema.parse({ ...createPad(), bars });
+      const pad = padSchema.parse({ ...createPad(), timing: { bars, meter: "4/4", grid: "straight" } });
       const positions = Array.from({ length: bars * 16 }, (_, step) =>
         padChordAtStep(pad, step),
       );
@@ -154,11 +152,11 @@ describe("chord progression model", () => {
   it("retunes scale degrees without losing timing, inversions or sound parameters", () => {
     const pad = createPad();
     pad.sound = 4;
-    pad.bars = 16;
+    pad.timing.bars = 16;
     pad.chords[0] = { degree: 6, inversion: 3 };
     const changed = retunePad(pad, { root: 6, mode: "pentatonic" });
     expect(changed.chords[0]).toEqual({ degree: 1, inversion: 3 });
-    expect(changed.bars).toBe(16);
+    expect(changed.timing.bars).toBe(16);
     expect(changed.sound).toBe(4);
     expect(pad.chords[0]?.degree).toBe(6);
     expect(padScaleDegrees({ root: 6, mode: "pentatonic" })).toHaveLength(5);

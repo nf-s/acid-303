@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { z } from "zod";
-import { projectSchema, readProject } from "../../../src/model";
+import { readProject } from "../../../src/model";
 import {
   applyProjectChanges,
   clientIdSchema,
@@ -14,6 +14,7 @@ import {
   SESSION_LIFETIME_MS,
   SESSION_PROTOCOL,
   sessionTokenSchema,
+  sessionProjectSchema,
 } from "../../../src/session-protocol";
 import type {
   ClientMessage,
@@ -27,7 +28,7 @@ type SessionEnv = Omit<Env, "ROOMS"> & {
 const roleSchema = z.enum(["host", "guest"]);
 const hashSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const recordSchema = z.object({
-  project: projectSchema,
+  project: sessionProjectSchema,
   revision: z.number().int().nonnegative(),
   hostHash: hashSchema,
   guestHash: hashSchema,
@@ -46,7 +47,8 @@ const attachmentSchema = z.object({
   expiresAt: z.number().int().positive(),
   active: z.boolean(),
   playing: z.boolean(),
-  absoluteStep: z.number().int().nonnegative(),
+  absoluteTick: z.number().finite().nonnegative().default(0),
+  protocol: z.union([z.literal(1),z.literal(2)]).default(1),
   window: z.number(),
   packets: z.number().int().nonnegative(),
   patches: z.number().int().nonnegative(),
@@ -104,9 +106,15 @@ export class SessionRoom extends DurableObject<SessionEnv> {
   private closing = false;
   constructor(ctx: DurableObjectState, env: SessionEnv) {
     super(ctx, env);
-    ctx.setWebSocketAutoResponse(
-      new WebSocketRequestResponsePair("ping", "pong"),
-    );
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping","pong"));
+    for (const socket of ctx.getWebSockets()) {
+      const data = attachment(socket);
+      if (data && data.protocol !== 2 && data.active) {
+        error(socket,"reload-required","Reload Grain to continue this session");
+        socket.serializeAttachment({ ...data,active:false,playing:false });
+        socket.close(4010,"Reload Grain to continue");
+      }
+    }
   }
   private load(): RoomRecord | null {
     if (this.record !== undefined) return this.record;
@@ -155,7 +163,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
   private presence(): {
     hostConnected: boolean;
     playing: boolean;
-    absoluteStep: number;
+    absoluteTick: number;
     participants: number;
   } {
     const sockets = this.sockets();
@@ -163,7 +171,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
     return {
       hostConnected: host !== undefined,
       playing: host?.data.playing ?? false,
-      absoluteStep: host?.data.absoluteStep ?? 0,
+      absoluteTick: host?.data.absoluteTick ?? 0,
       participants: sockets.length,
     };
   }
@@ -199,7 +207,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       request.headers.get("Upgrade")?.toLowerCase() !== "websocket" ||
       !clientId.success ||
       protocols.length !== 2 ||
-      protocols[0] !== SESSION_PROTOCOL ||
+      (protocols[0] !== SESSION_PROTOCOL && protocols[0] !== "grain-session-v1") ||
       !token.success
     )
       return new Response("Invalid connection", { status: 400 });
@@ -217,6 +225,14 @@ export class SessionRoom extends DurableObject<SessionEnv> {
         ? "guest"
         : null;
     if (!role) return new Response("Invalid credentials", { status: 403 });
+    if (protocols[0] !== SESSION_PROTOCOL) {
+      const pair = new WebSocketPair();
+      this.ctx.acceptWebSocket(pair[1]);
+      pair[1].serializeAttachment({ clientId: clientId.data,role,expiresAt:record.expiresAt,active:false,playing:false,absoluteTick:0,protocol:1,window:Date.now(),packets:0,patches:0 });
+      error(pair[1],"reload-required","Reload Grain to continue this session");
+      pair[1].close(4010,"Reload Grain to continue");
+      return new Response(null,{status:101,webSocket:pair[0],headers:{"Sec-WebSocket-Protocol":"grain-session-v1"}});
+    }
     const existing = this.sockets();
     if (
       (record.clients[clientId.data]?.role &&
@@ -246,8 +262,9 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       role,
       expiresAt: record.expiresAt,
       active: true,
+      protocol: 2,
       playing: false,
-      absoluteStep: 0,
+      absoluteTick: 0,
       window: Date.now(),
       packets: 0,
       patches: 0,
@@ -319,7 +336,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       socket.serializeAttachment({
         ...data,
         playing: parsed.data.playing,
-        absoluteStep: parsed.data.absoluteStep,
+        absoluteTick: parsed.data.absoluteTick,
       });
       this.broadcast(parsed.data);
       return;

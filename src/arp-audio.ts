@@ -1,6 +1,8 @@
+import { ticksPerStep, trackStepCount } from "./timing";
 import { midiFrequency, saturationSample } from "./audio";
 import {
   arpEvents,
+  arpEventsAtTick,
   arpInterval,
   automatedArp,
   arpValueFromNormalized,
@@ -175,6 +177,18 @@ export class ArpInstrument {
         (event.duration * 60) / bpm / 4,
         bpm,
       );
+  }
+
+  scheduleTick(track: ArpTrack, scale: MusicalScale, logicalTick: number, time: number, bpm: number): void {
+    const index = Math.floor(logicalTick / ticksPerStep(track.timing)) % trackStepCount(track.timing);
+    track = automatedArp(track,index);
+    this.level.gain.cancelAndHoldAtTime(time);
+    const level = track.muted ? 0 : track.volume;
+    if (this.firstStep) this.level.gain.setValueAtTime(level,time);
+    else this.level.gain.setTargetAtTime(level,time,0.004);
+    this.firstStep = false;
+    for (const event of arpEventsAtTick(track,scale,logicalTick))
+      this.note(track,event,time,event.duration * 60 / bpm / 4,bpm);
   }
 
   stop(time = this.context.currentTime): void {

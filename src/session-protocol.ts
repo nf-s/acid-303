@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { projectSchema, readProject } from "./model";
 import type { Project } from "./model";
+import { MAX_PROJECT_BYTES, MAX_TRACK_STEPS } from "./timing";
 
-export const SESSION_PROTOCOL = "grain-session-v1";
-export const MAX_SESSION_BYTES = 131072;
-export const MAX_PROJECT_CHANGES = 2048;
+export const SESSION_PROTOCOL = "grain-session-v2";
+export const MAX_SESSION_BYTES = MAX_PROJECT_BYTES;
+export const MAX_PROJECT_CHANGES = 4096;
 export const MAX_SESSION_CLIENTS = 8;
 export const SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
 export const HOST_REPLACED_CODE = 4009;
@@ -27,22 +28,18 @@ function jsonSchema(depth: number): z.ZodType<JsonValue> {
   const child = jsonSchema(depth - 1);
   return z.union([
     primitive,
-    z.array(child).max(64),
+    z.array(child).max(MAX_TRACK_STEPS),
     z
       .record(keySchema, child)
       .refine((value) => Object.keys(value).length <= 64),
   ]);
 }
 const jsonValueSchema = jsonSchema(8);
-export const projectChangeSchema = z
-  .object({
-    path: z
-      .array(z.union([keySchema, z.number().int().min(0).max(63)]))
-      .min(1)
-      .max(8),
-    value: jsonValueSchema,
-  })
-  .strict();
+const pathSchema = z.array(z.union([keySchema,z.number().int().min(0).max(MAX_TRACK_STEPS - 1)])).min(1).max(8);
+export const projectChangeSchema = z.union([
+  z.object({ path: pathSchema, value: jsonValueSchema }).strict(),
+  z.object({ path: pathSchema, entries: z.array(z.tuple([z.number().int().min(0).max(MAX_TRACK_STEPS - 1),jsonValueSchema])).min(1).max(MAX_TRACK_STEPS).refine((entries) => new Set(entries.map(([index]) => index)).size === entries.length) }).strict(),
+]);
 export type ProjectChange = z.infer<typeof projectChangeSchema>;
 export const clientIdSchema = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/);
 export const roomIdSchema = z.string().regex(/^[A-Za-z0-9_-]{22}$/);
@@ -51,7 +48,7 @@ const sequenceSchema = z.number().int().min(1).max(2147483647);
 const revisionSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const clockFields = {
   playing: z.boolean(),
-  absoluteStep: z.number().int().min(0).max(2147483647),
+  absoluteTick: z.number().finite().min(0).max(2147483647),
 };
 const presenceFields = {
   ...clockFields,
@@ -83,8 +80,13 @@ export const sessionCreatedSchema = z
   })
   .strict();
 export type SessionCreated = z.infer<typeof sessionCreatedSchema>;
+export const sessionProjectSchema = z.unknown().transform((value,context) => {
+  const project = readProject(value);
+  if (!project) { context.addIssue({ code: "custom", message: "Invalid project" }); return z.NEVER; }
+  return project;
+});
 export const createSessionSchema = z
-  .object({ project: projectSchema })
+  .object({ project: sessionProjectSchema })
   .strict();
 export const serverMessageSchema = z.discriminatedUnion("type", [
   z
@@ -156,9 +158,17 @@ export function diffProject(before: Project, after: Project): ProjectChange[] {
       Array.isArray(next) &&
       previous.length === next.length
     ) {
-      next.forEach((value, index) => {
+      const primitive = (value: JsonValue): boolean => value === null || typeof value !== "object";
+      if (path.length && previous.every(primitive) && next.every(primitive)) {
+        const entries: Array<[number,JsonValue]> = [];
+        next.forEach((value,index) => { if (!Object.is(previous[index],value)) entries.push([index,value]); });
+        if (entries.length === 1) {
+          const entry = entries[0];
+          if (entry) changes.push({ path: [...path,entry[0]], value: entry[1] });
+        } else if (entries.length) changes.push({ path, entries });
+      } else next.forEach((value,index) => {
         const old = previous[index];
-        if (old !== undefined) visit(old, value, [...path, index]);
+        if (old !== undefined) visit(old,value,[...path,index]);
       });
       return;
     }
@@ -196,6 +206,20 @@ export function applyProjectChanges(
   const parsed = jsonValueSchema.safeParse(current);
   if (!parsed.success) return null;
   const updated = parsed.data;
+  function write(target: JsonValue, key: string | number | undefined, change: ProjectChange): boolean {
+    const existing = Array.isArray(target) && typeof key === "number" ? target[key] : object(target) && typeof key === "string" ? target[key] : undefined;
+    if (existing === undefined) return false;
+    if ("entries" in change) {
+      if (!Array.isArray(existing)) return false;
+      for (const [index,value] of change.entries) {
+        if (index >= existing.length) return false;
+        existing[index] = value;
+      }
+    } else if (Array.isArray(target) && typeof key === "number") target[key] = change.value;
+    else if (object(target) && typeof key === "string") target[key] = change.value;
+    else return false;
+    return true;
+  }
   for (const change of valid.data) {
     let target = updated;
     for (let index = 0; index < change.path.length; index++) {
@@ -203,7 +227,7 @@ export function applyProjectChanges(
       const final = index === change.path.length - 1;
       if (Array.isArray(target)) {
         if (typeof key !== "number" || key >= target.length) return null;
-        if (final) target[key] = change.value;
+        if (final) { if (!write(target,key,change)) return null; }
         else {
           const next = target[key];
           if (next === undefined) return null;
@@ -211,7 +235,7 @@ export function applyProjectChanges(
         }
       } else if (object(target)) {
         if (typeof key !== "string" || !Object.hasOwn(target, key)) return null;
-        if (final) target[key] = change.value;
+        if (final) { if (!write(target,key,change)) return null; }
         else {
           const next = target[key];
           if (next === undefined) return null;

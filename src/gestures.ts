@@ -13,6 +13,8 @@ interface DragState {
   started: number;
   dragged: boolean;
   lastY: number;
+  lastX: number;
+  axis: "x" | "y" | null;
   rawValue: number;
   emittedValue: number;
 }
@@ -170,6 +172,8 @@ export function installGestures(
       started: performance.now(),
       dragged: false,
       lastY: event.clientY,
+      lastX: event.clientX,
+      axis: element.dataset.dragAxis === "both" ? null : "y",
       rawValue: range.value,
       emittedValue: range.value,
     });
@@ -198,11 +202,23 @@ export function installGestures(
     )
       state.dragged = true;
     if (range.value !== state.emittedValue) state.rawValue = range.value;
+    if (state.axis === null) {
+      if (!state.dragged) return;
+      state.axis =
+        Math.abs(event.clientX - state.startX) >
+        Math.abs(event.clientY - state.startY)
+          ? "x"
+          : "y";
+    }
     const delta =
-      ((state.lastY - event.clientY) / 240) *
+      ((state.axis === "x"
+        ? event.clientX - state.lastX
+        : state.lastY - event.clientY) /
+        240) *
       (range.max - range.min) *
       (event.shiftKey ? 0.2 : 1);
     state.lastY = event.clientY;
+    state.lastX = event.clientX;
     state.rawValue = Math.min(
       range.max,
       Math.max(range.min, state.rawValue + delta),

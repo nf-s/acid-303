@@ -1,4 +1,3 @@
-import { STEP_COUNT } from "./model";
 import type { DrumId, DrumTrack } from "./model";
 import { createPaletteLookup } from "./visualizer-palettes";
 import type { VisualizerPaletteId } from "./visualizer-palettes";
@@ -490,8 +489,7 @@ export class FluidVisualizer {
       !this.motionEnabled ||
       document.hidden ||
       !Number.isInteger(step) ||
-      step < 0 ||
-      step >= STEP_COUNT
+      step < 0
     )
       return;
     for (const drum of drums) {

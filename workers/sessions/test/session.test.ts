@@ -10,6 +10,7 @@ import { z } from "zod";
 import { createProject } from "../../../src/model";
 import {
   SESSION_PROTOCOL,
+  MAX_SESSION_BYTES,
   sessionCreatedSchema,
   serverMessageSchema,
 } from "../../../src/session-protocol";
@@ -137,7 +138,7 @@ describe("session rooms in the Workers runtime", () => {
     await host.next("welcome");
     await guest.next("welcome");
     const ascending = Array.from({ length: 16 }, (_, index) => index / 15);
-    const descending = ascending.map((value) => 1 - value);
+    const descending = Array.from({length:128},(_,index) => 1 - index / 127);
     host.send({
       type: "patch",
       clientId: host.clientId,
@@ -183,7 +184,7 @@ describe("session rooms in the Workers runtime", () => {
       hostConnected: false,
       playing: false,
     });
-    guest.send({ type: "clock", playing: true, absoluteStep: 9 });
+    guest.send({ type: "clock", playing: true, absoluteTick: 9 });
     expect(await guest.next("error")).toMatchObject({ code: "host-only" });
     guest.send({ type: "end" });
     expect(await guest.next("error")).toMatchObject({ code: "host-only" });
@@ -227,16 +228,16 @@ describe("session rooms in the Workers runtime", () => {
       action: "restart",
       clientId: guest.clientId,
     });
-    host.send({ type: "clock", playing: true, absoluteStep: 82 });
+    host.send({ type: "clock", playing: true, absoluteTick: 82 });
     expect(await guest.next("clock")).toMatchObject({
       playing: true,
-      absoluteStep: 82,
+      absoluteTick: 82,
     });
     await evictDurableObject(env.ROOMS.getByName(room.roomId));
     guest.send({ type: "sync" });
     expect(await guest.next("welcome")).toMatchObject({
       playing: true,
-      absoluteStep: 82,
+      absoluteTick: 82,
       hostConnected: true,
     });
     host.socket.close(1000, "Host left");
@@ -293,7 +294,7 @@ describe("session rooms in the Workers runtime", () => {
     host.send({ type: "sync" });
     expect(await host.next("welcome")).toMatchObject({ revision: 0 });
     const closed = closeCode(host.socket);
-    host.socket.send("x".repeat(131073));
+    host.socket.send("x".repeat(MAX_SESSION_BYTES + 1));
     expect(await closed).toBe(1009);
   });
   it("revokes credentials and deletes storage on end and expiry", async () => {
@@ -414,7 +415,7 @@ describe("session rooms in the Workers runtime", () => {
     expect(before.updateRead).toBe(1);
     expect(JSON.stringify(before.plan)).toContain("USING INTEGER PRIMARY KEY");
     for (let index = 0; index < 16; index++)
-      host.send({ type: "clock", playing: true, absoluteStep: index });
+      host.send({ type: "clock", playing: true, absoluteTick: index });
     for (let index = 0; index < 16; index++) await host.next("clock");
     expect((await measure()).rows).toEqual(before.rows);
     host.patch(1, ["bpm"], 144);

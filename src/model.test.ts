@@ -47,7 +47,7 @@ describe("Arp and Pad project integration", () => {
     for (const bars of [2, 4, 8, 16]) {
       const valid = projectSchema.parse({
         ...project,
-        pad: { ...project.pad, bars },
+        pad: { ...project.pad, timing: { ...project.pad.timing, bars } },
       });
       expect(projectBars(valid)).toBe(bars);
       valid.pad.volume = 0;
@@ -69,7 +69,7 @@ describe("Arp and Pad project integration", () => {
     expect(changed.arp.direction).toBe("played");
     expect(changed.arp.muted).toBe(false);
     expect(changed.pad.chords[0]).toEqual({ degree: 1, inversion: 3 });
-    expect(changed.pad.bars).toBe(project.pad.bars);
+    expect(changed.pad.timing.bars).toBe(project.pad.timing.bars);
     expect(project.arp.notes).toEqual([58, 59, 62]);
   });
 
@@ -82,7 +82,7 @@ describe("Arp and Pad project integration", () => {
       readProject({ ...project, arp: { ...project.arp, rate: "fast" } }),
     ).toBeNull();
     expect(
-      readProject({ ...project, pad: { ...project.pad, bars: 3 } }),
+      readProject({ ...project, pad: { ...project.pad, timing: { ...project.pad.timing, bars: 3 } } }),
     ).toBeNull();
     expect(
       readProject({ ...project, pad: { ...project.pad, volume: Infinity } }),
@@ -300,7 +300,7 @@ describe("saved project migration", () => {
       },
     };
     const upgraded = readProject(legacy);
-    expect(upgraded?.version).toBe(2);
+    expect(upgraded?.version).toBe(3);
     expect(upgraded?.bpm).toBe(139);
     expect(upgraded?.drums.find((track) => track.id === "rim")?.pitch).toBe(-4);
     expect(upgraded?.drums.map((track) => track.steps)).toEqual(
@@ -668,5 +668,60 @@ describe("instrument automation", () => {
         project.bass.automation.cutoff,
       );
     }
+  });
+});
+
+describe("independent timing migration", () => {
+  it("preserves all legacy sixteen-step voices and samples old pad knots without retiming", async () => {
+    const { automatedPad } = await import("./pad-model");
+    const project = createProject();
+    project.bass.automation.cutoff = Array.from({ length: 16 }, (_, index) => index / 15);
+    const lane = Array.from({ length: 16 }, (_, index) => (index % 5) / 4);
+    const legacy = { ...project, version: 2, pad: { ...project.pad, bars: 4, automation: { ...project.pad.automation, tone: lane } } };
+    const restored = readProject(legacy);
+    if (!restored) throw new Error("Legacy timing migration failed");
+    expect(restored.version).toBe(3);
+    expect(restored.drums).toEqual(project.drums);
+    expect(restored.bass).toEqual(project.bass);
+    expect(restored.keys).toEqual(project.keys);
+    expect(restored.arp).toEqual(project.arp);
+    expect(restored.fx).toEqual({ sweep: 0, space: 0, echo: 0 });
+    expect(restored.pad.timing).toEqual({ bars: 4, meter: "4/4", grid: "straight" });
+    expect(restored.pad.automation.tone).toHaveLength(64);
+    for (let step = 0; step < 128; step++) {
+      const position = (step / 4) % 16, index = Math.floor(position), fraction = position - index;
+      const first = lane[index] ?? 0, next = lane[(index + 1) % 16] ?? 0;
+      expect(automatedPad(restored.pad, step).tone).toBeCloseTo(first + (next - first) * fraction, 12);
+    }
+  });
+  it("resizes independent patterns and rejects inconsistent stored lengths", async () => {
+    const { resizeDrumTrack, resizeBassTrack } = await import("./model");
+    const project = createProject(), drum = project.drums[0];
+    if (!drum) throw new Error("Missing kick");
+    drum.automation.volume = Array.from({ length: 16 }, (_, index) => index / 15);
+    const longer = resizeDrumTrack(drum, { bars: 4, meter: "4/4", grid: "straight" });
+    expect(longer.steps).toHaveLength(64);
+    expect(longer.steps.slice(16,32)).toEqual(drum.steps);
+    expect(longer.automation.volume?.slice(48)).toEqual(drum.automation.volume);
+    project.drums[0] = longer;
+    project.bass = resizeBassTrack(project.bass, { bars: 8, meter: "5/4", grid: "triplet" });
+    expect(project.bass.steps).toHaveLength(240);
+    expect(readProject(project)).not.toBeNull();
+    expect(readProject({ ...project, bass: { ...project.bass, steps: project.bass.steps.slice(1) } })).toBeNull();
+  });
+  it("bounds polymeter export without requiring an enormous common loop", async () => {
+    const { exportPlan, resizeDrumTrack, playbackFrame } = await import("./model");
+    const project = createProject();
+    project.drums = project.drums.map((track, index) => resizeDrumTrack(track, { bars: 8, meter: index === 0 ? "7/8" : index === 1 ? "5/4" : "3/4", grid: "triplet" }));
+    project.pad.muted = false;
+    project.pad.timing.bars = 16;
+    const plan = exportPlan(project);
+    expect(plan.completeCycle).toBe(false);
+    expect(plan.ticks).toBeLessThanOrEqual(3072);
+    expect(plan.ticks).toBeGreaterThanOrEqual(1536);
+    const frame = playbackFrame(project, 672);
+    expect(frame.positions.kick?.index).toBe(0);
+    expect(frame.positions.snare?.index).not.toBe(0);
+    expect(playbackFrame(project, 0, false).positions.bass).toBeNull();
   });
 });

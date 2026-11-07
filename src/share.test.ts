@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { createProject } from "./model";
+import {
+  createProject,
+  resizeDrumTrack,
+  resizeBassTrack,
+  resizeKeysTrack,
+  projectSchema,
+} from "./model";
+import { resizeArpTrack } from "./arp-model";
+import { resizePadTrack } from "./pad-model";
+import {
+  sequenceTimingSchema,
+  padTimingSchema,
+  trackStepCount,
+  MAX_PROJECT_BYTES,
+} from "./timing";
 import { encodeTrack, decodeTrack } from "./share";
 
 describe("track links", () => {
@@ -17,12 +31,73 @@ describe("track links", () => {
     expect(link.length).toBeLessThan(6000);
     expect(await decodeTrack(link)).toEqual(track);
   });
+  it("round-trips the longest patterns with all 72 independent automation lanes", async () => {
+    const track = createProject();
+    const timing = sequenceTimingSchema.parse({
+      bars: 8,
+      meter: "5/4",
+      grid: "triplet",
+    });
+    track.drums = track.drums.map((drum) => resizeDrumTrack(drum, timing));
+    track.bass = resizeBassTrack(track.bass, timing);
+    track.keys = resizeKeysTrack(track.keys, timing);
+    track.arp = resizeArpTrack(track.arp, timing);
+    track.pad = resizePadTrack(
+      track.pad,
+      padTimingSchema.parse({ ...timing, bars: 16 }),
+    );
+    let seed = 918273;
+    const fill = (
+      automation: Record<string, number[] | null>,
+      count: number,
+    ): void => {
+      for (const key of Object.keys(automation))
+        automation[key] = Array.from({ length: count }, () => {
+          seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+          return seed / 4294967295;
+        });
+    };
+    for (const instrument of [
+      ...track.drums,
+      track.bass,
+      track.keys,
+      track.arp,
+      track.pad,
+    ])
+      fill(instrument.automation, trackStepCount(instrument.timing));
+    projectSchema.parse(track);
+    expect(
+      new TextEncoder().encode(JSON.stringify(track)).byteLength,
+    ).toBeLessThan(MAX_PROJECT_BYTES);
+    const link = await encodeTrack(track);
+    expect(link.length).toBeLessThan(500000);
+    expect(await decodeTrack(link)).toEqual(track);
+  });
+  it("bounds decompressed data before parsing", async () => {
+    const data = new Uint8Array(
+      await new Response(
+        new Blob([" ".repeat(MAX_PROJECT_BYTES + 1)])
+          .stream()
+          .pipeThrough(new CompressionStream("gzip")),
+      ).arrayBuffer(),
+    );
+    const binary = Array.from(data, (byte) => String.fromCharCode(byte)).join(
+      "",
+    );
+    const encoded =
+      "v1." +
+      btoa(binary)
+        .replaceAll("+", "-")
+        .replaceAll("/", "_")
+        .replaceAll("=", "");
+    expect(await decodeTrack(encoded)).toBeNull();
+  });
   it("rejects unsupported, damaged, oversized and invalid payloads", async () => {
     for (const value of [
       "v2.abc",
       "v1.!",
       "v1.abc",
-      "v1." + "a".repeat(200001),
+      "v1." + "a".repeat(500001),
     ])
       expect(await decodeTrack(value)).toBeNull();
     const data = await new Response(

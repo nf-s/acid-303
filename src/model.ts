@@ -1,11 +1,16 @@
 import { z } from "zod";
-import { arpSchema, createArp, retuneArp } from "./arp-model";
-import { padSchema, createPad, retunePad } from "./pad-model";
+import { arpSchema, arpBaseSchema, createArp, retuneArp, automatedArp, normalizedArpValue, arpNotePool, arpInterval } from "./arp-model";
+import { padSchema, padBaseSchema, createPad, retunePad, automatedPad, normalizedPadValue } from "./pad-model";
+import { createTiming, sequenceTimingSchema, trackStepCount, trackCycleTicks, trackPosition, resizePattern, resizeAutomationLane, resampleCycleLane, tickSeconds, MAX_TRACK_STEPS } from "./timing";
+import type { SequenceTiming, TrackPosition } from "./timing";
+import type { ArpParameter } from "./arp-model";
+import type { PadParameter } from "./pad-model";
+
 
 export const STEP_COUNT = 16;
 export const automationLaneSchema = z
   .array(z.number().min(0).max(1))
-  .length(STEP_COUNT)
+  .min(1).max(MAX_TRACK_STEPS)
   .nullable()
   .default(null);
 const drumAutomationSchema = z.object({
@@ -35,6 +40,7 @@ export function emptyDrumAutomation(): DrumAutomation {
 export const drumIdSchema = z.enum(["kick", "snare", "hat", "clap", "rim"]);
 export type DrumId = z.infer<typeof drumIdSchema>;
 export const drumSchema = z.object({
+  timing: sequenceTimingSchema.default(createTiming),
   pan: z.number().min(-1).max(1).default(0),
   attack: z.number().min(0).max(1).default(0),
   space: z.number().min(0).max(1).default(0),
@@ -47,7 +53,7 @@ export const drumSchema = z.object({
   decay: z.number().min(0.03).max(1.5),
   volume: z.number().min(0).max(1),
   muted: z.boolean(),
-  steps: z.array(z.boolean()).length(STEP_COUNT),
+  steps: z.array(z.boolean()).min(1).max(240),
 });
 export type DrumTrack = z.infer<typeof drumSchema>;
 export const bassStepSchema = z.object({
@@ -106,6 +112,7 @@ export function emptyKeysAutomation(): KeysAutomation {
   };
 }
 export const bassSchema = z.object({
+  timing: sequenceTimingSchema.default(createTiming),
   pulse: z.number().min(0).max(1).default(0.5),
   shape: z.number().min(0).max(1).default(0.5),
   drive: z.number().min(0).max(1).default(0),
@@ -118,7 +125,7 @@ export const bassSchema = z.object({
   decay: z.number().min(0.05).max(1.5),
   volume: z.number().min(0).max(1),
   muted: z.boolean(),
-  steps: z.array(bassStepSchema).length(STEP_COUNT),
+  steps: z.array(bassStepSchema).min(1).max(240),
 });
 export type BassTrack = z.infer<typeof bassSchema>;
 export const BASS_SOUNDS = [
@@ -139,6 +146,7 @@ export const keysStepSchema = z.object({
   slide: z.boolean().default(false),
 });
 export const keysSchema = z.object({
+  timing: sequenceTimingSchema.default(createTiming),
   width: z.number().min(0).max(1).default(0.5),
   attack: z.number().min(0).max(1).default(0),
   grit: z.number().min(0).max(1).default(0),
@@ -150,7 +158,7 @@ export const keysSchema = z.object({
   space: z.number().min(0).max(1),
   volume: z.number().min(0).max(1),
   muted: z.boolean(),
-  steps: z.array(keysStepSchema).length(STEP_COUNT),
+  steps: z.array(keysStepSchema).min(1).max(240),
 });
 export type KeysTrack = z.infer<typeof keysSchema>;
 export function normalizedDrumValue(
@@ -264,6 +272,7 @@ export function createKeys(preset = 0): KeysTrack {
   const root = preset === 2 ? 60 : 57;
   const intervals = [0, 0, 7, 0, 0, 12, 0, 3, 0, 7, 0, 0, 12, 0, 3, 7];
   return {
+    timing: createTiming(),
     sound: 0,
     width: 0.5,
     attack: 0,
@@ -333,8 +342,9 @@ export function snapNote(
       nearest = candidate;
   return nearest;
 }
-export const projectSchema = z.object({
-  version: z.literal(2),
+const baseProjectSchema = z.object({
+  version: z.literal(3),
+  fx: z.object({ sweep: z.number().min(-1).max(1), space: z.number().min(-1).max(1), echo: z.number().min(-1).max(1) }).default(() => ({ sweep: 0, space: 0, echo: 0 })),
   name: z.string().max(80),
   scale: musicalScaleSchema.default((): MusicalScale => ({
     root: 9,
@@ -353,9 +363,17 @@ export const projectSchema = z.object({
   arp: z.lazy(() => arpSchema).default(createArp),
   pad: z.lazy(() => padSchema).default(createPad),
 });
+export const projectSchema = baseProjectSchema.superRefine((project, context) => {
+  const tracks = [...project.drums, project.bass, project.keys, project.arp, project.pad];
+  tracks.forEach((track, index) => {
+    const count = trackStepCount(track.timing);
+    if (("steps" in track && track.steps.length !== count) || ("accents" in track && track.accents.length !== count) || Object.values(track.automation).some((lane) => lane !== null && lane.length !== count))
+      context.addIssue({ code: "custom", message: `Track ${index + 1} does not match its timing` });
+  });
+});
 export type Project = z.infer<typeof projectSchema>;
 export function projectBars(project: Project): number {
-  return project.pad.muted ? 2 : project.pad.bars;
+  return Math.ceil(exportPlan(project).ticks / 96);
 }
 export function withScale(project: Project, scale: MusicalScale): Project {
   const next = structuredClone(project);
@@ -446,7 +464,8 @@ export function createProject(preset = 0): Project {
   const scale: MusicalScale = { root: preset === 2 ? 0 : 9, mode: "minor" };
   return withScale(
     {
-      version: 2,
+      version: 3,
+      fx: { sweep: 0, space: 0, echo: 0 },
       scale,
       name:
         ["Acid funk", "After hours", "Broken circuit"][preset] ?? "Acid funk",
@@ -455,6 +474,7 @@ export function createProject(preset = 0): Project {
       drive: 0.12,
       volume: 0.65,
       drums: ids.map((id, index) => ({
+        timing: createTiming(),
         id,
         pan: 0,
         attack: 0,
@@ -473,6 +493,7 @@ export function createProject(preset = 0): Project {
       arp: createArp(),
       pad: createPad(),
       bass: {
+        timing: createTiming(),
         pulse: 0.5,
         shape: 0.5,
         drive: 0,
@@ -496,49 +517,52 @@ export function createProject(preset = 0): Project {
     scale,
   );
 }
-const legacyProjectSchema = projectSchema.omit({ keys: true }).extend({
+const legacyPadSchema = padBaseSchema.extend({
+  bars: z.union([z.literal(2), z.literal(4), z.literal(8), z.literal(16)]).default(8),
+});
+const legacyBase = baseProjectSchema.extend({
+  version: z.literal(2),
+  drums: z.array(drumSchema.extend({ steps: z.array(z.boolean()).length(16) })).length(5).refine((drums) => new Set(drums.map((drum) => drum.id)).size === 5),
+  bass: bassSchema.extend({ steps: z.array(bassStepSchema).length(16) }),
+  keys: keysSchema.extend({ steps: z.array(keysStepSchema).length(16) }),
+  arp: z.lazy(() => arpBaseSchema.extend({ steps: z.array(z.boolean()).length(16).default(() => Array(16).fill(true)), accents: z.array(z.boolean()).length(16).default(() => Array(16).fill(false)) })).default(createArp),
+  pad: z.lazy(() => legacyPadSchema).default(() => legacyPadSchema.parse({ bars: 8 })),
+});
+const legacyProjectSchema = legacyBase.omit({ keys: true }).extend({
   version: z.literal(1),
-  drums: z
-    .array(
-      drumSchema.extend({
-        id: z.enum(["kick", "snare", "hat", "clap", "cowbell"]),
-      }),
-    )
-    .length(5)
-    .refine((drums) => new Set(drums.map((drum) => drum.id)).size === 5),
-  bass: bassSchema.extend({
-    steps: z
-      .array(bassStepSchema.extend({ slide: z.boolean() }))
-      .length(STEP_COUNT),
-  }),
+  drums: z.array(drumSchema.extend({ id: z.enum(["kick", "snare", "hat", "clap", "cowbell"]), steps: z.array(z.boolean()).length(16) })).length(5).refine((drums) => new Set(drums.map((drum) => drum.id)).size === 5),
 });
 export function readProject(value: unknown): Project | null {
   const current = projectSchema.safeParse(value);
   if (current.success) return withScale(current.data, current.data.scale);
-  const legacy = legacyProjectSchema.safeParse(value);
-  if (!legacy.success) return null;
-  const original = legacy.data;
-  const upgraded = projectSchema.parse({
-    ...original,
-    version: 2,
-    drive: Math.min(original.drive, 0.18),
-    drums: original.drums.map((track) =>
-      track.id === "cowbell"
-        ? { ...track, id: "rim", sound: 0, decay: 0.12 }
-        : track,
-    ),
-    bass: {
-      ...original.bass,
-      steps: original.bass.steps.map(({ note, on, accent, slide }) => ({
-        note,
-        on,
-        accent,
-        slide,
-      })),
-    },
+  const legacy = legacyBase.safeParse(value);
+  if (legacy.success) {
+    const original = legacy.data;
+    const tracks = [...original.drums, original.bass, original.keys, original.arp, original.pad];
+    if (tracks.some((track) => Object.values(track.automation).some((lane) => lane !== null && lane.length !== 16))) return null;
+    const { bars, ...pad } = original.pad;
+    const timing = { ...pad.timing, bars, meter: "4/4", grid: "straight" };
+    const parsedTiming = padSchema.shape.timing.safeParse(timing);
+    if (!parsedTiming.success) return null;
+    const automation = { ...pad.automation };
+    for (const parameter of Object.keys(automation)) {
+      const key = z.enum(["attack", "release", "tone", "motion", "spread", "space", "shape", "volume"]).parse(parameter);
+      automation[key] = resampleCycleLane(automation[key], trackStepCount(parsedTiming.data));
+    }
+    const upgraded = projectSchema.safeParse({ ...original, version: 3, fx: { sweep: 0, space: 0, echo: 0 },
+      drums: original.drums.map((track) => ({ ...track, timing: createTiming() })),
+      bass: { ...original.bass, timing: createTiming() }, keys: { ...original.keys, timing: createTiming() },
+      arp: { ...original.arp, timing: createTiming() }, pad: { ...pad, timing: parsedTiming.data, automation },
+    });
+    return upgraded.success ? withScale(upgraded.data, upgraded.data.scale) : null;
+  }
+  const ancient = legacyProjectSchema.safeParse(value);
+  if (!ancient.success) return null;
+  const original = ancient.data;
+  return readProject({ ...original, version: 2, drive: Math.min(original.drive, 0.18),
+    drums: original.drums.map((track) => track.id === "cowbell" ? { ...track, id: "rim", sound: 0, decay: 0.12 } : track),
     keys: createKeys(original.name === "Broken circuit" ? 2 : 0),
   });
-  return withScale(upgraded, upgraded.scale);
 }
 export function noteName(note: number): string {
   const names = [
@@ -567,7 +591,8 @@ export function remixProject(
 ): Project {
   const remix = structuredClone(project);
   for (const track of remix.drums) {
-    track.steps = Array.from({ length: STEP_COUNT }, (_, step) => {
+    track.steps = Array.from({ length: trackStepCount(track.timing) }, (_, index) => {
+      const step = index % 16;
       if (track.id === "kick")
         return (
           step === 0 ||
@@ -608,4 +633,65 @@ export function remixProject(
     slide: false,
   }));
   return withScale(remix, remix.scale);
+}
+
+export function resizeDrumTrack(track: DrumTrack, timing: SequenceTiming): DrumTrack {
+  const automation = { ...track.automation };
+  for (const parameter of drumAutomationSchema.keyof().options)
+    automation[parameter] = resizeAutomationLane(track.automation[parameter], track.timing, timing, normalizedDrumValue(track, parameter));
+  return { ...track, timing: { ...timing }, automation, steps: resizePattern(track.steps, track.timing, timing, () => false, (value) => value) };
+}
+export function resizeBassTrack(track: BassTrack, timing: SequenceTiming): BassTrack {
+  const automation = { ...track.automation };
+  for (const parameter of bassAutomationSchema.keyof().options)
+    automation[parameter] = resizeAutomationLane(track.automation[parameter], track.timing, timing, normalizedBassValue(track, parameter));
+  return { ...track, timing: { ...timing }, automation, steps: resizePattern(track.steps, track.timing, timing, (source) => ({ note: source?.note ?? 33, on: false, accent: false, slide: false }), (value) => value.on) };
+}
+export function resizeKeysTrack(track: KeysTrack, timing: SequenceTiming): KeysTrack {
+  const automation = { ...track.automation };
+  for (const parameter of keysAutomationSchema.keyof().options)
+    automation[parameter] = resizeAutomationLane(track.automation[parameter], track.timing, timing, normalizedKeysValue(track, parameter));
+  return { ...track, timing: { ...timing }, automation, steps: resizePattern(track.steps, track.timing, timing, (source) => ({ note: source?.note ?? 57, on: false, accent: false, slide: false }), (value) => value.on) };
+}
+export type InstrumentId = DrumId | "bass" | "keys" | "arp" | "pad";
+export interface PlaybackFrame { playing: boolean; absoluteTick: number; positions: Record<InstrumentId, TrackPosition | null> }
+export function playbackFrame(project: Project, absoluteTick: number, playing = true): PlaybackFrame {
+  const position = (timing: Project["bass"]["timing"] | Project["pad"]["timing"]): TrackPosition | null => playing && absoluteTick >= 0 ? trackPosition(timing, absoluteTick, project.swing) : null;
+  const positions: PlaybackFrame["positions"] = { kick: null, snare: null, hat: null, clap: null, rim: null, bass: position(project.bass.timing), keys: position(project.keys.timing), arp: position(project.arp.timing), pad: position(project.pad.timing) };
+  for (const drum of project.drums) positions[drum.id] = position(drum.timing);
+  return { playing, absoluteTick: playing ? absoluteTick : -1, positions };
+}
+export type AutomationTarget =
+  | { instrument: "drum"; drum: DrumId; parameter: DrumAutomationParameter }
+  | { instrument: "bass"; parameter: BassAutomationParameter }
+  | { instrument: "keys"; parameter: KeysAutomationParameter }
+  | { instrument: "arp"; parameter: ArpParameter }
+  | { instrument: "pad"; parameter: PadParameter };
+export function resolvedAutomationValue(project: Project, target: AutomationTarget, absoluteTick: number): { base: number; value: number; automated: boolean } {
+  if (target.instrument === "drum") {
+    const track = project.drums.find((drum) => drum.id === target.drum);
+    if (!track) return { base: 0, value: 0, automated: false };
+    const index = trackPosition(track.timing, absoluteTick, project.swing).index;
+    return { base: normalizedDrumValue(track, target.parameter), value: normalizedDrumValue(automatedDrum(track,index,project.scale),target.parameter), automated: track.automation[target.parameter] !== null };
+  }
+  const track = project[target.instrument];
+  const index = trackPosition(track.timing, absoluteTick, project.swing).index;
+  if (target.instrument === "bass") return { base: normalizedBassValue(project.bass,target.parameter), value: normalizedBassValue(automatedBass(project.bass,index),target.parameter), automated: project.bass.automation[target.parameter] !== null };
+  if (target.instrument === "keys") return { base: normalizedKeysValue(project.keys,target.parameter), value: normalizedKeysValue(automatedKeys(project.keys,index),target.parameter), automated: project.keys.automation[target.parameter] !== null };
+  if (target.instrument === "arp") return { base: normalizedArpValue(project.arp,target.parameter), value: normalizedArpValue(automatedArp(project.arp,index),target.parameter), automated: project.arp.automation[target.parameter] !== null };
+  return { base: normalizedPadValue(project.pad,target.parameter), value: normalizedPadValue(automatedPad(project.pad,index),target.parameter), automated: project.pad.automation[target.parameter] !== null };
+}
+export interface ExportPlan { ticks: number; seconds: number; completeCycle: boolean }
+export function exportPlan(project: Project): ExportPlan {
+  const cycles = [...project.drums,project.bass,project.keys,project.arp,project.pad].filter((track) => !track.muted).map((track) => trackCycleTicks(track.timing));
+  if (!project.arp.muted && project.arp.direction !== "random") {
+    const count = arpNotePool(project.arp,project.scale).length;
+    if (count > 0) cycles.push(Math.round(count * arpInterval(project.arp.rate) * 6));
+  }
+  const gcd = (a: number,b: number): number => { while (b) { const remainder = a % b; a = b; b = remainder; } return a; };
+  let common = 1;
+  for (const cycle of cycles) { common = common / gcd(common,cycle) * cycle; if (common > 3072) break; }
+  const complete = Math.max(common,Math.ceil(192 / common) * common);
+  const ticks = complete <= 3072 ? complete : Math.max(192,...cycles);
+  return { ticks, seconds: tickSeconds(ticks,project.bpm), completeCycle: complete <= 3072 && (project.arp.muted || project.arp.direction !== "random") };
 }

@@ -1,4 +1,4 @@
-import { STEP_COUNT } from "./model";
+import type { PatternViewport } from "./pattern-controls";
 import type { DrumId, Project } from "./model";
 
 interface Point {
@@ -42,11 +42,17 @@ export class BeatCanvas {
   private height = 1;
   private ratio = 1;
   private destroyed = false;
+  private viewportStart = 0;
+  private viewportCount = 16;
+  private groupSize = 4;
+  private readonly trackLengths = new Map<DrumId, number>();
+  private trackSteps: Partial<Record<DrumId, number>> = {};
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly onPaint: (drum: DrumId, step: number, on: boolean) => void,
     private readonly onSelect: (drum: DrumId) => void,
+    private readonly onStartEdit?: () => void,
   ) {
     this.context = canvas.getContext("2d");
     this.originalTouchAction = canvas.style.touchAction;
@@ -64,15 +70,63 @@ export class BeatCanvas {
   }
 
   update(project: Project): void {
+    if (
+      project.drums.some(
+        (track) => this.trackLengths.get(track.id) !== track.steps.length,
+      )
+    )
+      this.cancelPointers();
+    for (const track of project.drums)
+      this.trackLengths.set(track.id, track.steps.length);
     this.project = project;
     this.draw();
   }
-  setStep(step: number): void {
-    const next =
-      Number.isInteger(step) && step >= 0 && step < STEP_COUNT ? step : -1;
-    if (this.step === next) return;
-    this.step = next;
+  get busy(): boolean {
+    return this.pointers.size > 0;
+  }
+  cancelStroke(): void {
+    this.cancelPointers();
+  }
+  setViewport(viewport: PatternViewport): void {
+    const start = Number.isFinite(viewport.start)
+      ? Math.max(0, Math.floor(viewport.start))
+      : 0;
+    const count = Number.isFinite(viewport.count)
+      ? Math.max(1, Math.min(16, Math.floor(viewport.count)))
+      : 16;
+    const groupSize = [2, 3, 4, 6].includes(viewport.groupSize ?? 4)
+      ? (viewport.groupSize ?? 4)
+      : 4;
+    if (
+      start === this.viewportStart &&
+      count === this.viewportCount &&
+      groupSize === this.groupSize
+    )
+      return;
+    this.cancelPointers();
+    this.viewportStart = start;
+    this.viewportCount = count;
+    this.groupSize = groupSize;
     this.draw();
+  }
+  setStep(step: number): void {
+    this.step = Number.isInteger(step) && step >= 0 ? step : -1;
+    this.trackSteps = {};
+    this.draw();
+  }
+  setTrackSteps(steps: Partial<Record<DrumId, number>>): void {
+    let changed = false;
+    for (const id of DRUMS) {
+      const index = steps[id];
+      if (index !== undefined) {
+        const next = Number.isInteger(index) && index >= 0 ? index : -1;
+        if (this.trackSteps[id] !== next) {
+          this.trackSteps[id] = next;
+          changed = true;
+        }
+      }
+    }
+    if (changed) this.draw();
   }
   setSelectedDrum(id: DrumId): void {
     this.selected = id;
@@ -91,7 +145,10 @@ export class BeatCanvas {
   };
 
   private get cellWidth(): number {
-    return Math.max(1, (this.width - LABEL_WIDTH - RIGHT_PADDING) / STEP_COUNT);
+    return Math.max(
+      1,
+      (this.width - LABEL_WIDTH - RIGHT_PADDING) / this.viewportCount,
+    );
   }
   private get rowHeight(): number {
     return Math.max(
@@ -119,8 +176,11 @@ export class BeatCanvas {
     const drum = this.lane(point);
     if (!drum || point.x < LABEL_WIDTH || point.x >= this.width - RIGHT_PADDING)
       return null;
-    const step = Math.floor((point.x - LABEL_WIDTH) / this.cellWidth);
-    return step >= 0 && step < STEP_COUNT ? { drum, step } : null;
+    const column = Math.floor((point.x - LABEL_WIDTH) / this.cellWidth);
+    const length =
+      this.project?.drums.find((track) => track.id === drum)?.steps.length ?? 0;
+    if (column < 0 || column >= this.viewportCount || !length) return null;
+    return { drum, step: (this.viewportStart + column) % length };
   }
   private select(drum: DrumId): void {
     if (this.selected === drum) return;
@@ -134,6 +194,7 @@ export class BeatCanvas {
     if (pointer.visited.has(key)) return;
     pointer.visited.add(key);
     this.select(cell.drum);
+    if (!this.busy) return;
     const track = this.project.drums.find(
       (candidate) => candidate.id === cell.drum,
     );
@@ -174,8 +235,10 @@ export class BeatCanvas {
       visited: new Set(),
       pressure: event.pressure || 0.5,
     };
+    if (!this.pointers.size) this.onStartEdit?.();
     this.pointers.set(event.pointerId, pointer);
     this.select(drum);
+    if (!this.pointers.has(event.pointerId)) return;
     try {
       this.canvas.setPointerCapture(event.pointerId);
     } catch {
@@ -232,10 +295,10 @@ export class BeatCanvas {
     context.textBaseline = "middle";
     context.fillStyle = "#969696";
     context.fillText("DRAW", LABEL_WIDTH / 2 - 1, HEADER_HEIGHT / 2);
-    for (let step = 0; step < STEP_COUNT; step += 1) {
-      context.fillStyle = step % 4 === 0 ? "#e1e1e1" : "#777777";
+    for (let step = 0; step < this.viewportCount; step += 1) {
+      context.fillStyle = step % this.groupSize === 0 ? "#e1e1e1" : "#777777";
       context.fillText(
-        String(step + 1).padStart(2, "0"),
+        String(this.viewportStart + step + 1).padStart(2, "0"),
         LABEL_WIDTH + (step + 0.5) * this.cellWidth,
         HEADER_HEIGHT / 2,
       );
@@ -257,12 +320,15 @@ export class BeatCanvas {
         LABEL_WIDTH / 2 - 2,
         y + (this.rowHeight - gap) / 2,
       );
-      for (let step = 0; step < STEP_COUNT; step += 1) {
-        const groupGap = step % 4 === 0 && step !== 0 ? gap : 0;
+      for (let step = 0; step < this.viewportCount; step += 1) {
+        const groupGap = step % this.groupSize === 0 && step !== 0 ? gap : 0;
         const x = LABEL_WIDTH + step * this.cellWidth + groupGap;
         const width = Math.max(2, this.cellWidth - gap - groupGap);
         const height = this.rowHeight - gap;
-        const on = track?.steps[step] === true;
+        const localStep = track?.steps.length
+          ? (this.viewportStart + step) % track.steps.length
+          : -1;
+        const on = track?.steps[localStep] === true;
         context.globalAlpha = track?.muted ? 0.4 : 1;
         if (on) {
           const gradient = context.createLinearGradient(0, y, 0, y + height);
@@ -271,7 +337,7 @@ export class BeatCanvas {
           context.fillStyle = gradient;
         } else
           context.fillStyle =
-            Math.floor(step / 4) % 2 === 0 ? "#252525" : "#2c2c2c";
+            Math.floor(step / this.groupSize) % 2 === 0 ? "#252525" : "#2c2c2c";
         context.fillRect(x, y, width, height);
         context.fillStyle = on ? "#eeeeee" : "#464646";
         context.fillRect(x, y, width, 1);
@@ -286,21 +352,18 @@ export class BeatCanvas {
           2,
         );
         context.globalAlpha = 1;
+        const playing = this.trackSteps[drum] ?? this.step;
+        if (
+          playing >= 0 &&
+          track?.steps.length &&
+          localStep === playing % track.steps.length
+        ) {
+          context.strokeStyle = "#eee";
+          context.lineWidth = 1;
+          context.strokeRect(x - 1, y - 1, width + 2, height + 2);
+        }
       }
     });
-    if (this.step >= 0) {
-      const x = LABEL_WIDTH + this.step * this.cellWidth;
-      context.strokeStyle = "#eeeeee";
-      context.lineWidth = 1;
-      context.strokeRect(
-        x - 1.5,
-        HEADER_HEIGHT - 2.5,
-        this.cellWidth - 1,
-        this.height - HEADER_HEIGHT - BOTTOM_PADDING + 1,
-      );
-      context.fillStyle = "#eeeeee";
-      context.fillRect(x + this.cellWidth / 2 - 2, HEADER_HEIGHT - 5, 4, 2);
-    }
     for (const pointer of this.pointers.values()) {
       context.beginPath();
       context.arc(

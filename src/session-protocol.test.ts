@@ -86,7 +86,7 @@ describe("collaborative project patches", () => {
       clientMessageSchema.safeParse({
         type: "clock",
         playing: true,
-        absoluteStep: 0,
+        absoluteTick: 0,
         role: "host",
       }).success,
     ).toBe(false);
@@ -108,7 +108,7 @@ describe("collaborative project patches", () => {
         hostConnected: false,
         participants: 8,
         playing: false,
-        absoluteStep: 0,
+        absoluteTick: 0,
       }).success,
     ).toBe(true);
   });

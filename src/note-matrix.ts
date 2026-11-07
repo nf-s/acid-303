@@ -1,4 +1,5 @@
-import { STEP_COUNT, noteName, scaleNotes } from "./model";
+import { noteName, scaleNotes } from "./model";
+import type { PatternViewport } from "./pattern-controls";
 import type { BassStep, MusicalScale } from "./model";
 
 export type MatrixParameter = "pitch" | "gate" | "accent" | "slide";
@@ -57,6 +58,10 @@ export class NoteMatrix {
   private width = 1;
   private height = 1;
   private ratio = 1;
+  private viewportStart = 0;
+  private viewportCount = 16;
+  private groupSize = 4;
+  private stepCount = 0;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -69,26 +74,6 @@ export class NoteMatrix {
     private readonly drums = false,
   ) {
     this.context = canvas.getContext("2d");
-    for (let index = 0; index < STEP_COUNT; index++) {
-      const control = document.createElement("div");
-      control.setAttribute("role", "slider");
-      control.setAttribute("aria-orientation", "vertical");
-      control.setAttribute(
-        "aria-keyshortcuts",
-        "ArrowUp ArrowDown ArrowLeft ArrowRight Home End Enter Space",
-      );
-      control.tabIndex = index === 0 ? 0 : -1;
-      control.dataset.matrixStep = String(index);
-      control.addEventListener("focus", () => {
-        this.selected = index;
-        this.draw();
-      });
-      control.addEventListener("keydown", (event) =>
-        this.keyDown(event, index),
-      );
-      access.append(control);
-      this.controls.push(control);
-    }
     this.observer = new ResizeObserver(this.resize);
     this.observer.observe(canvas);
     canvas.addEventListener("pointerdown", this.pointerDown);
@@ -107,15 +92,59 @@ export class NoteMatrix {
   ): void {
     if (
       this.steps !== steps ||
+      this.stepCount !== steps.length ||
       this.scale?.root !== scale.root ||
       this.scale?.mode !== scale.mode
     )
       this.cancelPointers();
     this.steps = steps;
+    this.stepCount = steps.length;
+    this.viewportStart = Math.min(
+      this.viewportStart,
+      Math.max(0, steps.length - 1),
+    );
     this.scale = { ...scale };
     this.notes = scaleNotes(scale, this.min, this.max);
     this.muted = muted;
     this.draw();
+  }
+  get busy(): boolean {
+    return this.pointers.size > 0;
+  }
+  setViewport(viewport: PatternViewport): void {
+    const start = Number.isFinite(viewport.start)
+      ? Math.max(0, Math.floor(viewport.start))
+      : 0;
+    const count = Number.isFinite(viewport.count)
+      ? Math.max(1, Math.min(16, Math.floor(viewport.count)))
+      : 16;
+    const groupSize = [2, 3, 4, 6].includes(viewport.groupSize ?? 4)
+      ? (viewport.groupSize ?? 4)
+      : 4;
+    if (
+      start === this.viewportStart &&
+      count === this.viewportCount &&
+      groupSize === this.groupSize
+    )
+      return;
+    this.cancelPointers();
+    this.viewportStart = start;
+    this.viewportCount = count;
+    this.groupSize = groupSize;
+    this.selected = start;
+    this.draw();
+  }
+  private get visibleCount(): number {
+    return Math.max(
+      0,
+      Math.min(this.viewportCount, this.steps.length - this.viewportStart),
+    );
+  }
+  private get visibleSteps(): ReadonlyArray<BassStep> {
+    return this.steps.slice(
+      this.viewportStart,
+      this.viewportStart + this.visibleCount,
+    );
   }
   setParameter(parameter: MatrixParameter): void {
     this.cancelPointers();
@@ -139,6 +168,13 @@ export class NoteMatrix {
     steps: ReadonlyArray<BassStep>,
     values?: ReadonlyArray<number> | null,
   ): void {
+    if (
+      steps.length !== this.stepCount ||
+      (values && values.length !== steps.length)
+    ) {
+      this.cancelPointers();
+      return;
+    }
     for (const stroke of this.pointers.values()) {
       stroke.original.forEach((original, index) => {
         const current = this.steps[index],
@@ -151,12 +187,12 @@ export class NoteMatrix {
       });
       if (stroke.automation && this.automation && values !== undefined) {
         const baseline = Array.from(
-          { length: STEP_COUNT },
+          { length: this.steps.length },
           (_, index) =>
             stroke.automation?.values?.[index] ?? this.automation?.base ?? 0,
         );
         let changed = false;
-        for (let index = 0; index < STEP_COUNT; index++) {
+        for (let index = 0; index < this.steps.length; index++) {
           const current =
             this.automation.values?.[index] ?? this.automation.base;
           const next = values?.[index] ?? this.automation.base;
@@ -170,7 +206,12 @@ export class NoteMatrix {
     }
   }
   setStep(step: number): void {
-    this.current = step;
+    const next =
+      Number.isInteger(step) && step >= 0 && step < this.steps.length
+        ? step
+        : -1;
+    if (next === this.current) return;
+    this.current = next;
     this.draw();
   }
   destroy(): void {
@@ -194,7 +235,10 @@ export class NoteMatrix {
     this.draw();
   };
   private get cellWidth(): number {
-    return Math.max(1, (this.width - LEFT - RIGHT) / STEP_COUNT);
+    return Math.max(
+      1,
+      (this.width - LEFT - RIGHT) / Math.max(1, this.visibleCount),
+    );
   }
   private get plotHeight(): number {
     return Math.max(1, this.height - TOP - BOTTOM);
@@ -213,9 +257,15 @@ export class NoteMatrix {
     };
   }
   private index(point: Point): number {
-    return Math.max(
-      0,
-      Math.min(STEP_COUNT - 1, Math.floor((point.x - LEFT) / this.cellWidth)),
+    return (
+      this.viewportStart +
+      Math.max(
+        0,
+        Math.min(
+          this.visibleCount - 1,
+          Math.floor((point.x - LEFT) / this.cellWidth),
+        ),
+      )
     );
   }
   private paint(point: Point): void {
@@ -278,7 +328,7 @@ export class NoteMatrix {
     this.draw();
   }
   private readonly pointerDown = (event: PointerEvent): void => {
-    if (event.button !== 0 || this.steps.length !== STEP_COUNT) return;
+    if (event.button !== 0 || this.visibleCount === 0) return;
     const bounds = this.canvas.getBoundingClientRect();
     if (
       event.clientX - bounds.left < LEFT ||
@@ -353,7 +403,10 @@ export class NoteMatrix {
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
       this.controls[
-        (index + (event.key === "ArrowLeft" ? 15 : 1)) % STEP_COUNT
+        (index -
+          this.viewportStart +
+          (event.key === "ArrowLeft" ? this.visibleCount - 1 : 1)) %
+          this.visibleCount
       ]?.focus();
       return;
     }
@@ -410,7 +463,36 @@ export class NoteMatrix {
     this.draw();
   }
   private updateAccess(): void {
-    this.controls.forEach((control, index) => {
+    while (this.controls.length > this.visibleCount)
+      this.controls.pop()?.remove();
+    while (this.controls.length < this.visibleCount) {
+      const column = this.controls.length;
+      const control = document.createElement("div");
+      control.setAttribute("role", "slider");
+      control.setAttribute("aria-orientation", "vertical");
+      control.setAttribute(
+        "aria-keyshortcuts",
+        "ArrowUp ArrowDown ArrowLeft ArrowRight Home End Enter Space",
+      );
+      control.addEventListener("focus", () => {
+        this.selected = this.viewportStart + column;
+        this.draw();
+      });
+      control.addEventListener("keydown", (event) =>
+        this.keyDown(event, this.viewportStart + column),
+      );
+      this.access.append(control);
+      this.controls.push(control);
+    }
+    this.access.style.gridTemplateColumns = `repeat(${Math.max(1, this.visibleCount)}, minmax(0, 1fr))`;
+    if (
+      this.selected < this.viewportStart ||
+      this.selected >= this.viewportStart + this.visibleCount
+    )
+      this.selected = this.viewportStart;
+    this.controls.forEach((control, column) => {
+      const index = this.viewportStart + column;
+      control.dataset.matrixStep = String(index);
       const step = this.steps[index];
       if (!step) return;
       const value = this.automation
@@ -478,23 +560,24 @@ export class NoteMatrix {
     ctx.font = '9px "IBM Plex Mono", monospace';
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    for (let index = 0; index < STEP_COUNT; index++) {
+    for (let index = 0; index < this.visibleCount; index++) {
       const x = LEFT + index * this.cellWidth;
       ctx.fillStyle =
-        index === this.current
+        this.viewportStart + index === this.current
           ? "#44484c"
-          : Math.floor(index / 4) % 2 === 0
+          : Math.floor(index / this.groupSize) % 2 === 0
             ? "#1c1e20"
             : "#161819";
       ctx.fillRect(x, TOP, this.cellWidth, this.plotHeight);
-      ctx.strokeStyle = index % 4 === 0 ? "#555a60" : "#303438";
+      ctx.strokeStyle = index % this.groupSize === 0 ? "#555a60" : "#303438";
       ctx.beginPath();
       ctx.moveTo(x + 0.5, TOP);
       ctx.lineTo(x + 0.5, this.height - BOTTOM);
       ctx.stroke();
-      ctx.fillStyle = index === this.current ? "#fff" : "#969a9e";
+      ctx.fillStyle =
+        this.viewportStart + index === this.current ? "#fff" : "#969a9e";
       ctx.fillText(
-        String(index + 1).padStart(2, "0"),
+        String(this.viewportStart + index + 1).padStart(2, "0"),
         x + this.cellWidth / 2,
         TOP / 2,
       );
@@ -538,7 +621,7 @@ export class NoteMatrix {
       this.drawGlides(ctx);
       this.drawAccents(ctx);
     }
-    this.steps.forEach((step, index) => {
+    this.visibleSteps.forEach((step, index) => {
       const center = LEFT + (index + 0.5) * this.cellWidth;
       ctx.fillStyle = step.on ? "#aab0b6" : "#697077";
       ctx.font = `${this.cellWidth < 28 ? 7 : 9}px "IBM Plex Mono", monospace`;
@@ -556,7 +639,7 @@ export class NoteMatrix {
     const active = this.active("gate"),
       floor = this.height - BOTTOM,
       width = Math.max(3, this.cellWidth - 6);
-    this.steps.forEach((step, index) => {
+    this.visibleSteps.forEach((step, index) => {
       const x = LEFT + index * this.cellWidth + 3,
         y = this.noteY(step.note);
       if (step.on) {
@@ -576,14 +659,14 @@ export class NoteMatrix {
     ctx.strokeStyle = active ? "#d8dee4" : "#727e89";
     ctx.lineWidth = active ? 2 : 1;
     ctx.beginPath();
-    this.steps.forEach((step, index) => {
+    this.visibleSteps.forEach((step, index) => {
       const x = LEFT + (index + 0.5) * this.cellWidth,
         y = this.noteY(step.note);
       if (index === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
     ctx.stroke();
-    this.steps.forEach((step, index) => {
+    this.visibleSteps.forEach((step, index) => {
       const x = LEFT + index * this.cellWidth + 3,
         y = this.noteY(step.note),
         width = Math.max(3, this.cellWidth - 6);
@@ -603,7 +686,7 @@ export class NoteMatrix {
   }
   private drawAccents(ctx: CanvasRenderingContext2D): void {
     const active = this.active("accent");
-    this.steps.forEach((step, index) => {
+    this.visibleSteps.forEach((step, index) => {
       const x = LEFT + (index + 0.5) * this.cellWidth,
         y = Math.max(TOP + 5, this.noteY(step.note) - 11),
         radius = active && step.accent ? 5 : 3;
@@ -631,39 +714,48 @@ export class NoteMatrix {
       bend = Math.min(24, this.cellWidth * 0.4);
     ctx.strokeStyle = active ? "#fff" : "#84939e";
     ctx.lineWidth = active ? 3.5 : 1.5;
-    this.steps.forEach((step, index) => {
-      const next = this.steps[(index + 1) % STEP_COUNT];
+    const first = this.steps[this.viewportStart];
+    const previous =
+      this.steps[
+        (this.viewportStart + this.steps.length - 1) % this.steps.length
+      ];
+    if (first && previous?.slide) {
+      const y = this.noteY(first.note) - 4;
+      ctx.beginPath();
+      ctx.moveTo(LEFT, y - 4);
+      ctx.quadraticCurveTo(
+        LEFT + 2,
+        Math.max(TOP + 2, y - bend),
+        LEFT + this.cellWidth / 2 - 3,
+        y,
+      );
+      ctx.stroke();
+    }
+    this.visibleSteps.forEach((step, column) => {
+      const index = this.viewportStart + column;
+      const next = this.steps[(index + 1) % this.steps.length];
       if (!step.slide || !next) return;
-      const x = LEFT + (index + 0.5) * this.cellWidth,
-        y = this.noteY(step.note) - 4,
-        nextY = this.noteY(next.note) - 4;
+      const x = LEFT + (column + 0.5) * this.cellWidth,
+        y = this.noteY(step.note) - 4;
+      const nextY = this.noteY(next.note) - 4;
       ctx.beginPath();
       ctx.moveTo(x + 3, y);
-      if (index < STEP_COUNT - 1) {
-        const nextX = x + this.cellWidth - 3;
+      if (column < this.visibleCount - 1)
         ctx.bezierCurveTo(
           x + this.cellWidth * 0.35,
           Math.max(TOP + 2, y - bend),
           x + this.cellWidth * 0.65,
           Math.max(TOP + 2, nextY - bend),
-          nextX,
+          x + this.cellWidth - 3,
           nextY,
         );
-      } else {
+      else
         ctx.quadraticCurveTo(
           this.width - RIGHT - 2,
           Math.max(TOP + 2, y - bend),
           this.width - RIGHT,
           y - 4,
         );
-        ctx.moveTo(LEFT, nextY - 4);
-        ctx.quadraticCurveTo(
-          LEFT + 2,
-          Math.max(TOP + 2, nextY - bend),
-          LEFT + this.cellWidth / 2 - 3,
-          nextY,
-        );
-      }
       ctx.stroke();
     });
   }
@@ -671,13 +763,15 @@ export class NoteMatrix {
     const lane = this.automation;
     if (!lane) return;
     const yAt = (index: number): number =>
-      TOP + this.plotHeight * (1 - (lane.values?.[index] ?? lane.base));
+      TOP +
+      this.plotHeight *
+        (1 - (lane.values?.[this.viewportStart + index] ?? lane.base));
     const firstX = LEFT + this.cellWidth / 2,
-      lastX = LEFT + (STEP_COUNT - 0.5) * this.cellWidth;
+      lastX = LEFT + (this.visibleCount - 0.5) * this.cellWidth;
     ctx.fillStyle = "#e0e8f016";
     ctx.beginPath();
     ctx.moveTo(firstX, this.height - BOTTOM);
-    for (let index = 0; index < STEP_COUNT; index++)
+    for (let index = 0; index < this.visibleCount; index++)
       ctx.lineTo(LEFT + (index + 0.5) * this.cellWidth, yAt(index));
     ctx.lineTo(lastX, this.height - BOTTOM);
     ctx.closePath();
@@ -687,19 +781,25 @@ export class NoteMatrix {
     if (!lane.values) ctx.setLineDash([6, 4]);
     ctx.beginPath();
     ctx.moveTo(LEFT, yAt(0));
-    for (let index = 0; index < STEP_COUNT; index++)
+    for (let index = 0; index < this.visibleCount; index++)
       ctx.lineTo(LEFT + (index + 0.5) * this.cellWidth, yAt(index));
-    ctx.lineTo(this.width - RIGHT, yAt(STEP_COUNT - 1));
+    ctx.lineTo(this.width - RIGHT, yAt(this.visibleCount - 1));
     ctx.stroke();
     ctx.setLineDash([]);
-    for (let index = 0; index < STEP_COUNT; index++) {
+    for (let index = 0; index < this.visibleCount; index++) {
       const x = LEFT + (index + 0.5) * this.cellWidth,
         y = yAt(index);
       ctx.fillStyle = lane.values ? "#fff" : "#161819";
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(x, y, index === this.selected ? 4 : 2.5, 0, Math.PI * 2);
+      ctx.arc(
+        x,
+        y,
+        this.viewportStart + index === this.selected ? 4 : 2.5,
+        0,
+        Math.PI * 2,
+      );
       ctx.fill();
       ctx.stroke();
     }

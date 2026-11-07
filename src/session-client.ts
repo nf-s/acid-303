@@ -35,7 +35,7 @@ export interface SessionStatus {
 interface SessionCallbacks {
   onState: (state: SessionStatus) => void;
   onProject: (project: Project, initial: boolean) => void;
-  onClock: (playing: boolean, absoluteStep: number) => void;
+  onClock: (playing: boolean, absoluteTick: number) => void;
   onTransport: (action: "play" | "stop" | "restart") => void;
   onReady: () => void;
   onEnded: () => void;
@@ -69,6 +69,8 @@ export class SessionClient {
   private lastReceived = 0;
   private lastPing = 0;
   private hostPlaying = false;
+  private lastClockSent = -Infinity;
+  private lastClockTick = -1;
   private terminal = false;
   private reconnects = 0;
   private generation = 0;
@@ -381,7 +383,7 @@ export class SessionClient {
       });
       this.publishView(this.initial);
       this.initial = false;
-      this.callbacks.onClock(message.playing, message.absoluteStep);
+      this.callbacks.onClock(message.playing, message.absoluteTick);
       for (const edit of this.sync.unacknowledged())
         this.send({ type: "patch", clientId: credentials.clientId, ...edit });
       this.scheduleFlush();
@@ -415,9 +417,9 @@ export class SessionClient {
         hostConnected: message.hostConnected,
         participants: message.participants,
       });
-      this.callbacks.onClock(message.playing, message.absoluteStep);
+      this.callbacks.onClock(message.playing, message.absoluteTick);
     } else if (message.type === "clock") {
-      this.callbacks.onClock(message.playing, message.absoluteStep);
+      this.callbacks.onClock(message.playing, message.absoluteTick);
     } else if (message.type === "transport") {
       if (credentials.role === "host")
         this.callbacks.onTransport(message.action);
@@ -482,14 +484,17 @@ export class SessionClient {
     this.socket.send(encoded);
   }
 
-  clock(playing: boolean, absoluteStep: number): void {
+  clock(playing: boolean, absoluteTick: number): void {
+    const changed = playing !== this.hostPlaying;
     this.hostPlaying = playing;
-    if (this.role === "host" && this.connected)
-      this.send({
-        type: "clock",
-        playing,
-        absoluteStep: Math.max(0, absoluteStep),
-      });
+    if (this.role !== "host" || !this.connected) return;
+    const now = performance.now();
+    const tick = Math.max(0, absoluteTick);
+    if (!changed && tick >= this.lastClockTick && now - this.lastClockSent < 50)
+      return;
+    this.lastClockSent = now;
+    this.lastClockTick = tick;
+    this.send({ type: "clock", playing, absoluteTick: tick });
   }
   transport(action: "play" | "stop" | "restart"): void {
     if (this.connected) {

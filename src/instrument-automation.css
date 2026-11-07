@@ -21,18 +21,12 @@
 .instrument-automation .matrix-tools button {
   padding: 6px 9px;
 }
-.instrument-automation-bars {
-  display: grid;
-  margin: 0 22px 0 48px;
-  border-left: 1px solid #697078;
-  font-size: 9px;
+.instrument-automation .instrument-pattern-controls,
+.arp-instrument > .instrument-pattern-controls {
+  margin: 8px 14px 12px;
 }
-.instrument-automation-bars span {
-  padding: 5px 2px;
-  border-top: 1px solid #697078;
-  border-right: 1px solid #697078;
-  text-align: center;
-  color: #c2c8ce;
+.arp-instrument .arp-rhythm {
+  margin-top: 0;
 }
 .instrument-automation .instrument-automation-matrix {
   height: 235px;
@@ -158,6 +152,50 @@
 .pad-instrument .pad-progressions {
   margin: 0 14px 16px;
 }
+.pad-instrument .pad-progression-description {
+  margin: 0 0 10px;
+  color: #b9c0c7;
+  font-size: 10px;
+  line-height: 1.6;
+}
+.pad-instrument .pad-progressions button {
+  position: relative;
+  min-width: 0;
+}
+.pad-instrument .pad-progression-name {
+  display: block;
+}
+.pad-instrument .pad-progression-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  width: min(240px, calc(100vw - 48px));
+  padding: 9px 10px;
+  border: 1px solid #8b939b;
+  background: #e1e4e7;
+  color: #171b20;
+  text-align: left;
+  font-size: 10px;
+  line-height: 1.5;
+  z-index: 40;
+  pointer-events: none;
+  box-shadow: 3px 3px #0008;
+}
+.pad-instrument
+  .pad-progressions
+  button:nth-child(4n)
+  .pad-progression-tooltip {
+  left: auto;
+  right: 0;
+}
+.pad-instrument .pad-progressions button:hover .pad-progression-tooltip,
+.pad-instrument
+  .pad-progressions
+  button:focus-visible
+  .pad-progression-tooltip {
+  display: block;
+}
 .pad-instrument .pad-controls,
 .arp-controls {
   grid-template-columns: repeat(8, minmax(0, 1fr));
@@ -166,10 +204,10 @@
   .instrument-automation .instrument-automation-matrix {
     height: 260px;
   }
-  .instrument-automation-bars {
-    margin-right: 17px;
-    margin-left: 43px;
-    font-size: 8px;
+  .instrument-automation .instrument-pattern-controls,
+  .arp-instrument > .instrument-pattern-controls {
+    margin-right: 9px;
+    margin-left: 9px;
   }
   .instrument-automation .matrix-toolbar {
     gap: 10px;
@@ -196,17 +234,29 @@
     padding: 7px;
     font-size: 9px;
   }
+  .pad-instrument .pad-chords {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .pad-instrument .pad-chords button {
-    grid-template-columns: 18px minmax(0, 1fr) minmax(50px, auto);
-    gap: 8px;
+    grid-template-columns: 16px minmax(0, 1fr);
+    gap: 7px;
     padding: 7px;
+    min-height: 104px;
   }
   .pad-instrument .pad-chords strong {
-    font-size: 13px;
+    font-size: 12px;
+  }
+  .pad-instrument .pad-chords .pad-chord-number {
+    grid-row: 1 / 3;
+  }
+  .pad-instrument .pad-chord-content small {
+    font-size: 8px;
   }
   .pad-instrument .pad-chords .pad-chord-duration {
+    grid-column: 2;
     font-size: 8px;
-    max-width: 82px;
+    max-width: none;
+    text-align: left;
   }
   .pad-instrument .pad-chord-editor {
     gap: 12px;
@@ -214,6 +264,13 @@
   }
   .pad-instrument .pad-progressions {
     margin: 0 9px 16px;
+  }
+  .pad-instrument
+    .pad-progressions
+    button:nth-child(even)
+    .pad-progression-tooltip {
+    left: auto;
+    right: 0;
   }
   .pad-instrument .pad-controls,
   .arp-controls {

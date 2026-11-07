@@ -3,6 +3,7 @@ import {
   automatedDrum,
   drumValueFromNormalized,
   normalizedDrumValue,
+  resizeDrumTrack,
   scaleNotes,
 } from "./model";
 import type {
@@ -14,6 +15,9 @@ import type {
 } from "./model";
 import { NoteMatrix } from "./note-matrix";
 import type { MatrixChange } from "./note-matrix";
+import { PatternControls } from "./pattern-controls";
+import type { PatternViewport } from "./pattern-controls";
+import { sequenceTimingSchema, trackPosition } from "./timing";
 
 export const DRUM_CONTROLS: ReadonlyArray<{
   parameter: DrumAutomationParameter;
@@ -33,6 +37,9 @@ interface EditorOptions {
   getSelected: () => DrumId;
   onChange: () => void;
   onStroke: () => void;
+  onViewportChange?: (viewport: PatternViewport) => void;
+  isBusy?: () => boolean;
+  beforeTimingChange?: () => void;
   renderControl: (
     id: string,
     label: string,
@@ -54,6 +61,10 @@ export class DrumEditor {
   private advanced = false;
   private readonly views = new Map<DrumId, DrumView>();
   private readonly selected = new Map<DrumId, DrumAutomationParameter | null>();
+  private readonly pagers = new Map<
+    DrumId,
+    { element: HTMLDivElement; controls: PatternControls }
+  >();
   private queued = false;
   constructor(
     private readonly container: HTMLElement,
@@ -67,6 +78,43 @@ export class DrumEditor {
   setMode(advanced: boolean): void {
     this.advanced = advanced;
     this.render();
+  }
+  freezeFollow(id = this.options.getSelected()): void {
+    this.pagers.get(id)?.controls.freezeFollow();
+  }
+  private pager(track: DrumTrack): PatternControls {
+    const existing = this.pagers.get(track.id);
+    if (existing) return existing.controls;
+    const element = document.createElement("div");
+    const id = track.id;
+    const controls = new PatternControls(element, {
+      label: DRUM_META[id].name,
+      isBusy: () =>
+        this.views.get(id)?.matrix.busy ??
+        (!this.advanced &&
+          this.options.getSelected() === id &&
+          (this.options.isBusy?.() ?? false)),
+      onViewportChange: (viewport) => {
+        this.views.get(id)?.matrix.setViewport(viewport);
+        if (!this.advanced && this.options.getSelected() === id)
+          this.options.onViewportChange?.(viewport);
+      },
+      onTimingChange: (timing) => {
+        const parsed = sequenceTimingSchema.safeParse(timing);
+        const current = this.options
+          .getProject()
+          .drums.find((drum) => drum.id === id);
+        if (!parsed.success || !current) return;
+        this.views.get(id)?.matrix.cancelStroke();
+        this.options.beforeTimingChange?.();
+        this.options.onStroke();
+        Object.assign(current, resizeDrumTrack(current, parsed.data));
+        this.refresh(id);
+        this.options.onChange();
+      },
+    });
+    this.pagers.set(id, { element, controls });
+    return controls;
   }
   private controls(track: DrumTrack): string {
     const { renderControl, getProject } = this.options;
@@ -156,13 +204,31 @@ export class DrumEditor {
           24,
           72,
           (change) => this.paint(track.id, change),
-          this.options.onStroke,
+          () => {
+            this.freezeFollow(track.id);
+            this.options.onStroke();
+          },
           true,
         );
         this.views.set(track.id, { matrix, steps });
         if (!this.selected.has(track.id)) this.selected.set(track.id, "pitch");
         if (this.selected.get(track.id) === null) matrix.setParameter("gate");
       }
+    for (const track of project.drums) {
+      if (!this.advanced && track.id !== selected) continue;
+      const controls = this.pager(track);
+      const pager = this.pagers.get(track.id);
+      const surface = document
+        .getElementById(`${track.id}-matrix-canvas`)
+        ?.closest(".note-matrix");
+      if (pager) {
+        if (this.advanced && surface) surface.before(pager.element);
+        else this.container.append(pager.element);
+      }
+      controls.update(track.timing);
+      this.views.get(track.id)?.matrix.setViewport(controls.viewport);
+      if (!this.advanced) this.options.onViewportChange?.(controls.viewport);
+    }
     this.refresh();
     const beat = document.querySelector(".beat-surface");
     if (beat instanceof HTMLElement) beat.hidden = this.advanced;
@@ -186,10 +252,11 @@ export class DrumEditor {
     for (const track of project.drums) {
       const view = this.views.get(track.id);
       if (!view) continue;
-      const steps = view.steps.map((step, index) => ({
-        ...step,
-        on: track.steps[index] ?? false,
+      const steps = track.steps.map((on, index) => ({
+        on,
         note: automatedDrum(track, index, project.scale).pitch + 48,
+        accent: false,
+        slide: false,
       }));
       const parameter = this.selected.get(track.id);
       view.matrix.rebaseIncoming(
@@ -202,6 +269,7 @@ export class DrumEditor {
     const project = this.options.getProject();
     for (const track of project.drums) {
       if (id && track.id !== id) continue;
+      this.pagers.get(track.id)?.controls.update(track.timing);
       const parameter = this.selected.get(track.id);
       for (const control of DRUM_CONTROLS) {
         const element = document.getElementById(
@@ -222,6 +290,15 @@ export class DrumEditor {
       }
       const view = this.views.get(track.id);
       if (!view) continue;
+      if (view.steps.length !== track.steps.length) {
+        view.matrix.cancelStroke();
+        view.steps = track.steps.map((on, index) => ({
+          on,
+          note: automatedDrum(track, index, project.scale).pitch + 48,
+          accent: false,
+          slide: false,
+        }));
+      }
       view.steps.forEach((step, index) => {
         step.on = track.steps[index] ?? false;
         step.note = automatedDrum(track, index, project.scale).pitch + 48;
@@ -273,6 +350,18 @@ export class DrumEditor {
   setStep(step: number): void {
     for (const view of this.views.values()) view.matrix.setStep(step);
   }
+  setTick(absoluteTick: number, swing = 0): void {
+    for (const track of this.options.getProject().drums) {
+      this.pagers.get(track.id)?.controls.setTick(absoluteTick, swing);
+      this.views
+        .get(track.id)
+        ?.matrix.setStep(
+          absoluteTick < 0
+            ? -1
+            : trackPosition(track.timing, absoluteTick, swing).index,
+        );
+    }
+  }
   private paint(id: DrumId, change: MatrixChange): void {
     const project = this.options.getProject();
     const track = project.drums.find((track) => track.id === id);
@@ -295,7 +384,9 @@ export class DrumEditor {
       if (!parameter) return;
       const lane =
         track.automation[parameter] ??
-        Array.from({ length: 16 }, () => normalizedDrumValue(track, parameter));
+        Array.from({ length: track.steps.length }, () =>
+          normalizedDrumValue(track, parameter),
+        );
       lane[change.index] = change.value;
       track.automation[parameter] = lane;
     }
