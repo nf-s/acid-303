@@ -69,6 +69,7 @@ import { installGestures } from "./gestures";
 import { installStudioNavigation } from "./studio-navigation";
 import { installInstrumentCollapse } from "./instrument-collapse";
 import { playOpeningAnimation } from "./opening-animation";
+import { createPlaybackRecovery } from "./playback-recovery";
 import { TrackMixer, mixerTrack } from "./track-mixer";
 import { AutomationRecorder } from "./automation-recorder";
 import type { RecordingLane } from "./automation-recorder";
@@ -229,6 +230,7 @@ const automationSweeps = new Map<string, { base: number; values: number[] }>();
 const storageKey = "acid-303-project-v1";
 let importedHash: string | null = null;
 let sessionClient: SessionClient | null = null;
+let playbackRecovery: ReturnType<typeof createPlaybackRecovery> | null = null;
 let sessionStatus: SessionStatus = {
   phase: "idle",
   role: null,
@@ -326,6 +328,7 @@ app.innerHTML = `
       <div id="studio-tools-panel" class="studio-tools" hidden><div class="mix-controls">${slider("bpm", "Tempo", 60, 180, project.bpm, `${project.bpm}`, "1")}${slider("swing", "Swing", 0, 50, project.swing * 100, `${Math.round(project.swing * 100)}%`)}${slider("drive", "Crunch", 0, 100, project.drive * 100, `${Math.round(project.drive * 100)}%`)}${slider("volume", "Volume", 0, 100, project.volume * 100, `${Math.round(project.volume * 100)}%`)}</div>
     <section class="scale-panel panel" aria-label="Musical scale"><div class="scale-row"><span>ROOT</span><div class="scale-roots" role="group" aria-label="Root note">${Array.from({ length: 12 }, (_, root) => `<button data-root="${root}" aria-label="Root ${noteName(root + 60).slice(0, -1)}" aria-pressed="${project.scale.root === root}">${noteName(root + 60).slice(0, -1)}</button>`).join("")}</div></div><div class="scale-row"><span>SCALE</span><div class="scale-modes" role="group" aria-label="Scale type">${SCALE_MODES.map((scale) => `<button data-scale="${scale.id}" aria-pressed="${project.scale.mode === scale.id}">${scale.name}</button>`).join("")}</div></div></section>
 <div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="global-undo" aria-label="Undo last edit" disabled>Undo</button><button class="button secondary" id="global-redo" aria-label="Redo last edit" disabled>Redo</button><button class="button secondary" id="share-track">Share</button><button class="button secondary" id="session-toggle" aria-expanded="false" aria-controls="session-panel">Session</button><button class="button secondary" id="phone-motion" aria-label="Enable phone motion control" aria-pressed="false" title="Hold a knob and tilt or move your phone">Motion</button><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div><section id="session-panel" hidden></section></div>
+      <p id="playback-recovery-status" class="playback-recovery-status" role="status" hidden>Tap to resume audio</p>
       <div id="track-mixer"></div>
   <div class="share-panel" id="share-panel" hidden><label for="share-url">Track link</label><input id="share-url" readonly><button id="copy-share">Copy</button><button id="close-share" aria-label="Close share link">×</button></div>
     </section>
@@ -1100,6 +1103,7 @@ function updateAutomationIndicators(frame: PlaybackFrame): void {
     );
 }
 function showFrame(frame: PlaybackFrame): void {
+  playbackRecovery?.frame();
   const recorded = automationRecorder.frame(
     frame.playing && !sessionEditingBlocked(),
     frame.absoluteTick,
@@ -1458,6 +1462,7 @@ function toast(message: string): void {
   }, 4000);
 }
 function updatePlayback(): void {
+  playbackRecovery?.frame();
   const playing =
     sessionStatus.role === "guest" ? remotePlaying : engine.isPlaying;
   const recorded = automationRecorder.frame(
@@ -1496,7 +1501,8 @@ function updatePlayback(): void {
   }
   refreshIcons();
 }
-async function togglePlayback(): Promise<void> {
+async function togglePlayback(recovering = false): Promise<void> {
+  if (!recovering) playbackRecovery?.userAction();
   if (sessionEditingBlocked()) return;
   if (sessionStatus.role === "guest") {
     sessionClient?.transport(remotePlaying ? "stop" : "play");
@@ -1515,7 +1521,7 @@ async function togglePlayback(): Promise<void> {
   try {
     await engine.play(project);
   } catch {
-    if (request === playbackRequest)
+    if (!recovering && request === playbackRequest)
       toast("Audio could not start. Try Play again.");
   } finally {
     if (request === playbackRequest) {
@@ -1614,6 +1620,7 @@ document.addEventListener("click", async (event) => {
     armRecording(!automationRecorder.armed);
   }
   if (id === "restart") {
+    playbackRecovery?.userAction();
     playbackRequest++;
     starting = false;
     if (sessionStatus.role === "guest") {
@@ -2252,11 +2259,13 @@ document.addEventListener("keydown", (event) => {
 });
 window.addEventListener("pageshow", (event) => {
   if (event.persisted) {
+    playbackRecovery?.cancel();
     sessionClient?.reconnect();
     updatePlayback();
   }
 });
 window.addEventListener("pagehide", () => {
+  playbackRecovery?.suspend();
   playbackRequest++;
   starting = false;
   phoneMotion.disable();
@@ -2285,6 +2294,7 @@ async function loadSharedTrack(): Promise<void> {
   const hash = location.hash;
   const encoded = new URLSearchParams(hash.slice(1)).get("track");
   if (!encoded) return;
+  playbackRecovery?.cancel();
   const shared = await decodeTrack(encoded);
   if (location.hash !== hash) return;
   if (!shared) {
@@ -2327,6 +2337,7 @@ function setSessionOpen(open: boolean): void {
     ?.setAttribute("aria-expanded", String(open));
 }
 function leaveSession(): void {
+  playbackRecovery?.cancel();
   playbackRequest++;
   starting = false;
   armRecording(false);
@@ -2349,6 +2360,7 @@ async function hostTransport(
   action: "play" | "stop" | "restart",
 ): Promise<void> {
   if (sessionStatus.role !== "host") return;
+  playbackRecovery?.userAction();
   if (action !== "stop" && !engine.isReady) {
     toast("Press Play on the host to enable audio.");
     sessionClient?.clock(false, 0);
@@ -2527,14 +2539,49 @@ sessionClient = new SessionClient(sessionApi, {
       url.hash = parameters.toString();
       window.history.replaceState(null, "", url);
     }
+    playbackRecovery?.check();
   },
   onEnded: () => {
+    playbackRecovery?.cancel();
     playbackRequest++;
     starting = false;
     engine.stop();
     remotePlaying = false;
     showStep(-1, -1);
     updatePlayback();
+  },
+});
+playbackRecovery = createPlaybackRecovery({
+  getState: () => ({
+    playing: engine.isPlaying,
+    role: sessionStatus.role ?? "solo",
+    room: sessionStatus.inviteLink
+      ? (new URLSearchParams(new URL(sessionStatus.inviteLink).hash.slice(1))
+          .get("session")
+          ?.split(".")[0] ?? null)
+      : null,
+    ready:
+      sessionStatus.phase === "idle" ||
+      (sessionStatus.phase === "connected" && sessionStatus.role === "host"),
+  }),
+  isAudioReady: () => engine.isReady,
+  onPlay: async () => {
+    if (!engine.isPlaying && !starting) await togglePlayback(true);
+  },
+  onCancelStart: () => {
+    if (!starting) return;
+    playbackRequest++;
+    starting = false;
+    engine.stop();
+    updatePlayback();
+  },
+  onBlocked: () => {
+    const status = document.getElementById("playback-recovery-status");
+    if (status) status.hidden = false;
+  },
+  clearBlocked: () => {
+    const status = document.getElementById("playback-recovery-status");
+    if (status) status.hidden = true;
   },
 });
 function loadLink(): void {
@@ -2553,4 +2600,5 @@ if (
 )
   loadLink();
 else sessionClient.resume();
+playbackRecovery.check();
 window.addEventListener("hashchange", loadLink);

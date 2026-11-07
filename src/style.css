@@ -356,6 +356,7 @@ button:active {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  color: #fff;
 }
 .section-number {
   display: grid;
@@ -715,6 +716,7 @@ h2 {
 }
 .visualizer-controls .dial-label {
   font-size: 8px;
+  color: #eee;
 }
 .visualizer-controls .gesture-control output {
   font-size: 9px;
@@ -1195,10 +1197,6 @@ kbd {
   position: relative;
   z-index: 21;
 }
-.dial-label,
-.gesture-control output,
-.section-title,
-.text-button,
 .transport .dial-label,
 .transport .gesture-control output {
   color: #222;
@@ -1814,6 +1812,11 @@ kbd {
   background: #ddd;
   color: #222;
   border: 1px solid #888;
+}
+.playback-recovery-status {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: #222;
 }
 .acid-controls,
 .instrument-dials {
