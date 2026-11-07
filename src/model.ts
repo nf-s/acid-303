@@ -1,9 +1,42 @@
 import { z } from "zod";
 
 export const STEP_COUNT = 16;
+const automationLaneSchema = z
+  .array(z.number().min(0).max(1))
+  .length(STEP_COUNT)
+  .nullable()
+  .default(null);
+const drumAutomationSchema = z.object({
+  pitch: automationLaneSchema,
+  decay: automationLaneSchema,
+  volume: automationLaneSchema,
+  tone: automationLaneSchema,
+  drive: automationLaneSchema,
+  pan: automationLaneSchema,
+  attack: automationLaneSchema,
+  space: automationLaneSchema,
+});
+export type DrumAutomation = z.infer<typeof drumAutomationSchema>;
+export type DrumAutomationParameter = keyof DrumAutomation;
+export function emptyDrumAutomation(): DrumAutomation {
+  return {
+    pitch: null,
+    decay: null,
+    volume: null,
+    tone: null,
+    drive: null,
+    pan: null,
+    attack: null,
+    space: null,
+  };
+}
 export const drumIdSchema = z.enum(["kick", "snare", "hat", "clap", "rim"]);
 export type DrumId = z.infer<typeof drumIdSchema>;
 export const drumSchema = z.object({
+  pan: z.number().min(-1).max(1).default(0),
+  attack: z.number().min(0).max(1).default(0),
+  space: z.number().min(0).max(1).default(0),
+  automation: drumAutomationSchema.default(emptyDrumAutomation),
   tone: z.number().min(0).max(1).default(0.5),
   drive: z.number().min(0).max(1).default(0),
   id: drumIdSchema,
@@ -22,12 +55,8 @@ export const bassStepSchema = z.object({
   slide: z.boolean().default(false),
 });
 export type BassStep = z.infer<typeof bassStepSchema>;
-const automationLaneSchema = z
-  .array(z.number().min(0).max(1))
-  .length(STEP_COUNT)
-  .nullable()
-  .default(null);
 const bassAutomationSchema = z.object({
+  pulse: automationLaneSchema,
   shape: automationLaneSchema,
   drive: automationLaneSchema,
   cutoff: automationLaneSchema,
@@ -40,6 +69,7 @@ export type BassAutomation = z.infer<typeof bassAutomationSchema>;
 export type BassAutomationParameter = keyof BassAutomation;
 export function emptyBassAutomation(): BassAutomation {
   return {
+    pulse: null,
     shape: null,
     drive: null,
     cutoff: null,
@@ -50,6 +80,8 @@ export function emptyBassAutomation(): BassAutomation {
   };
 }
 const keysAutomationSchema = z.object({
+  width: automationLaneSchema,
+  attack: automationLaneSchema,
   grit: automationLaneSchema,
   motion: automationLaneSchema,
   tone: automationLaneSchema,
@@ -61,6 +93,8 @@ export type KeysAutomation = z.infer<typeof keysAutomationSchema>;
 export type KeysAutomationParameter = keyof KeysAutomation;
 export function emptyKeysAutomation(): KeysAutomation {
   return {
+    width: null,
+    attack: null,
     grit: null,
     motion: null,
     tone: null,
@@ -70,6 +104,7 @@ export function emptyKeysAutomation(): KeysAutomation {
   };
 }
 export const bassSchema = z.object({
+  pulse: z.number().min(0).max(1).default(0.5),
   shape: z.number().min(0).max(1).default(0.5),
   drive: z.number().min(0).max(1).default(0),
   sound: z.number().int().min(0).max(8).default(2),
@@ -102,6 +137,8 @@ export const keysStepSchema = z.object({
   slide: z.boolean().default(false),
 });
 export const keysSchema = z.object({
+  width: z.number().min(0).max(1).default(0.5),
+  attack: z.number().min(0).max(1).default(0),
   grit: z.number().min(0).max(1).default(0),
   motion: z.number().min(0).max(1).default(0),
   automation: keysAutomationSchema.default(emptyKeysAutomation),
@@ -114,6 +151,40 @@ export const keysSchema = z.object({
   steps: z.array(keysStepSchema).length(STEP_COUNT),
 });
 export type KeysTrack = z.infer<typeof keysSchema>;
+export function normalizedDrumValue(
+  track: DrumTrack,
+  parameter: DrumAutomationParameter,
+): number {
+  if (parameter === "pitch") return (track.pitch + 24) / 48;
+  if (parameter === "decay") return (track.decay - 0.03) / 1.47;
+  if (parameter === "pan") return (track.pan + 1) / 2;
+  return track[parameter];
+}
+export function drumValueFromNormalized(
+  parameter: DrumAutomationParameter,
+  value: number,
+  scale: MusicalScale,
+): number {
+  const bounded = Math.max(0, Math.min(1, value));
+  if (parameter === "pitch")
+    return snapNote(bounded * 48 - 24, { root: 0, mode: scale.mode }, -24, 24);
+  if (parameter === "decay") return 0.03 + bounded * 1.47;
+  if (parameter === "pan") return bounded * 2 - 1;
+  return bounded;
+}
+export function automatedDrum(
+  track: DrumTrack,
+  index: number,
+  scale: MusicalScale,
+): DrumTrack {
+  const resolved = { ...track };
+  for (const parameter of drumAutomationSchema.keyof().options) {
+    const value = track.automation[parameter]?.[index];
+    if (value !== undefined)
+      resolved[parameter] = drumValueFromNormalized(parameter, value, scale);
+  }
+  return resolved;
+}
 export function automatedBass(track: BassTrack, index: number): BassTrack {
   const { cutoff, resonance, envelope, decay, volume, shape, drive } =
     track.automation;
@@ -124,6 +195,7 @@ export function automatedBass(track: BassTrack, index: number): BassTrack {
     volumeValue = volume?.[index];
   return {
     ...track,
+    pulse: track.automation.pulse?.[index] ?? track.pulse,
     shape: shape?.[index] ?? track.shape,
     drive: drive?.[index] ?? track.drive,
     cutoff: cutoffValue === undefined ? track.cutoff : 80 * 100 ** cutoffValue,
@@ -139,6 +211,8 @@ export function automatedKeys(track: KeysTrack, index: number): KeysTrack {
   const decayValue = decay?.[index];
   return {
     ...track,
+    width: track.automation.width?.[index] ?? track.width,
+    attack: track.automation.attack?.[index] ?? track.attack,
     grit: grit?.[index] ?? track.grit,
     motion: motion?.[index] ?? track.motion,
     tone: tone?.[index] ?? track.tone,
@@ -152,6 +226,8 @@ export function normalizedBassValue(
   parameter: BassAutomationParameter,
 ): number {
   switch (parameter) {
+    case "pulse":
+      return track.pulse;
     case "shape":
       return track.shape;
     case "drive":
@@ -187,6 +263,8 @@ export function createKeys(preset = 0): KeysTrack {
   const intervals = [0, 0, 7, 0, 0, 12, 0, 3, 0, 7, 0, 0, 12, 0, 3, 7];
   return {
     sound: 0,
+    width: 0.5,
+    attack: 0,
     grit: 0,
     motion: 0,
     automation: emptyKeysAutomation(),
@@ -369,6 +447,10 @@ export function createProject(preset = 0): Project {
       volume: 0.65,
       drums: ids.map((id, index) => ({
         id,
+        pan: 0,
+        attack: 0,
+        space: 0,
+        automation: emptyDrumAutomation(),
         tone: 0.5,
         drive: 0,
         sound: 0,
@@ -380,6 +462,7 @@ export function createProject(preset = 0): Project {
       })),
       keys: createKeys(preset),
       bass: {
+        pulse: 0.5,
         shape: 0.5,
         drive: 0,
         sound: 2,

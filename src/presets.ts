@@ -515,6 +515,7 @@ export function createPreset(id: string): Project {
     );
   });
   project.bass = {
+    pulse: 0.5,
     shape: preset.bass.shape,
     drive: preset.bass.drive,
     sound: preset.bass.sound,
@@ -529,6 +530,8 @@ export function createPreset(id: string): Project {
     steps: noteSteps(preset.bass),
   };
   project.keys = {
+    width: 0.5,
+    attack: 0,
     grit: 0,
     motion: 0,
     automation: emptyKeysAutomation(),

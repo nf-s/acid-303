@@ -16,7 +16,127 @@ import {
   normalizedKeysValue,
   emptyBassAutomation,
   emptyKeysAutomation,
+  automatedDrum,
+  normalizedDrumValue,
+  drumValueFromNormalized,
+  emptyDrumAutomation,
 } from "./model";
+import type { DrumAutomationParameter } from "./model";
+
+describe("drum automation and eight-control migration", () => {
+  it("defaults older saves to centered dry drums and preserves note-track sound", () => {
+    const project = createProject();
+    const { pulse, ...bass } = project.bass;
+    const { width, attack, ...keys } = project.keys;
+    const saved = {
+      ...project,
+      bass,
+      keys,
+      drums: project.drums.map(
+        ({ pan, attack, space, automation, ...track }) => track,
+      ),
+    };
+    const restored = readProject(saved);
+    expect(restored?.bass.pulse).toBe(0.5);
+    expect(restored?.keys.width).toBe(0.5);
+    expect(restored?.keys.attack).toBe(0);
+    expect(
+      restored?.drums.every(
+        (track) => track.pan === 0 && track.attack === 0 && track.space === 0,
+      ),
+    ).toBe(true);
+    expect(restored?.drums[0]?.automation).toEqual(emptyDrumAutomation());
+  });
+
+  it("resolves every drum curve without mutating settings and snaps automated pitch to the mode", () => {
+    const project = createProject();
+    const drum = project.drums[0];
+    if (!drum) throw new Error("Expected a kick.");
+    const keys: DrumAutomationParameter[] = [
+      "pitch",
+      "decay",
+      "volume",
+      "tone",
+      "drive",
+      "pan",
+      "attack",
+      "space",
+    ];
+    for (const key of keys)
+      drum.automation[key] = Array.from({ length: 16 }, (_, step) =>
+        step === 0 ? 0 : step === 15 ? 1 : 0.5,
+      );
+    const original = structuredClone(drum);
+    const low = automatedDrum(drum, 0, project.scale),
+      high = automatedDrum(drum, 15, project.scale);
+    expect([
+      low.pitch,
+      low.decay,
+      low.volume,
+      low.tone,
+      low.drive,
+      low.pan,
+      low.attack,
+      low.space,
+    ]).toEqual([-24, 0.03, 0, 0, 0, -1, 0, 0]);
+    expect([
+      high.pitch,
+      high.decay,
+      high.volume,
+      high.tone,
+      high.drive,
+      high.pan,
+      high.attack,
+      high.space,
+    ]).toEqual([24, 1.5, 1, 1, 1, 1, 1, 1]);
+    expect(automatedDrum(drum, 8, project.scale).pan).toBe(0);
+    expect(automatedDrum(drum, -1, project.scale)).toEqual(drum);
+    expect(drum).toEqual(original);
+    expect(
+      drumValueFromNormalized("pitch", 0.54, { root: 9, mode: "minor" }),
+    ).toBe(2);
+    expect(
+      drumValueFromNormalized("pitch", 0.54, { root: 2, mode: "pentatonic" }),
+    ).toBe(3);
+    for (const key of keys)
+      expect(
+        drumValueFromNormalized(
+          key,
+          normalizedDrumValue(drum, key),
+          project.scale,
+        ),
+      ).toBeCloseTo(drum[key]);
+  });
+
+  it("rejects malformed drum curves and fills missing lanes independently", () => {
+    const project = createProject();
+    for (const lane of [
+      Array(15).fill(0),
+      Array(16).fill(1.1),
+      Array(16).fill(NaN),
+      true,
+    ]) {
+      expect(
+        readProject({
+          ...project,
+          drums: project.drums.map((track) => ({
+            ...track,
+            automation: { pitch: lane },
+          })),
+        }),
+      ).toBeNull();
+    }
+    const restored = readProject({
+      ...project,
+      drums: project.drums.map((track) => ({
+        ...track,
+        automation: { pan: Array(16).fill(0.5) },
+      })),
+    });
+    expect(restored?.drums[0]?.automation.space).toBeNull();
+    expect(restored?.drums[0]?.automation.pan).toEqual(Array(16).fill(0.5));
+  });
+});
 
 describe("project boundary validation", () => {
   it("accepts all starter patterns", () => {
@@ -357,6 +477,7 @@ describe("instrument automation", () => {
       index === 0 ? 0 : index === 15 ? 1 : 0.5,
     );
     project.bass.automation = {
+      pulse: [...curve],
       shape: [...curve],
       drive: [...curve],
       cutoff: [...curve],
@@ -366,6 +487,8 @@ describe("instrument automation", () => {
       volume: [...curve],
     };
     project.keys.automation = {
+      width: [...curve],
+      attack: [...curve],
       grit: [...curve],
       motion: [...curve],
       tone: [...curve],

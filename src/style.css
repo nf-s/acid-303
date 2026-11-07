@@ -64,7 +64,7 @@ button:active {
 }
 .app-header {
   height: 44px;
-  max-width: 1280px;
+  max-width: 1040px;
   margin: auto;
   display: flex;
   align-items: center;
@@ -153,7 +153,7 @@ button:active {
   box-shadow: 1px 1px #000;
 }
 .workspace {
-  max-width: 1280px;
+  max-width: 1040px;
   margin: auto;
   padding: 12px 12px 0;
   background: #242424f2;
@@ -656,7 +656,7 @@ h2 {
   inset: 0;
   width: 100vw;
   height: 100dvh;
-  z-index: 20;
+  z-index: 1000;
   pointer-events: none;
   mix-blend-mode: difference;
   isolation: auto;
@@ -775,7 +775,7 @@ h2 {
 }
 .visualizer-expanded .visualizer-panel {
   mix-blend-mode: normal;
-  z-index: 30;
+  z-index: 1000;
 }
 .app-footer {
   display: flex;
@@ -1142,7 +1142,7 @@ kbd {
 .beat-keyboard {
   top: 27px;
 }
-/* Keep performance targets identifiable while the surrounding field inverts. */
+/* Local control layers keep focus and labels above their panel backgrounds. */
 .instrument-tabs,
 .sound-buttons,
 .preset-options,
@@ -1476,9 +1476,7 @@ kbd {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px 6px;
   }
-  .keys-panel .acid-controls {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+
   .bass-sounds button {
     min-height: 30px;
   }
@@ -1490,5 +1488,170 @@ kbd {
     gap: 5px;
     flex-wrap: wrap;
     font-size: 8px;
+  }
+}
+
+[hidden] {
+  display: none !important;
+}
+.motion-options {
+  max-width: 1040px;
+  margin: auto;
+  padding: 8px 12px;
+  background: #26292c;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 10px;
+}
+.motion-options button {
+  border: 1px solid #777;
+  padding: 6px 12px;
+}
+.motion-options button[aria-pressed="true"] {
+  background: #ddd;
+  color: #111;
+}
+.app-header {
+  height: auto;
+  min-height: 44px;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+}
+.header-actions {
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.share-panel {
+  max-width: 1040px;
+  margin: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  background: #282b2e;
+  border: 1px solid #666;
+}
+.share-panel input {
+  flex: 1;
+  min-width: 0;
+  background: #151719;
+  color: #fff;
+  border: 1px solid #666;
+  padding: 6px;
+}
+.share-panel button {
+  padding: 6px 9px;
+  background: #444;
+}
+.acid-controls,
+.instrument-dials {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 12px 8px;
+}
+.acid-controls .dial-control,
+.instrument-dials .dial-control {
+  min-width: 0;
+  width: auto;
+}
+.instrument-controls {
+  display: block;
+}
+.instrument-dials {
+  margin-top: 12px;
+  width: 100%;
+}
+.drum-mode-bar {
+  display: flex;
+  gap: 4px;
+  margin: 12px 14px;
+}
+.drum-mode-bar button,
+.drum-detail .matrix-toolbar button {
+  padding: 7px 12px;
+  background: #303438;
+  border: 1px solid #747a80;
+}
+.drum-mode-bar button[aria-pressed="true"],
+.drum-detail .matrix-toolbar button[aria-pressed="true"] {
+  background: #ddd;
+  color: #111;
+}
+.drum-detail {
+  margin: 12px 10px;
+  padding: 12px 4px;
+  border: 1px solid #656a6f;
+  background: #13161970;
+}
+.drum-detail-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.drum-detail .drum-detail-header,
+.drum-detail .instrument-dials {
+  margin: 0 10px 14px;
+  width: auto;
+}
+.drum-detail-header h3 {
+  margin: 0;
+  min-width: 55px;
+  font-size: 12px;
+}
+.drum-detail-header .sound-buttons {
+  max-width: none;
+  flex: 1;
+}
+.drum-detail-header .mute-button {
+  flex: none;
+  width: 28px;
+}
+.drum-detail .matrix-parameters {
+  align-items: center;
+  font-size: 10px;
+}
+.drum-matrix {
+  height: 200px;
+}
+@media (max-width: 650px) {
+  .app-header {
+    padding: 7px 8px;
+  }
+  .header-actions {
+    gap: 3px;
+  }
+  .header-actions .button {
+    min-height: 28px;
+  }
+  .acid-controls,
+  .instrument-dials,
+  .keys-panel .acid-controls {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px 6px;
+  }
+  .drum-matrix {
+    height: 240px;
+  }
+  .drum-detail {
+    margin: 8px 5px;
+  }
+  .drum-detail .drum-detail-header {
+    gap: 8px;
+  }
+  .drum-detail-header h3 {
+    width: 100%;
+  }
+  .drum-detail .sound-buttons {
+    flex-wrap: wrap;
+  }
+  .drum-detail .matrix-toolbar {
+    gap: 5px;
+  }
+  .drum-detail .matrix-toolbar button {
+    padding: 6px 9px;
   }
 }

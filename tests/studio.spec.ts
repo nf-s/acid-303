@@ -819,12 +819,15 @@ test("every Bass and Texture knob opens editable automation and manual changes s
     { track: "bass", id: "bass-volume" },
     { track: "bass", id: "bass-shape" },
     { track: "bass", id: "bass-drive" },
+    { track: "bass", id: "bass-pulse" },
     { track: "keys", id: "keys-tone" },
     { track: "keys", id: "keys-decay" },
     { track: "keys", id: "keys-space" },
     { track: "keys", id: "keys-volume" },
     { track: "keys", id: "keys-grit" },
     { track: "keys", id: "keys-motion" },
+    { track: "keys", id: "keys-width" },
+    { track: "keys", id: "keys-attack" },
   ];
   for (const control of controls) {
     await page.locator(`#${control.id}`).press("Enter");
@@ -851,6 +854,7 @@ test("every Bass and Texture knob opens editable automation and manual changes s
   ).toBe(true);
   expect(before.bass.steps).toEqual(createProject().bass.steps);
   expect(before.keys.steps).toEqual(createProject().keys.steps);
+  await page.locator("#keys-motion").press("Enter");
   await matrixStroke(page, "keys", 0, 15, 0.8, 0.4);
   await expect
     .poll(async () => (await savedProject(page)).keys.automation.motion?.[15])
@@ -871,7 +875,7 @@ test("every Bass and Texture knob opens editable automation and manual changes s
     .not.toBe("01");
   await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
   await page.reload();
-  await expect(page.locator("[data-automated=true]")).toHaveCount(13);
+  await expect(page.locator("[data-automated=true]")).toHaveCount(16);
 });
 
 test("phone sound selection, expression controls and tap automation persist without overflow", async ({
@@ -977,6 +981,7 @@ test("phone twist adjusts only held knobs and releases without opening automatio
   const motion = page.locator("#phone-motion");
   await motion.tap();
   await expect(motion).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Twist", exact: true }).tap();
   let clock = 1000;
   const twist = async (rate: number) => {
     await page.evaluate(
@@ -1074,4 +1079,151 @@ test("clearing a curve cancels a held line before it can restore old values", as
   await page.waitForTimeout(300);
   expect((await savedProject(page)).bass.automation.cutoff).toBeNull();
   await context.close();
+});
+
+test("advanced drums expose eight automated controls on every track", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Advanced", exact: true }).click();
+  await expect(page.locator(".drum-detail")).toHaveCount(5);
+  const before = createProject().drums.map((track) => track.steps);
+  for (const id of ["kick", "snare", "hat", "clap", "rim"]) {
+    await expect(
+      page.locator(`.drum-detail:has(#${id}-matrix-canvas) .gesture-control`),
+    ).toHaveCount(8);
+    for (const parameter of [
+      "pitch",
+      "decay",
+      "volume",
+      "tone",
+      "drive",
+      "pan",
+      "attack",
+      "space",
+    ]) {
+      await page.locator(`#${id}-${parameter}`).press("Enter");
+      await page
+        .locator(`#${id}-matrix-access [role=slider]`)
+        .first()
+        .press("End");
+      await expect(page.locator(`#${id}-${parameter}`)).toHaveAttribute(
+        "data-automated",
+        "true",
+      );
+    }
+  }
+  await expect
+    .poll(async () =>
+      (await savedProject(page)).drums.every((track) =>
+        Object.values(track.automation).every((lane) => lane?.[0] === 1),
+      ),
+    )
+    .toBe(true);
+  expect((await savedProject(page)).drums.map((track) => track.steps)).toEqual(
+    before,
+  );
+  await page.getByRole("button", { name: "Simple", exact: true }).click();
+  await expect(page.locator("#beat-canvas")).toBeVisible();
+  await page.getByRole("button", { name: "Advanced", exact: true }).click();
+  await expect(page.locator(".drum-detail [data-automated=true]")).toHaveCount(
+    40,
+  );
+  await page.reload();
+  await page.getByRole("button", { name: "Advanced", exact: true }).click();
+  await expect(page.locator(".drum-detail [data-automated=true]")).toHaveCount(
+    40,
+  );
+});
+
+test("global undo and redo restore the whole track across examples and gestures", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await dragUp(page, page.locator("#cutoff"), 48);
+  await expect
+    .poll(async () => (await savedProject(page)).bass.cutoff)
+    .toBeGreaterThan(createProject().bass.cutoff);
+  const edited = await savedProject(page);
+  await page.locator("[data-preset]").first().click();
+  await expect
+    .poll(async () => (await savedProject(page)).name)
+    .not.toBe(edited.name);
+  const example = await savedProject(page);
+  await page
+    .getByRole("button", { name: "Undo last edit", exact: true })
+    .click();
+  await expect.poll(() => savedProject(page)).toEqual(edited);
+  await page
+    .getByRole("button", { name: "Undo last edit", exact: true })
+    .click();
+  await expect.poll(() => savedProject(page)).toEqual(createProject());
+  await page
+    .getByRole("button", { name: "Redo last edit", exact: true })
+    .click();
+  await expect.poll(() => savedProject(page)).toEqual(edited);
+  await page
+    .getByRole("button", { name: "Redo last edit", exact: true })
+    .click();
+  await expect.poll(() => savedProject(page)).toEqual(example);
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => savedProject(page)).toEqual(edited);
+  await page.locator("#keys-tone").press("ArrowUp");
+  await expect(
+    page.getByRole("button", { name: "Redo last edit", exact: true }),
+  ).toBeDisabled();
+});
+
+test("share link loads the full track into a fresh browser context", async ({
+  page,
+  browser,
+}) => {
+  await page.goto("/");
+  await page.locator("#kick-tone").press("End");
+  await page.locator("#cutoff").press("Enter");
+  await matrixStroke(page, "bass", 0, 15, 0.8, 0.2);
+  await expect
+    .poll(async () => (await savedProject(page)).bass.automation.cutoff?.[15])
+    .toBeCloseTo(0.8, 1);
+  const original = await savedProject(page);
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  const field = page.locator("#share-url");
+  await expect(field).toBeVisible();
+  const link = await field.inputValue();
+  expect(link).toContain("#track=v1.");
+  const context = await browser.newContext();
+  const other = await context.newPage();
+  await other.goto(link);
+  await expect.poll(() => savedProject(other)).toEqual(original);
+  await expect(other.locator("#cutoff")).toHaveAttribute(
+    "data-automated",
+    "true",
+  );
+  await context.close();
+});
+
+test("fluid overlay reaches transport, scale, knobs and matrices", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.evaluate(() => document.fonts.ready);
+  const intensity = page.locator("#intensity");
+  for (const selector of [
+    "#play",
+    ".scale-panel",
+    "#cutoff",
+    "#bass-matrix-canvas",
+    ".app-header",
+  ]) {
+    const target = page.locator(selector);
+    await target.scrollIntoViewIfNeeded();
+    await intensity.press("Home");
+    const clean = await target.screenshot();
+    await intensity.press("End");
+    const distorted = await target.screenshot();
+    expect(clean.equals(distorted)).toBe(false);
+  }
+  expect(
+    (await page.locator(".workspace").boundingBox())?.width,
+  ).toBeLessThanOrEqual(1040);
 });

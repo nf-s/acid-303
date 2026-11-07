@@ -66,6 +66,7 @@ export class NoteMatrix {
     private readonly max: number,
     private readonly onPaint: (change: MatrixChange) => void,
     private readonly onStroke: () => void,
+    private readonly drums = false,
   ) {
     this.context = canvas.getContext("2d");
     for (let index = 0; index < STEP_COUNT; index++) {
@@ -489,8 +490,10 @@ export class NoteMatrix {
     ctx.globalAlpha = (this.muted ? 0.35 : 1) * (this.automation ? 0.46 : 1);
     this.drawGates(ctx);
     this.drawPitch(ctx);
-    this.drawGlides(ctx);
-    this.drawAccents(ctx);
+    if (!this.drums) {
+      this.drawGlides(ctx);
+      this.drawAccents(ctx);
+    }
     this.steps.forEach((step, index) => {
       const center = LEFT + (index + 0.5) * this.cellWidth;
       ctx.fillStyle = step.on ? "#aab0b6" : "#697077";

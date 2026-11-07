@@ -1,6 +1,7 @@
 import {
   STEP_COUNT,
   automatedBass,
+  automatedDrum,
   automatedKeys,
   scaleNotes,
   stepDuration,
@@ -181,9 +182,16 @@ function scheduleSources(
   start: number,
   end: number,
   bufferOffset = 0,
+  tail = 0,
 ): void {
-  let remaining = sources.length;
-  for (const source of sources) {
+  const hold = tail > 0 ? graph.context.createBufferSource() : null;
+  if (hold) {
+    hold.buffer = graph.context.createBuffer(1, 1, graph.context.sampleRate);
+    hold.loop = true;
+  }
+  const scheduled = hold ? [...sources, hold] : sources;
+  let remaining = scheduled.length;
+  for (const source of scheduled) {
     graph.sources.add(source);
     source.onended = () => {
       graph.sources.delete(source);
@@ -193,7 +201,7 @@ function scheduleSources(
     };
     if ("buffer" in source) source.start(start, bufferOffset);
     else source.start(start);
-    source.stop(end);
+    source.stop(end + (source === hold ? tail : 0));
   }
 }
 
@@ -221,12 +229,40 @@ function drumVoice(graph: AudioGraph, track: DrumTrack, time: number): void {
   }
   if (track.drive > 0) {
     const drive = context.createWaveShaper();
-    drive.curve = localDriveCurve(track.drive);
+    drive.curve = localDriveCurve(track.drive, track.drive * 0.6);
     previous.connect(drive);
     previous = drive;
     nodes.push(drive);
   }
-  previous.connect(graph.input);
+  if (track.attack > 0) {
+    const soften = context.createGain();
+    soften.gain.value = 0;
+    soften.gain.setValueAtTime(0, time);
+    soften.gain.linearRampToValueAtTime(
+      1,
+      time + Math.max(0.002, Math.min(0.18, decay * 0.8) * track.attack),
+    );
+    previous.connect(soften);
+    previous = soften;
+    nodes.push(soften);
+  }
+  const pan = context.createStereoPanner();
+  pan.channelCount = 2;
+  pan.channelCountMode = "explicit";
+  pan.pan.value = track.pan;
+  previous.connect(pan);
+  pan.connect(graph.input);
+  nodes.push(pan);
+  if (track.space > 0) {
+    const room = context.createConvolver();
+    const wet = context.createGain();
+    room.buffer = textureRoom(graph);
+    wet.gain.value = track.space * 0.32;
+    pan.connect(room);
+    room.connect(wet);
+    wet.connect(graph.input);
+    nodes.push(room, wet);
+  }
   let end = time + decay + 0.08;
   const envelope = (
     gain: AudioParam,
@@ -511,7 +547,15 @@ function drumVoice(graph: AudioGraph, track: DrumTrack, time: number): void {
     );
     end = time + length + 0.03;
   }
-  scheduleSources(graph, sources, nodes, time, end);
+  scheduleSources(
+    graph,
+    sources,
+    nodes,
+    time,
+    end,
+    0,
+    track.space > 0 ? 0.92 : 0,
+  );
 }
 
 interface BassTone {
@@ -875,7 +919,10 @@ class BassVoice {
     const levels = profile.tones.map((tone, index) =>
       index === 0
         ? tone.level
-        : tone.level * (index === 1 ? complexity : 1.35 - track.shape * 0.7) +
+        : tone.level *
+            (index === 1
+              ? complexity * (1.5 - track.pulse)
+              : (1.35 - track.shape * 0.7) * (0.5 + track.pulse)) +
           (index === 1 ? extra * 0.25 : 0),
     );
     const total = Math.max(
@@ -930,7 +977,10 @@ class BassVoice {
     this.driveWet.gain.setTargetAtTime(drive, time, 0.006);
     const release = Math.max(
       0.02,
-      Math.min(duration * profile.gate, track.decay * profile.release),
+      Math.min(
+        duration * profile.gate * (0.35 + track.pulse * 1.3),
+        track.decay * profile.release * (0.4 + track.pulse * 1.2),
+      ),
     );
     const amplitude = Math.max(
       MIN_GAIN,
@@ -950,12 +1000,15 @@ class BassVoice {
       );
     if (outgoingSlide)
       envelope.exponentialRampToValueAtTime(
-        Math.max(MIN_GAIN, amplitude * 0.74),
+        Math.max(MIN_GAIN, amplitude * 0.74 * (0.55 + track.pulse * 0.9)),
         time + duration,
       );
     else {
       envelope.exponentialRampToValueAtTime(
-        Math.max(MIN_GAIN, amplitude * profile.sustain),
+        Math.max(
+          MIN_GAIN,
+          amplitude * profile.sustain * (0.3 + track.pulse * 1.4),
+        ),
         time + release * 0.66,
       );
       envelope.exponentialRampToValueAtTime(MIN_GAIN, time + release * 0.94);
@@ -1017,21 +1070,27 @@ function keysEchoTail(track: KeysTrack, bpm: number): number {
 }
 
 export function exportTailDuration(project: Project): number {
-  const drumTail = project.drums.reduce((longest, track) => {
-    if (track.muted || track.volume === 0) return longest;
-    let decay = track.decay;
-    if (track.id === "kick" && track.sound === 3)
-      decay = Math.min(2, track.decay * 1.35);
-    if (track.id === "snare" && track.sound === 4)
-      decay = Math.min(2, track.decay * 1.3);
-    if (track.id === "hat" && track.sound === 1)
-      decay = Math.min(2.5, track.decay * 3.2);
-    if (track.id === "hat" && track.sound === 4)
-      decay = Math.min(3, track.decay * 6);
-    if (track.id === "clap" && track.sound === 3)
-      decay = track.decay * 1.2 + 0.945;
-    return Math.max(longest, decay + 0.12);
-  }, 0);
+  const drumTail = project.drums
+    .flatMap((track) =>
+      Array.from({ length: STEP_COUNT }, (_, step) =>
+        automatedDrum(track, step, project.scale),
+      ),
+    )
+    .reduce((longest, track) => {
+      if (track.muted || track.volume === 0) return longest;
+      let decay = track.decay;
+      if (track.id === "kick" && track.sound === 3)
+        decay = Math.min(2, track.decay * 1.35);
+      if (track.id === "snare" && track.sound === 4)
+        decay = Math.min(2, track.decay * 1.3);
+      if (track.id === "hat" && track.sound === 1)
+        decay = Math.min(2.5, track.decay * 3.2);
+      if (track.id === "hat" && track.sound === 4)
+        decay = Math.min(3, track.decay * 6);
+      if (track.id === "clap" && track.sound === 3)
+        decay = track.decay * 1.2 + 0.945;
+      return Math.max(longest, decay + 0.12 + (track.space > 0 ? 0.92 : 0));
+    }, 0);
   const automated = Array.from({ length: STEP_COUNT }, (_, step) =>
     automatedKeys(project.keys, step),
   );
@@ -1266,6 +1325,8 @@ function textureRoom(graph: AudioGraph): AudioBuffer {
 }
 
 class KeysVoice {
+  private readonly stereoInput: GainNode;
+  private readonly widthGains: GainNode[] = [];
   private readonly filter: BiquadFilterNode;
   private readonly envelope: GainNode;
   private readonly gritNode: WaveShaperNode;
@@ -1301,6 +1362,21 @@ class KeysVoice {
     time: number,
   ) {
     const context = graph.context;
+    this.stereoInput = context.createGain();
+    this.stereoInput.channelCount = 2;
+    this.stereoInput.channelCountMode = "explicit";
+    const split = context.createChannelSplitter(2);
+    const merge = context.createChannelMerger(2);
+    this.stereoInput.connect(split);
+    for (let index = 0; index < 4; index += 1) {
+      const gain = context.createGain();
+      gain.gain.value = index === 0 || index === 3 ? 1 : 0;
+      split.connect(gain, Math.floor(index / 2));
+      gain.connect(merge, 0, index % 2);
+      this.widthGains.push(gain);
+    }
+    merge.connect(graph.cleanInput);
+    this.nodes.push(this.stereoInput, split, merge, ...this.widthGains);
     this.filter = context.createBiquadFilter();
     this.filter.type = "lowpass";
     this.filter.Q.value = 0.55;
@@ -1332,7 +1408,7 @@ class KeysVoice {
     this.gritDry.connect(this.envelope);
     this.gritWet.connect(this.envelope);
     this.envelope.connect(this.flutter);
-    this.flutter.connect(graph.cleanInput);
+    this.flutter.connect(this.stereoInput);
     const nodes = this.nodes;
     nodes.push(
       this.filter,
@@ -1396,7 +1472,7 @@ class KeysVoice {
       delay.connect(damping);
       damping.connect(gain);
       gain.connect(pan);
-      pan.connect(graph.cleanInput);
+      pan.connect(this.stereoInput);
       nodes.push(delay, damping, gain, pan);
       this.echoes.push({ delay, damping, gain });
     }
@@ -1422,6 +1498,13 @@ class KeysVoice {
   ): void {
     const frequency = midiFrequency(note);
     const shape = textureShape(track.sound);
+    this.widthGains.forEach((gain, index) => {
+      gain.gain.setTargetAtTime(
+        index === 0 || index === 3 ? 0.5 + track.width : 0.5 - track.width,
+        time,
+        0.006,
+      );
+    });
     const chordRoot = track.sound === 4 ? note - 12 : note;
     const chord = scaleNotes(this.graph.scale, chordRoot, chordRoot + 24);
     if (track.sound !== this.sound) {
@@ -1465,8 +1548,11 @@ class KeysVoice {
         );
       else tone.oscillator.frequency.setValueAtTime(targetFrequency, time);
     });
-    const attack =
-      Math.min(track.decay * 0.2, shape.attack) * (accent ? 0.7 : 1);
+    const attack = Math.min(
+      track.decay * shape.sustainTime * 0.8,
+      Math.min(track.decay * 0.2, shape.attack) * (accent ? 0.7 : 1) +
+        track.attack ** 2 * Math.min(0.24, track.decay * 0.6),
+    );
     const amplitude = Math.max(MIN_GAIN, shape.amplitude * (accent ? 1.28 : 1));
     const cutoff = Math.min(
       15000,
@@ -1624,7 +1710,7 @@ class KeysVoice {
     gain.gain.value = 0;
     this.flutter.connect(room);
     room.connect(gain);
-    gain.connect(this.graph.cleanInput);
+    gain.connect(this.stereoInput);
     this.nodes.push(room, gain);
     this.roomGain = gain;
   }
@@ -1788,7 +1874,8 @@ export class AudioEngine {
       const time = this.nextStepTime;
       const duration = stepDuration(project.bpm, project.swing, step);
       for (const drum of project.drums) {
-        if (!drum.muted && drum.steps[step]) drumVoice(graph, drum, time);
+        if (!drum.muted && drum.steps[step])
+          drumVoice(graph, automatedDrum(drum, step, project.scale), time);
       }
       this.bass?.schedule(
         automatedBass(project.bass, step),
@@ -1916,7 +2003,8 @@ export class AudioEngine {
       const step = index % STEP_COUNT;
       const duration = stepDuration(project.bpm, project.swing, step);
       for (const drum of project.drums) {
-        if (!drum.muted && drum.steps[step]) drumVoice(graph, drum, time);
+        if (!drum.muted && drum.steps[step])
+          drumVoice(graph, automatedDrum(drum, step, project.scale), time);
       }
       bass.schedule(automatedBass(project.bass, step), step, time, duration);
       keys.schedule(automatedKeys(project.keys, step), step, time, duration);

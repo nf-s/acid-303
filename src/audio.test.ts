@@ -131,6 +131,23 @@ describe("WAV export", () => {
     expect(exportTailDuration(project)).toBe(0.35);
   });
 
+  it("retains automated drum decay and room tails", () => {
+    const project = createProject();
+    project.keys.muted = true;
+    const hat = project.drums.find((track) => track.id === "hat");
+    if (!hat) throw new Error("Expected a hi-hat.");
+    hat.sound = 4;
+    hat.automation.decay = Array.from({ length: 16 }, (_, step) =>
+      step === 15 ? 1 : 0,
+    );
+    hat.automation.space = Array.from({ length: 16 }, (_, step) =>
+      step === 15 ? 1 : 0,
+    );
+    expect(exportTailDuration(project)).toBeGreaterThanOrEqual(4.04);
+    hat.automation.volume = Array.from({ length: 16 }, () => 0);
+    expect(exportTailDuration(project)).toBeLessThan(1);
+  });
+
   it("writes an interleaved stereo PCM file with correctly clamped samples", async () => {
     const blob = encodeWav(
       [new Float32Array([-2, 0.5, NaN]), new Float32Array([2, -0.5, Infinity])],
