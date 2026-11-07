@@ -1,0 +1,16 @@
+{
+  "publisher": "Producer Space / Creative Nevada Limited",
+  "primaryPage": "https://producerspace.com/",
+  "clearancePage": "https://producerspace.com/license",
+  "archivePage": "https://archive.org/details/producer-space-cc0-sample-library",
+  "license": "CC0-1.0",
+  "licenseFile": "licenses/producer-space-CC0.txt",
+  "legalCodeFile": "licenses/CC0-1.0.txt",
+  "retrieved": "2026-11-08",
+  "archiveMetadataSha256": "8b16da443c17674310c51007383c7553a129458483a7235f96757219a44c9cb2",
+  "sourceIntegrity": "Original SHA256 and Internet Archive MD5 per file in selection-v2.json and catalog-v2.json.",
+  "performer": null,
+  "modifications": "Selected phrase/ad-lib and stable vowel regions, mono downmix, DC removal, eight formant-preserved nearest-semitone pitch corrections, edge fades, -1dBFS peak normalization, PCM16 WAV.",
+  "pitch": "Only tuned-chop entries claim single-note tuning; source-key entries retain melody and use the source tonic as transposition reference.",
+  "legacy": "Original catalog.json and 24 Kenney files unchanged; indices0\u201323 preserved."
+}

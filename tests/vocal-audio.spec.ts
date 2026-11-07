@@ -29,6 +29,7 @@ async function prepare(
   ])
     track.muted = true;
   project.vocal.muted = false;
+  project.vocal.sound = 0;
   await page.addInitScript(
     ({ project, holdDecode }) => {
       localStorage.setItem("acid-303-project-v1", JSON.stringify(project));

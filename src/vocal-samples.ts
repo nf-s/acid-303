@@ -7,20 +7,28 @@ export interface VocalSampleStatus {
   message: string;
 }
 const sampleSchema = z.object({
-  id: z.string().regex(/^(female|male|fighter)-[a-z-]+$/),
+  id: z.string().regex(/^(female|male|fighter|soul|air|dance)-[a-z-]+$/),
   name: z.string().min(1).max(40),
-  voice: z.enum(["female", "male", "fighter"]),
+  voice: z.enum(["female", "male", "fighter", "soul", "air", "dance"]),
   url: z
     .string()
-    .regex(/^\/vocals\/audio\/(female|male|fighter)-[a-z-]+\.wav$/),
+    .regex(
+      /^\/vocals\/audio\/(female|male|fighter|soul|air|dance)-[a-z-]+\.wav$/,
+    ),
   duration: z.number().positive().max(3),
-  rootNote: z.literal(60),
+  rootNote: z.number().int().min(36).max(84),
+  tonal: z.boolean().default(false),
+  pitch: z
+    .object({
+      kind: z.enum(["tuned-chop", "source-key", "playback-reference"]),
+    })
+    .optional(),
   peak: z.number().positive().max(1),
   rms: z.number().positive().max(1),
   peaks: z.array(z.number().min(0).max(1)).length(128),
 });
 const catalogSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   samples: z
     .array(sampleSchema)
     .length(VOCAL_SOUNDS.length)
@@ -121,16 +129,20 @@ export async function loadVocalCatalog(
 ): Promise<VocalCatalog> {
   cancelled(signal);
   if (catalog) return catalog;
-  const bytes = await download("/vocals/catalog.json", signal);
+  const bytes = await download("/vocals/catalog-v2.json", signal);
   let value: unknown;
   try {
     value = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
-    throw new Error("The vocal catalog is invalid. Reload Grain to retry.");
+    throw new Error(
+      "The vocal catalog is invalid. Try loading the sample again.",
+    );
   }
   const parsed = catalogSchema.safeParse(value);
   if (!parsed.success)
-    throw new Error("The vocal catalog is invalid. Reload Grain to retry.");
+    throw new Error(
+      "The vocal catalog is invalid. Try loading the sample again.",
+    );
   catalog = parsed.data;
   return catalog;
 }

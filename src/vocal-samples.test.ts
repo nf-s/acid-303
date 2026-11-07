@@ -1,4 +1,4 @@
-import fixture from "../public/vocals/catalog.json?raw";
+import fixture from "../public/vocals/catalog-v2.json?raw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 beforeEach(() => {
   vi.resetModules();
@@ -17,10 +17,13 @@ describe("bounded vocal metadata loading", () => {
     vi.stubGlobal("fetch", fetcher);
     const { loadVocalCatalog } = await import("./vocal-samples");
     const catalog = await loadVocalCatalog();
-    expect(catalog.samples).toHaveLength(24);
+    expect(catalog.samples).toHaveLength(48);
     expect(
       catalog.samples.every(
-        (sample) => sample.rootNote === 60 && sample.peaks.length === 128,
+        (sample) =>
+          sample.rootNote >= 36 &&
+          sample.rootNote <= 84 &&
+          sample.peaks.length === 128,
       ),
     ).toBe(true);
     expect(await loadVocalCatalog()).toBe(catalog);
@@ -43,7 +46,7 @@ describe("bounded vocal metadata loading", () => {
     vi.stubGlobal("fetch", fetcher);
     const { loadVocalCatalog } = await import("./vocal-samples");
     await expect(loadVocalCatalog()).rejects.toThrow("catalog is invalid");
-    expect((await loadVocalCatalog()).samples).toHaveLength(24);
+    expect((await loadVocalCatalog()).samples).toHaveLength(48);
   });
   it("cancels an in-flight download and reports timeouts distinctly", async () => {
     vi.useFakeTimers();

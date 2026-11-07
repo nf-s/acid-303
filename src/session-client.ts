@@ -30,6 +30,9 @@ export interface SessionStatus {
   participants: number;
   hostConnected: boolean;
   supportsVocal: boolean;
+  supportsVocalMusic: boolean;
+  supportsCloud: boolean;
+  supportsTension: boolean;
   inviteLink: string | null;
   message: string;
 }
@@ -86,6 +89,9 @@ export class SessionClient {
     participants: 0,
     hostConnected: false,
     supportsVocal: false,
+    supportsVocalMusic: false,
+    supportsCloud: false,
+    supportsTension: false,
     inviteLink: null,
     message: "",
   };
@@ -102,6 +108,9 @@ export class SessionClient {
           phase: "reconnecting",
           hostConnected: false,
           supportsVocal: false,
+          supportsVocalMusic: false,
+          supportsCloud: false,
+          supportsTension: false,
           message: "Offline. Waiting to reconnect…",
         });
         this.callbacks.onClock(false, 0);
@@ -128,7 +137,13 @@ export class SessionClient {
 
   private report(update: Partial<SessionStatus>): void {
     if (update.hostConnected === false)
-      update = { ...update, supportsVocal: false };
+      update = {
+        ...update,
+        supportsVocal: false,
+        supportsVocalMusic: false,
+        supportsCloud: false,
+        supportsTension: false,
+      };
     this.status = { ...this.status, ...update };
     this.callbacks.onState({ ...this.status });
   }
@@ -245,6 +260,9 @@ export class SessionClient {
       participants: 0,
       hostConnected: false,
       supportsVocal: false,
+      supportsVocalMusic: false,
+      supportsCloud: false,
+      supportsTension: false,
       inviteLink: link.href,
       message: "Connecting…",
     });
@@ -361,6 +379,9 @@ export class SessionClient {
         phase: "reconnecting",
         hostConnected: false,
         supportsVocal: false,
+        supportsVocalMusic: false,
+        supportsCloud: false,
+        supportsTension: false,
         message: "Reconnecting…",
       });
       this.callbacks.onClock(false, 0);
@@ -413,6 +434,9 @@ export class SessionClient {
         phase: "connected",
         hostConnected: message.hostConnected,
         supportsVocal: message.supportsVocal,
+        supportsVocalMusic: message.supportsVocalMusic,
+        supportsCloud: message.supportsCloud,
+        supportsTension: message.supportsTension,
         participants: message.participants,
         message: kept ? "" : "Some unsynced edits could not be restored.",
       });
@@ -454,6 +478,9 @@ export class SessionClient {
       this.report({
         hostConnected: message.hostConnected,
         supportsVocal: message.supportsVocal,
+        supportsVocalMusic: message.supportsVocalMusic,
+        supportsCloud: message.supportsCloud,
+        supportsTension: message.supportsTension,
         participants: message.participants,
       });
       this.callbacks.onClock(message.playing, message.absoluteTick);
@@ -470,6 +497,9 @@ export class SessionClient {
         phase: "ended",
         hostConnected: false,
         supportsVocal: false,
+        supportsVocalMusic: false,
+        supportsCloud: false,
+        supportsTension: false,
         message:
           message.reason === "expired"
             ? "Session expired."
@@ -591,6 +621,9 @@ export class SessionClient {
       participants: 0,
       hostConnected: false,
       supportsVocal: false,
+      supportsVocalMusic: false,
+      supportsCloud: false,
+      supportsTension: false,
       inviteLink: null,
       message: "",
     });

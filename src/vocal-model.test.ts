@@ -19,24 +19,55 @@ import {
   resolveVocalTrim,
   vocalStepNotes,
   VOCAL_SOUNDS,
+  VOCAL_PATTERNS,
+  withVocalPattern,
 } from "./vocal-model";
-import { trackStepCount } from "./timing";
+import { trackStepCount, timingSchema } from "./timing";
+import { scaleNotes } from "./model";
 const scale = createProject().scale;
 describe("vocal patterns", () => {
+  it("builds musical rhythms across every meter/grid without replacing sound, trim or automation", () => {
+    for (const meter of ["4/4", "3/4", "5/4", "6/8", "7/8"])
+      for (const grid of ["straight", "triplet"])
+        for (const pattern of VOCAL_PATTERNS) {
+          const track = resizeVocalTrack(
+            createVocal(),
+            timingSchema.parse({ bars: 16, meter, grid }),
+          );
+          track.start = 0.1;
+          track.end = 0.8;
+          track.automation.tone = Array(trackStepCount(track.timing)).fill(0.4);
+          const next = withVocalPattern(track, pattern.id, scale, 63);
+          expect(vocalSchema.safeParse(next).success).toBe(true);
+          expect(
+            next.notes.every((note) =>
+              scaleNotes(scale, 36, 84).includes(note.note),
+            ),
+          ).toBe(true);
+          expect(next.muted).toBe(false);
+          expect(next.sound).toBe(track.sound);
+          expect([next.start, next.end, next.automation]).toEqual([
+            track.start,
+            track.end,
+            track.automation,
+          ]);
+          expect(track.muted).toBe(true);
+        }
+  });
   it("migrates v3 without changing existing instruments or enabling vocals", () => {
     const original = createProject();
     const { vocal, ...previous } = original;
     expect(vocal.muted).toBe(true);
     const migrated = readProject({ ...previous, version: 3 });
     expect(migrated).toEqual(original);
-    expect(migrated?.version).toBe(4);
+    expect(migrated?.version).toBe(5);
     expect(projectSchema.safeParse(migrated).success).toBe(true);
   });
   it("validates sample bounds, ordered notes, loop bounds, trim and automation", () => {
     const track = createVocal();
-    expect(VOCAL_SOUNDS).toHaveLength(24);
+    expect(VOCAL_SOUNDS).toHaveLength(48);
     expect(vocalSchema.safeParse({ ...track, sound: 23 }).success).toBe(true);
-    expect(vocalSchema.safeParse({ ...track, sound: 24 }).success).toBe(false);
+    expect(vocalSchema.safeParse({ ...track, sound: 48 }).success).toBe(false);
     expect(vocalSchema.safeParse({ ...track, start: 1, end: 0 }).success).toBe(
       false,
     );

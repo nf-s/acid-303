@@ -7,6 +7,8 @@
   margin: 0 14px 12px;
 }
 .vocal-instrument .vocal-banks {
+  min-width: 0;
+  flex-wrap: wrap;
   justify-content: flex-start;
 }
 .vocal-instrument .vocal-sounds {
@@ -188,6 +190,10 @@
   inset: 24px 8px 8px 36px;
 }
 @media (max-width: 650px) {
+  .vocal-instrument .vocal-banks {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
   .vocal-instrument .vocal-controls {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -216,4 +222,9 @@
   .vocal-instrument .vocal-roll {
     height: 360px;
   }
+}
+
+.vocal-instrument .vocal-rhythms {
+  margin: 8px 14px;
+  justify-content: flex-start;
 }

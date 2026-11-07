@@ -12,6 +12,7 @@ export interface InstrumentControl<Parameter extends string> {
   max: number;
   multiplier: number;
   step?: string;
+  format?: (value: number) => string;
 }
 interface AutomationOptions<Parameter extends string> {
   prefix: string;
@@ -176,6 +177,7 @@ export function createInstrumentAutomation<Parameter extends string>(
       values: options.getLane(selected.parameter),
       base: options.getBase(selected.parameter),
       format: (value) => {
+        if (selected.format) return selected.format(value);
         const actual = selected.min + value * (selected.max - selected.min);
         return `${Math.round(actual)}${selected.parameter === "decay" ? " ms" : "%"}`;
       },

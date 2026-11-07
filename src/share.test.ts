@@ -6,6 +6,8 @@ import {
   resizeKeysTrack,
   projectSchema,
 } from "./model";
+import { resizeCloudTrack } from "./cloud-model";
+import { resizeTensionTrack } from "./tension-model";
 import { resizeArpTrack } from "./arp-model";
 import { resizePadTrack } from "./pad-model";
 import { resizeVocalTrack, VOCAL_SOUNDS } from "./vocal-model";
@@ -32,7 +34,7 @@ describe("track links", () => {
     expect(link.length).toBeLessThan(6000);
     expect(await decodeTrack(link)).toEqual(track);
   });
-  it("round-trips the longest patterns with all 80 independent automation lanes", async () => {
+  it("round-trips the longest patterns with all 96 independent automation lanes", async () => {
     const track = createProject();
     const timing = sequenceTimingSchema.parse({
       bars: 8,
@@ -48,6 +50,8 @@ describe("track links", () => {
       padTimingSchema.parse({ ...timing, bars: 16 }),
     );
     track.vocal = resizeVocalTrack(track.vocal, { ...timing, bars: 16 });
+    track.cloud = resizeCloudTrack(track.cloud, { ...timing, bars: 16 });
+    track.tension = resizeTensionTrack(track.tension, { ...timing, bars: 16 });
     track.vocal.sound = VOCAL_SOUNDS.length - 1;
     track.vocal.notes = Array.from(
       { length: trackStepCount(track.vocal.timing) },
@@ -71,6 +75,8 @@ describe("track links", () => {
       track.arp,
       track.pad,
       track.vocal,
+      track.cloud,
+      track.tension,
     ])
       fill(instrument.automation, trackStepCount(instrument.timing));
     projectSchema.parse(track);

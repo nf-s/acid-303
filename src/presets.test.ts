@@ -37,7 +37,9 @@ async function presetHash(id: string): Promise<string> {
   };
   const bytes = new TextEncoder().encode(
     JSON.stringify({ ...project, version: 2, pad: oldPad }, (key, value) =>
-      key === "timing" || key === "fx" || key === "vocal" ? undefined : value,
+      ["timing", "fx", "vocal", "cloud", "tension"].includes(key)
+        ? undefined
+        : value,
     ),
   );
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -57,6 +59,8 @@ describe("genre examples", () => {
     expect(project.scale).toEqual({ root: 5, mode: "phrygian" });
     expect(project.bpm).toBe(124);
     expect(project.vocal.muted).toBe(true);
+    expect(project.cloud.muted).toBe(true);
+    expect(project.tension.muted).toBe(true);
     expect(findPresetByName("Nightshift")).toEqual({
       id: "nightshift",
       name: "Nightshift",
@@ -65,7 +69,8 @@ describe("genre examples", () => {
     const saved: unknown = JSON.parse(JSON.stringify(project));
     expect(readProject(saved)).toEqual(project);
     const arrangement = JSON.stringify(project, (key, value: unknown) => {
-      if (["version", "name", "vocal"].includes(key)) return undefined;
+      if (["version", "name", "vocal", "cloud", "tension"].includes(key))
+        return undefined;
       if (value !== null && typeof value === "object" && !Array.isArray(value))
         return Object.fromEntries(
           Object.entries(value).sort(([a], [b]) => a.localeCompare(b)),

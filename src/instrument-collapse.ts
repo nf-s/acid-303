@@ -7,8 +7,10 @@ const panelId = z.enum([
   "arp-panel",
   "pad-panel",
   "vocal-panel",
+  "cloud-panel",
+  "tension-panel",
 ]);
-const savedSchema = z.array(panelId).max(6);
+const savedSchema = z.array(panelId).max(8);
 const storageKey = "grain-collapsed-instruments-v1";
 
 export function installInstrumentCollapse(

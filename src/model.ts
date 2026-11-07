@@ -1,5 +1,21 @@
 import { z } from "zod";
 import {
+  cloudSchema,
+  createCloud,
+  retuneCloud,
+  automatedCloud,
+  normalizedCloudValue,
+} from "./cloud-model";
+import type { CloudParameter } from "./cloud-model";
+import {
+  tensionSchema,
+  createTension,
+  retuneTension,
+  automatedTension,
+  normalizedTensionValue,
+} from "./tension-model";
+import type { TensionParameter } from "./tension-model";
+import {
   vocalSchema,
   createVocal,
   retuneVocal,
@@ -386,7 +402,7 @@ export function snapNote(
   return nearest;
 }
 const baseProjectSchema = z.object({
-  version: z.literal(4),
+  version: z.literal(5),
   fx: z
     .object({
       sweep: z.number().min(-1).max(1),
@@ -412,6 +428,8 @@ const baseProjectSchema = z.object({
   arp: z.lazy(() => arpSchema).default(createArp),
   pad: z.lazy(() => padSchema).default(createPad),
   vocal: z.lazy(() => vocalSchema).default(createVocal),
+  cloud: z.lazy(() => cloudSchema).default(createCloud),
+  tension: z.lazy(() => tensionSchema).default(createTension),
 });
 export const projectSchema = baseProjectSchema.superRefine(
   (project, context) => {
@@ -422,6 +440,8 @@ export const projectSchema = baseProjectSchema.superRefine(
       project.arp,
       project.pad,
       project.vocal,
+      project.cloud,
+      project.tension,
     ];
     tracks.forEach((track, index) => {
       const count = trackStepCount(track.timing);
@@ -449,6 +469,8 @@ export function withScale(project: Project, scale: MusicalScale): Project {
   next.arp = retuneArp(next.arp, scale);
   next.pad = retunePad(next.pad, scale);
   next.vocal = retuneVocal(next.vocal, scale);
+  next.cloud = retuneCloud(next.cloud, scale);
+  next.tension = retuneTension(next.tension, scale);
   next.bass.steps.forEach((step) => {
     step.note = snapNote(step.note, scale, 24, 60);
   });
@@ -558,7 +580,7 @@ export function createProject(preset = 0): Project {
   const scale: MusicalScale = { root: preset === 2 ? 0 : 9, mode: "minor" };
   return withScale(
     {
-      version: 4,
+      version: 5,
       fx: { sweep: 0, space: 0, echo: 0 },
       scale,
       name:
@@ -587,6 +609,8 @@ export function createProject(preset = 0): Project {
       arp: createArp(),
       pad: createPad(),
       vocal: createVocal(),
+      cloud: createCloud(),
+      tension: createTension(),
       bass: {
         timing: createTiming(),
         pulse: 0.5,
@@ -658,14 +682,31 @@ const legacyProjectSchema = legacyBase.omit({ keys: true }).extend({
     .refine((drums) => new Set(drums.map((drum) => drum.id)).size === 5),
 });
 const versionThreeSchema = baseProjectSchema
-  .omit({ vocal: true })
+  .omit({ vocal: true, cloud: true, tension: true })
   .extend({ version: z.literal(3) });
+const versionFourSchema = baseProjectSchema
+  .omit({ cloud: true, tension: true })
+  .extend({ version: z.literal(4) });
 export function readProject(value: unknown): Project | null {
   const current = projectSchema.safeParse(value);
   if (current.success) return withScale(current.data, current.data.scale);
+  const recent = versionFourSchema.safeParse(value);
+  if (recent.success)
+    return readProject({
+      ...recent.data,
+      version: 5,
+      cloud: createCloud(),
+      tension: createTension(),
+    });
   const previous = versionThreeSchema.safeParse(value);
   if (previous.success)
-    return readProject({ ...previous.data, version: 4, vocal: createVocal() });
+    return readProject({
+      ...previous.data,
+      version: 5,
+      vocal: createVocal(),
+      cloud: createCloud(),
+      tension: createTension(),
+    });
   const legacy = legacyBase.safeParse(value);
   if (legacy.success) {
     const original = legacy.data;
@@ -709,7 +750,7 @@ export function readProject(value: unknown): Project | null {
     }
     const upgraded = projectSchema.safeParse({
       ...original,
-      version: 4,
+      version: 5,
       fx: { sweep: 0, space: 0, echo: 0 },
       drums: original.drums.map((track) => ({
         ...track,
@@ -898,7 +939,8 @@ export function resizeKeysTrack(
     ),
   };
 }
-export type InstrumentId = DrumId | "bass" | "keys" | "arp" | "pad" | "vocal";
+export type InstrumentId =
+  DrumId | "bass" | "keys" | "arp" | "pad" | "vocal" | "cloud" | "tension";
 export interface PlaybackFrame {
   playing: boolean;
   absoluteTick: number;
@@ -926,6 +968,8 @@ export function playbackFrame(
     arp: position(project.arp.timing),
     pad: position(project.pad.timing),
     vocal: position(project.vocal.timing),
+    cloud: position(project.cloud.timing),
+    tension: position(project.tension.timing),
   };
   for (const drum of project.drums) positions[drum.id] = position(drum.timing);
   return { playing, absoluteTick: playing ? absoluteTick : -1, positions };
@@ -936,7 +980,9 @@ export type AutomationTarget =
   | { instrument: "keys"; parameter: KeysAutomationParameter }
   | { instrument: "arp"; parameter: ArpParameter }
   | { instrument: "pad"; parameter: PadParameter }
-  | { instrument: "vocal"; parameter: VocalParameter };
+  | { instrument: "vocal"; parameter: VocalParameter }
+  | { instrument: "cloud"; parameter: CloudParameter }
+  | { instrument: "tension"; parameter: TensionParameter };
 export function resolvedAutomationValue(
   project: Project,
   target: AutomationTarget,
@@ -988,6 +1034,24 @@ export function resolvedAutomationValue(
       ),
       automated: project.arp.automation[target.parameter] !== null,
     };
+  if (target.instrument === "cloud")
+    return {
+      base: normalizedCloudValue(project.cloud, target.parameter),
+      value: normalizedCloudValue(
+        automatedCloud(project.cloud, index),
+        target.parameter,
+      ),
+      automated: project.cloud.automation[target.parameter] !== null,
+    };
+  if (target.instrument === "tension")
+    return {
+      base: normalizedTensionValue(project.tension, target.parameter),
+      value: normalizedTensionValue(
+        automatedTension(project.tension, index),
+        target.parameter,
+      ),
+      automated: project.tension.automation[target.parameter] !== null,
+    };
   if (target.instrument === "vocal")
     return {
       base: normalizedVocalValue(project.vocal, target.parameter),
@@ -1019,6 +1083,8 @@ export function exportPlan(project: Project): ExportPlan {
     project.arp,
     project.pad,
     project.vocal,
+    project.cloud,
+    project.tension,
   ]
     .filter((track) => !track.muted)
     .map((track) => trackCycleTicks(track.timing));

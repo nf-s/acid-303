@@ -48,6 +48,14 @@ import { encodeTrack, decodeTrack } from "./share";
 import { createArpPanel } from "./arp-panel";
 import { createPadPanel } from "./pad-panel";
 import { createVocalPanel } from "./vocal-panel";
+import { createCloudPanel } from "./cloud-panel";
+import { createTensionPanel } from "./tension-panel";
+import { cloudGrainSeconds, cloudGrainsPerSecond } from "./cloud-model";
+import type { CloudParameter } from "./cloud-model";
+import { tensionDecaySeconds } from "./tension-model";
+import type { TensionParameter } from "./tension-model";
+import type { CloudGesture } from "./cloud-surface";
+import type { TensionGesture } from "./tension-surface";
 import { normalizedVocalValue } from "./vocal-model";
 import type { VocalParameter } from "./vocal-model";
 import { SessionClient } from "./session-client";
@@ -78,7 +86,13 @@ import { normalizedPadValue } from "./pad-model";
 import { MotionControls } from "./motion-controls";
 import { PatternControls } from "./pattern-controls";
 import type { PatternViewport } from "./pattern-controls";
-import { sequenceTimingSchema, PPQ } from "./timing";
+import {
+  sequenceTimingSchema,
+  PPQ,
+  ticksPerStep,
+  trackStepCount,
+  unswungTick,
+} from "./timing";
 import type { ArpParameter } from "./arp-model";
 import type { PadParameter } from "./pad-model";
 import { NoteMatrix } from "./note-matrix";
@@ -237,6 +251,9 @@ let sessionStatus: SessionStatus = {
   participants: 0,
   hostConnected: false,
   supportsVocal: false,
+  supportsVocalMusic: false,
+  supportsCloud: false,
+  supportsTension: false,
   inviteLink: null,
   message: "",
 };
@@ -277,6 +294,7 @@ for (const event of ["pointerup", "pointercancel"])
   );
 window.addEventListener("blur", () => {
   historyPointers.clear();
+  cancelMaterialPerformance();
   if (deferredSessionRefresh) queueMicrotask(refreshSessionProject);
 });
 document.addEventListener(
@@ -356,10 +374,12 @@ app.innerHTML = `
       <section id="arp-panel" class="panel bass-panel arp-panel" aria-labelledby="arp-title"></section>
       <section id="pad-panel" class="panel bass-panel pad-panel" aria-labelledby="pad-title"></section>
       <section id="vocal-panel" class="panel bass-panel vocal-panel" aria-labelledby="vocal-title"></section>
+      <section id="cloud-panel" class="panel bass-panel" aria-labelledby="cloud-title"></section>
+      <section id="tension-panel" class="panel bass-panel" aria-labelledby="tension-title"></section>
     </div>
 </div>
     <footer class="app-footer"><span><kbd>SPACE</kbd> Play / stop</span><span>Per-instrument timing</span><span id="project-name"></span></footer>
-  </main><nav class="instrument-nav" aria-label="Instruments"><button data-instrument-jump="drums-panel">Drums</button><button data-instrument-jump="bass-panel">Bass</button><button data-instrument-jump="keys-panel">Texture</button><button data-instrument-jump="arp-panel">Arp</button><button data-instrument-jump="pad-panel">Pads</button><button data-instrument-jump="vocal-panel">Vocals</button><button id="studio-view" aria-expanded="false" aria-controls="visualizer-toolbar">View</button></nav><div id="visualizer-toolbar" class="visualizer-toolbar" role="region" aria-label="Visualizer controls"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><div class="visualizer-controls"><button id="visualizer-colour" class="visualizer-button palette-toggle" aria-expanded="false" aria-controls="visualizer-palettes"><span class="palette-current" aria-hidden="true"></span>Colour</button>${slider("intensity", "Intensity", 0, 100, 30, "30%")}${slider("swirl", "Swirl", 0, 100, visualizerSwirl, `${visualizerSwirl}%`, "1", "Visualizer swirl", undefined, 0)}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div><div id="visualizer-palettes" class="visualizer-palettes" role="group" aria-label="Visualizer colour" hidden>${VISUALIZER_PALETTES.map((palette) => `<button data-visualizer-palette="${palette.id}" aria-pressed="${palette.id === visualizerPalette}"><span class="palette-swatch" style="background:${palette.swatch}" aria-hidden="true"></span><span>${palette.label}</span></button>`).join("")}</div></div>
+  </main><nav class="instrument-nav" aria-label="Instruments"><button data-instrument-jump="drums-panel">Drums</button><button data-instrument-jump="bass-panel">Bass</button><button data-instrument-jump="keys-panel">Texture</button><button data-instrument-jump="arp-panel">Arp</button><button data-instrument-jump="pad-panel">Pads</button><button data-instrument-jump="vocal-panel">Vocals</button><button data-instrument-jump="cloud-panel">Cloud</button><button data-instrument-jump="tension-panel">Tension</button><button id="studio-view" aria-expanded="false" aria-controls="visualizer-toolbar">View</button></nav><div id="visualizer-toolbar" class="visualizer-toolbar" role="region" aria-label="Visualizer controls"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><div class="visualizer-controls"><button id="visualizer-colour" class="visualizer-button palette-toggle" aria-expanded="false" aria-controls="visualizer-palettes"><span class="palette-current" aria-hidden="true"></span>Colour</button>${slider("intensity", "Intensity", 0, 100, 30, "30%")}${slider("swirl", "Swirl", 0, 100, visualizerSwirl, `${visualizerSwirl}%`, "1", "Visualizer swirl", undefined, 0)}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div><div id="visualizer-palettes" class="visualizer-palettes" role="group" aria-label="Visualizer colour" hidden>${VISUALIZER_PALETTES.map((palette) => `<button data-visualizer-palette="${palette.id}" aria-pressed="${palette.id === visualizerPalette}"><span class="palette-swatch" style="background:${palette.swatch}" aria-hidden="true"></span><span>${palette.label}</span></button>`).join("")}</div></div>
 <div id="toast" role="status" class="toast" hidden></div>`;
 
 function slider(
@@ -802,12 +822,15 @@ function updatePresetLabels(): void {
   const label = document.querySelector("#project-name");
   if (label) label.textContent = selected?.name ?? project.name;
 }
-function refreshProject(): void {
+function refreshProject(cancelPerformance = true): void {
+  if (cancelPerformance) cancelMaterialPerformance();
   mixer.update(project);
   automationSweeps.clear();
   arpPanel.render();
   padPanel.render();
   vocalPanel.render();
+  cloudPanel.render();
+  tensionPanel.render();
   updateBarPosition();
   renderDrums();
   renderBass();
@@ -898,6 +921,26 @@ const vocalParameters: VocalParameter[] = [
   "space",
   "volume",
 ];
+const cloudParameters: CloudParameter[] = [
+  "scan",
+  "size",
+  "density",
+  "scatter",
+  "roughness",
+  "tone",
+  "width",
+  "volume",
+];
+const tensionParameters: TensionParameter[] = [
+  "tension",
+  "pick",
+  "decay",
+  "damping",
+  "coupling",
+  "drive",
+  "width",
+  "volume",
+];
 function recordingLane(id: string): RecordingLane | null {
   const control = automationControls.find((control) => control.id === id);
   if (control) {
@@ -946,11 +989,36 @@ function recordingLane(id: string): RecordingLane | null {
         project.vocal.automation[vocal] = values;
       },
     };
+  const cloud = cloudParameters.find(
+    (parameter) => `cloud-${parameter}` === id,
+  );
+  if (cloud)
+    return {
+      timing: project.cloud.timing,
+      base: project.cloud[cloud],
+      values: project.cloud.automation[cloud],
+      write: (values) => {
+        project.cloud.automation[cloud] = values;
+      },
+    };
+  const tension = tensionParameters.find(
+    (parameter) => `tension-${parameter}` === id,
+  );
+  if (tension)
+    return {
+      timing: project.tension.timing,
+      base: project.tension[tension],
+      values: project.tension.automation[tension],
+      write: (values) => {
+        project.tension.automation[tension] = values;
+      },
+    };
   return null;
 }
 const automationRecorder = new AutomationRecorder(recordingLane);
 const recordedControls = new Set<string>();
 function armRecording(armed: boolean): void {
+  cancelMaterialPerformance();
   automationRecorder.arm(armed);
   const button = document.getElementById("record-automation");
   button?.setAttribute("aria-pressed", String(armed));
@@ -962,6 +1030,12 @@ function armRecording(armed: boolean): void {
 }
 
 function recordingDisplay(id: string, value: number): string {
+  if (id === "cloud-size")
+    return `${Math.round(cloudGrainSeconds(value / 100) * 1000)} ms`;
+  if (id === "cloud-density")
+    return `${cloudGrainsPerSecond(value / 100).toFixed(1)}/s`;
+  if (id === "tension-decay")
+    return `${tensionDecaySeconds(value / 100).toFixed(2)} s`;
   if (id === "cutoff") return formatFrequency(80 * 100 ** (value / 100));
   if (id === "resonance") return `${Math.round((value / 22) * 100)}%`;
   if (id.endsWith("-pitch"))
@@ -988,6 +1062,9 @@ function commitRecording(ids: string[]): void {
   if (ids.some((id) => id.startsWith("arp-"))) arpPanel.refreshAutomation();
   if (ids.some((id) => id.startsWith("pad-"))) padPanel.refreshAutomation();
   if (ids.some((id) => id.startsWith("vocal-"))) vocalPanel.refreshAutomation();
+  if (ids.some((id) => id.startsWith("cloud-"))) cloudPanel.refreshAutomation();
+  if (ids.some((id) => id.startsWith("tension-")))
+    tensionPanel.refreshAutomation();
   for (const control of automationControls) {
     if (!ids.includes(control.id)) continue;
     if (control.target.track === "drums") drumEditor.refresh(control.target.id);
@@ -1101,8 +1178,30 @@ function updateAutomationIndicators(frame: PlaybackFrame): void {
       ),
       frame.playing,
     );
+  for (const parameter of cloudParameters)
+    showAutomation(
+      `cloud-${parameter}`,
+      resolvedAutomationValue(
+        project,
+        { instrument: "cloud", parameter },
+        frame.absoluteTick,
+      ),
+      frame.playing,
+    );
+  for (const parameter of tensionParameters)
+    showAutomation(
+      `tension-${parameter}`,
+      resolvedAutomationValue(
+        project,
+        { instrument: "tension", parameter },
+        frame.absoluteTick,
+      ),
+      frame.playing,
+    );
 }
 function showFrame(frame: PlaybackFrame): void {
+  if (materialPlaying && !frame.playing) cancelMaterialPerformance();
+  materialPlaying = frame.playing;
   playbackRecovery?.frame();
   const recorded = automationRecorder.frame(
     frame.playing && !sessionEditingBlocked(),
@@ -1110,6 +1209,10 @@ function showFrame(frame: PlaybackFrame): void {
     project.swing,
   );
   if (recorded.length) commitRecording(recorded);
+  if (frame.playing && recordCloudGesture(frame.absoluteTick)) {
+    cloudPanel.refreshAutomation();
+    persist();
+  }
   const positions = frame.positions;
   beatCanvas.setTrackSteps({
     kick: positions.kick?.index ?? -1,
@@ -1149,6 +1252,8 @@ function showFrame(frame: PlaybackFrame): void {
   arpPanel.setPosition(playingTick, project.swing);
   padPanel.setPosition(playingTick, project.swing);
   vocalPanel.setPosition(playingTick, project.swing);
+  cloudPanel.setPosition(playingTick, project.swing);
+  tensionPanel.setPosition(playingTick, project.swing);
   updateAutomationIndicators(frame);
 }
 function showStep(step: number, absoluteStep: number): void {
@@ -1330,6 +1435,216 @@ const vocalPanel = createVocalPanel(vocalContainer, {
     }
   },
 });
+const performanceTouches = new Map<string, Set<number>>();
+let heldCloud: CloudGesture | null = null;
+let materialPlaying = false;
+let lastCloudCell: number | null = null;
+function canRecordPerformance(): boolean {
+  return (
+    automationRecorder.armed &&
+    !sessionEditingBlocked() &&
+    (sessionStatus.role === "guest" ? remotePlaying : engine.isPlaying)
+  );
+}
+function performanceCell(
+  track: "cloud" | "tension",
+  tick = currentAbsoluteTick,
+): number {
+  const timing = project[track].timing;
+  return Math.floor(
+    unswungTick(Math.max(0, tick), project.swing, timing.grid) /
+      ticksPerStep(timing) +
+      1e-9,
+  );
+}
+function recordCloudGesture(tick = currentAbsoluteTick): boolean {
+  if (!heldCloud || !canRecordPerformance()) return false;
+  const track = project.cloud,
+    cell = performanceCell("cloud", tick),
+    count = trackStepCount(track.timing);
+  const first =
+    lastCloudCell !== null &&
+    cell >= lastCloudCell &&
+    cell - lastCloudCell < count
+      ? lastCloudCell
+      : cell;
+  let changed = track.muted;
+  track.muted = false;
+  for (let point = first; point <= cell; point++) {
+    const step = track.steps[point % count];
+    if (!step) continue;
+    if (
+      !step.on ||
+      step.note !== heldCloud.note ||
+      step.velocity !== heldCloud.velocity
+    )
+      changed = true;
+    step.on = true;
+    step.note = heldCloud.note;
+    step.velocity = heldCloud.velocity;
+  }
+  lastCloudCell = cell;
+  return changed;
+}
+function applyPerformanceValues<Parameter extends string>(
+  prefix: "cloud" | "tension",
+  parameters: ReadonlyArray<Parameter>,
+  track: Record<Parameter, number>,
+  values: Partial<Record<Parameter, number>>,
+  pointerId: number,
+): void {
+  const changed: string[] = [];
+  for (const parameter of parameters) {
+    const value = values[parameter];
+    if (value === undefined || !Number.isFinite(value)) continue;
+    const normalized = Math.max(0, Math.min(1, value)),
+      id = `${prefix}-${parameter}`;
+    let contacts = performanceTouches.get(id);
+    if (!contacts) {
+      contacts = new Set();
+      performanceTouches.set(id, contacts);
+    }
+    contacts.add(pointerId);
+    automationRecorder.begin(id);
+    const control = document.getElementById(id);
+    control?.classList.add("dragging");
+    if (automationRecorder.capture(id, normalized)) recordedControls.add(id);
+    else track[parameter] = normalized;
+    setInput(id, normalized * 100);
+    setOutput(id, recordingDisplay(id, normalized * 100));
+    changed.push(id);
+  }
+  if (changed.length) commitRecording(changed);
+}
+function endPerformanceValues(
+  prefix: "cloud" | "tension",
+  pointerId: number,
+): void {
+  for (const [id, contacts] of performanceTouches) {
+    if (
+      !id.startsWith(`${prefix}-`) ||
+      !contacts.delete(pointerId) ||
+      contacts.size
+    )
+      continue;
+    performanceTouches.delete(id);
+    document.getElementById(id)?.classList.remove("dragging");
+    automationRecorder.end(id);
+    restoreRecordedControl(id);
+  }
+}
+function previewCloud(
+  note: number,
+  velocity: number,
+  sustain = false,
+  values: CloudGesture["values"] = {},
+): void {
+  if (sessionStatus.role === "guest" || sessionEditingBlocked()) return;
+  void engine
+    .auditionCloud(
+      { ...project.cloud, ...values, muted: false },
+      note,
+      velocity,
+      sustain,
+    )
+    .catch(() => toast("Cloud preview could not start. Try again."));
+}
+function previewTension(
+  note: number,
+  velocity: number,
+  values: TensionGesture["values"] = {},
+): void {
+  if (sessionStatus.role === "guest" || sessionEditingBlocked()) return;
+  void engine
+    .auditionTension(
+      { ...project.tension, ...values, muted: false },
+      note,
+      velocity,
+    )
+    .catch(() => toast("Tension preview could not start. Try again."));
+}
+const cloudContainer = document.getElementById("cloud-panel");
+const tensionContainer = document.getElementById("tension-panel");
+if (!cloudContainer || !tensionContainer)
+  throw new Error("Material instruments are missing.");
+const cloudPanel = createCloudPanel(cloudContainer, {
+  getTrack: () => project.cloud,
+  getScale: () => project.scale,
+  renderControl: slider,
+  onChange: () => {
+    updateBarPosition();
+    persist();
+  },
+  onPreview: (note, velocity) => previewCloud(note, velocity),
+  onGesture: (phase, gesture) => {
+    if (phase === "end") {
+      heldCloud = null;
+      lastCloudCell = null;
+      endPerformanceValues("cloud", gesture.pointerId);
+      engine.releaseCloudAudition();
+      return;
+    }
+    if (sessionEditingBlocked()) return;
+    heldCloud = gesture;
+    if (phase === "begin") lastCloudCell = null;
+    applyPerformanceValues(
+      "cloud",
+      cloudParameters,
+      project.cloud,
+      gesture.values,
+      gesture.pointerId,
+    );
+    if (recordCloudGesture()) {
+      cloudPanel.refreshAutomation();
+      persist();
+    }
+    previewCloud(gesture.note, gesture.velocity, true, gesture.values);
+  },
+});
+const tensionPanel = createTensionPanel(tensionContainer, {
+  getTrack: () => project.tension,
+  getScale: () => project.scale,
+  renderControl: slider,
+  onChange: () => {
+    updateBarPosition();
+    persist();
+  },
+  onPreview: (note, velocity) => previewTension(note, velocity),
+  onGesture: (phase, gesture) => {
+    if (!gesture.cancelled && !sessionEditingBlocked()) {
+      applyPerformanceValues(
+        "tension",
+        tensionParameters,
+        project.tension,
+        gesture.values,
+        gesture.pointerId,
+      );
+      if (phase === "end") {
+        if (canRecordPerformance()) {
+          const track = project.tension,
+            step = track.steps[performanceCell("tension") % track.steps.length];
+          if (step) {
+            step.on = true;
+            step.note = gesture.note;
+            step.velocity = gesture.velocity;
+          }
+          track.muted = false;
+          tensionPanel.refreshAutomation();
+          persist();
+        }
+        previewTension(gesture.note, gesture.velocity, gesture.values);
+      }
+    }
+    if (phase === "end") endPerformanceValues("tension", gesture.pointerId);
+  },
+});
+function cancelMaterialPerformance(): void {
+  heldCloud = null;
+  lastCloudCell = null;
+  cloudPanel.cancelPerformance();
+  tensionPanel.cancelPerformance();
+  engine.releaseCloudAudition();
+}
 engine.setVocalLoadListener((status) => vocalPanel.setSampleStatus(status));
 const mixerContainer = document.getElementById("track-mixer");
 if (!mixerContainer) throw new Error("Mixer is missing.");
@@ -1348,7 +1663,9 @@ const gestures = installGestures(
       if (
         arpPanel.activateControl(control.id) ||
         padPanel.activateControl(control.id) ||
-        vocalPanel.activateControl(control.id)
+        vocalPanel.activateControl(control.id) ||
+        cloudPanel.activateControl(control.id) ||
+        tensionPanel.activateControl(control.id)
       )
         return;
       selectAutomation(control.id);
@@ -1415,6 +1732,7 @@ function updateHistoryButtons(): void {
     redo.disabled = sessionEditingBlocked() || !editHistory.canRedo;
 }
 function travelHistory(redo: boolean): void {
+  cancelMaterialPerformance();
   automationRecorder.clearTouches();
   if (sessionEditingBlocked()) return;
   const next = redo ? editHistory.redo() : editHistory.undo();
@@ -1511,6 +1829,7 @@ async function togglePlayback(recovering = false): Promise<void> {
   if (starting || engine.isPlaying) {
     playbackRequest++;
     starting = false;
+    cancelMaterialPerformance();
     engine.stop();
     updatePlayback();
     return;
@@ -1628,6 +1947,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     const playing = engine.isPlaying;
+    cancelMaterialPerformance();
     engine.stop();
     if (playing) {
       try {
@@ -1957,7 +2277,9 @@ function updateControl(id: string, value: number): void {
   if (
     arpPanel.updateControl(id, value) ||
     padPanel.updateControl(id, value) ||
-    vocalPanel.updateControl(id, value)
+    vocalPanel.updateControl(id, value) ||
+    cloudPanel.updateControl(id, value) ||
+    tensionPanel.updateControl(id, value)
   )
     return;
   const automation = automationControls.find((control) => control.id === id);
@@ -2269,6 +2591,7 @@ window.addEventListener("pagehide", () => {
   playbackRequest++;
   starting = false;
   phoneMotion.disable();
+  cancelMaterialPerformance();
   engine.stop();
   sessionClient?.suspend();
   visualizer.setPlaying(false);
@@ -2327,7 +2650,7 @@ function refreshSessionProject(): void {
     document.activeElement instanceof HTMLElement
       ? document.activeElement.id
       : "";
-  refreshProject();
+  refreshProject(false);
   if (focused) document.getElementById(focused)?.focus({ preventScroll: true });
 }
 function setSessionOpen(open: boolean): void {
@@ -2341,6 +2664,7 @@ function leaveSession(): void {
   playbackRequest++;
   starting = false;
   armRecording(false);
+  cancelMaterialPerformance();
   engine.stop();
   sessionClient?.leave();
   remotePlaying = false;
@@ -2370,6 +2694,7 @@ async function hostTransport(
     if (action === "stop" || action === "restart") {
       playbackRequest++;
       starting = false;
+      cancelMaterialPerformance();
       engine.stop();
     }
     if (action !== "stop") await engine.play(project);
@@ -2435,6 +2760,22 @@ sessionClient = new SessionClient(sessionApi, {
         state.phase !== "connected" ||
         !state.hostConnected ||
         state.supportsVocal,
+      state.role !== "guest" ||
+        state.phase !== "connected" ||
+        !state.hostConnected ||
+        state.supportsVocalMusic,
+    );
+    cloudPanel.setHostCapability(
+      state.role !== "guest" ||
+        state.phase !== "connected" ||
+        !state.hostConnected ||
+        state.supportsCloud,
+    );
+    tensionPanel.setHostCapability(
+      state.role !== "guest" ||
+        state.phase !== "connected" ||
+        !state.hostConnected ||
+        state.supportsTension,
     );
     sessionPanel.render(state);
     if (state.phase !== "idle") setSessionOpen(true);
@@ -2460,6 +2801,23 @@ sessionClient = new SessionClient(sessionApi, {
   onProject: (next, initial) => {
     const changed = diffProject(project, next).length > 0;
     if (!changed && !initial) return;
+    if (
+      initial ||
+      project.scale.root !== next.scale.root ||
+      project.scale.mode !== next.scale.mode ||
+      ["cloud", "tension"].some((instrument) => {
+        const before = instrument === "cloud" ? project.cloud : project.tension;
+        const after = instrument === "cloud" ? next.cloud : next.tension;
+        return (
+          before.timing.bars !== after.timing.bars ||
+          before.timing.meter !== after.timing.meter ||
+          before.timing.grid !== after.timing.grid ||
+          before.sound !== after.sound ||
+          before.muted !== after.muted
+        );
+      })
+    )
+      cancelMaterialPerformance();
     if (
       project.drums.some((drum) => {
         const incoming = next.drums.find((track) => track.id === drum.id);
@@ -2494,6 +2852,8 @@ sessionClient = new SessionClient(sessionApi, {
     arpPanel.rebaseIncoming(next.arp);
     padPanel.rebaseIncoming(next.pad);
     vocalPanel.rebaseIncoming(next.vocal);
+    cloudPanel.rebaseIncoming(next.cloud);
+    tensionPanel.rebaseIncoming(next.tension);
     const bassSteps =
         project.bass.steps.length === next.bass.steps.length
           ? project.bass.steps
@@ -2545,6 +2905,7 @@ sessionClient = new SessionClient(sessionApi, {
     playbackRecovery?.cancel();
     playbackRequest++;
     starting = false;
+    cancelMaterialPerformance();
     engine.stop();
     remotePlaying = false;
     showStep(-1, -1);
@@ -2572,6 +2933,7 @@ playbackRecovery = createPlaybackRecovery({
     if (!starting) return;
     playbackRequest++;
     starting = false;
+    cancelMaterialPerformance();
     engine.stop();
     updatePlayback();
   },

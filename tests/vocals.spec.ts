@@ -23,7 +23,7 @@ async function load(page: Page, long = false) {
   await page.goto("/");
   await expect(page.locator("#vocal-waveform-path")).toHaveAttribute(
     "data-sound",
-    "0",
+    String(project.vocal.sound),
   );
   return project;
 }

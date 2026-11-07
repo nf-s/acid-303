@@ -288,6 +288,35 @@ releases after 1 December 2026, when the published pricing changes. Inspect DO
 request/duration, SQLite rows, stored bytes and sampled errors after launch.
 See [Workers Logs pricing](https://developers.cloudflare.com/workers/observability/logs/workers-logs/#pricing).
 
+## Vocal compatibility production release evidence
+
+Released 7 November 2026 at 13:32:22 UTC from commit `2edeabb`, using the
+authenticated Cloudflare API and the frozen production bundle.
+
+- Worker version: `3c56cfca-efd3-4922-8842-40602c104ab5`, deployed at 100%.
+- Deployment: `87b4e001-a0c6-46af-8de8-5be5769f8af7`.
+- SQLite namespace remains `ffe237d4fde14ba99780aa4f28eb4bec`.
+- Downloaded production module: 417,344 bytes, SHA-256
+  `3ad4ae9fd22af2c49c81c816b2d206431f9afc797667595a264a9c7b2e104cfe`,
+  matching the verified local bundle byte-for-byte.
+
+The canonical-origin upgrade probe created one disposable v3 room at
+13:31:55.982 UTC, before the update. Its existing v3 host and guest sockets
+remained connected across deployment. The probe verified legacy welcome
+projection, v4 vocal state and host capability reporting, empty projected patch
+revisions, and old-client edits preserving the new vocal track. Guest clocks
+were rejected; legacy host clocks still worked. An authenticated v4 host
+replacement retained the room and acknowledgements, closed the previous host
+with 4009, and started stopped. The test room was ended and its credentials
+revoked at 13:32:31.256 UTC. No user room was ended.
+
+Read-back confirmed the existing origin, localhost disabled, all three rate
+bindings, SQLite namespace, 10% logs and 1% traces. Health returned 200;
+disallowed and missing Origins returned 403. No resource reconciliation or
+account setting changes occurred. Before deployment, 18 workerd tests, strict
+typechecking, the production build and dry-run passed against the final vocal
+schema. Frontend deployment follows this backend compatibility verification.
+
 ## Session recovery production release evidence
 
 On 7 November 2026 at 12:25 UTC, checkpoint `b9b4815` was deployed through the

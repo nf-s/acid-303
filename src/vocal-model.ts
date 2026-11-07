@@ -36,13 +36,40 @@ export const VOCAL_SOUNDS = [
   "Two",
   "Fight vowel",
   "Fight attack",
+  "Feel it",
+  "Groovin",
+  "My love",
+  "I can feel it",
+  "Your love",
+  "Baby",
+  "Feels so right",
+  "Body",
+  "Ooh",
+  "Mm",
+  "Love vowel",
+  "Baby vowel",
+  "Ad-lib 01",
+  "Ad-lib 30",
+  "Ad-lib 54",
+  "Ad-lib 82",
+  "Scat A",
+  "Scat F",
+  "Get down",
+  "Yeah",
+  "Ha",
+  "Hey",
+  "Oh",
+  "Come on",
 ];
 export const VOCAL_BANKS: ReadonlyArray<{
-  id: "female" | "male" | "fighter";
+  id: "female" | "male" | "fighter" | "soul" | "air" | "dance";
   label: string;
   start: number;
   count: number;
 }> = [
+  { id: "soul", label: "Soul", start: 24, count: 8 },
+  { id: "air", label: "Chops", start: 32, count: 8 },
+  { id: "dance", label: "Dance", start: 40, count: 8 },
   { id: "female", label: "Female", start: 0, count: 8 },
   { id: "male", label: "Male", start: 8, count: 8 },
   { id: "fighter", label: "Fighter", start: 16, count: 8 },
@@ -137,7 +164,74 @@ export const vocalSchema = vocalBaseSchema.superRefine((track, context) => {
 });
 export type VocalTrack = z.infer<typeof vocalSchema>;
 export function createVocal(): VocalTrack {
-  return vocalSchema.parse({});
+  return vocalSchema.parse({
+    sound: 34,
+    release: 0.18,
+    space: 0.16,
+  });
+}
+export const VOCAL_PATTERNS = [
+  { id: "offbeat", label: "Offbeat" },
+  { id: "chops", label: "Chops" },
+  { id: "reply", label: "Call / reply" },
+  { id: "hold", label: "Hold" },
+];
+
+/** Replace only the note rhythm; trims, sound and automation remain editable. */
+export function withVocalPattern(
+  track: VocalTrack,
+  pattern: string,
+  scale: MusicalScale,
+  rootNote: number,
+): VocalTrack {
+  if (!VOCAL_PATTERNS.some((item) => item.id === pattern)) return track;
+  const count = stepsPerBar(track.timing);
+  const template: ReadonlyArray<readonly [number, number, number]> =
+    pattern === "offbeat"
+      ? [
+          [2, 2, 0],
+          [6, 2, 0],
+          [10, 2, 0],
+          [14, 2, 0],
+        ]
+      : pattern === "chops"
+        ? [
+            [0, 1, 0],
+            [3, 1, 0],
+            [6, 1, 7],
+            [7, 1, 0],
+            [10, 2, 0],
+            [14, 1, 7],
+            [15, 1, 0],
+          ]
+        : pattern === "reply"
+          ? [
+              [0, 6, 0],
+              [8, 2, 0],
+              [11, 1, 7],
+              [14, 2, 0],
+            ]
+          : [[0, 16, 0]];
+  const notes: VocalNote[] = [];
+  for (let bar = 0; bar < track.timing.bars; bar++) {
+    let end = 0;
+    for (const [position, duration, interval] of template) {
+      const start = Math.max(end, Math.round((position / 16) * count));
+      if (start >= count) continue;
+      const length = Math.min(
+        count - start,
+        Math.max(1, Math.round((duration / 16) * count)),
+      );
+      notes.push({
+        start: bar * count + start,
+        length,
+        note: snapNote(rootNote + interval, scale, 36, 84),
+        accent: interval !== 0 || position === 6 || position === 14,
+      });
+      end = start + length;
+    }
+  }
+  return { ...track, muted: false, notes };
 }
 export function normalizedVocalValue(
   track: VocalTrack,

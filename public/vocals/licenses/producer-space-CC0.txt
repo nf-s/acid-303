@@ -1,0 +1,23 @@
+Producer Space sample recordings — CC0 1.0 Universal
+
+Publisher: Producer Space / Creative Nevada Limited
+Primary source: https://producerspace.com/
+License and clearance: https://producerspace.com/license
+Official download: https://archive.org/details/producer-space-cc0-sample-library
+Legal code: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+Retrieved and verified: 2026-11-08
+
+The publisher's clearance page applies CC0 to the entire Producer Space sample
+library, including vocals and sample packs. It permits use, reproduction,
+modification and redistribution, including commercial use, without attribution
+or further permission. The Internet Archive item's license metadata also names
+CC0 1.0 Universal. The primary website links directly to that archive item.
+
+This bank uses Soulful House Vocals, Euphoric Trance Vocals and Dance Vocal
+Shouts. These recordings have been cropped, downmixed, faded and normalized;
+eight short vowel/ad-lib regions have also been pitch shifted. Exact source
+paths, source checksums and transformations are retained in catalog-v2.json,
+selection-v2.json and provenance-v2.json.
+
+CC0's complete legal text is retained alongside this note as CC0-1.0.txt.
+No performer identity is supplied by the publisher or inferred here.

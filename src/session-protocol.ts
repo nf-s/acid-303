@@ -3,7 +3,7 @@ import { projectSchema, readProject } from "./model";
 import type { Project } from "./model";
 import { MAX_PROJECT_BYTES, MAX_TRACK_STEPS } from "./timing";
 
-export const SESSION_PROTOCOL = "grain-session-v4";
+export const SESSION_PROTOCOL = "grain-session-v5";
 export const MAX_SESSION_BYTES = MAX_PROJECT_BYTES;
 export const MAX_PROJECT_CHANGES = 4096;
 export const MAX_SESSION_CLIENTS = 8;
@@ -87,6 +87,9 @@ const presenceFields = {
   ...clockFields,
   hostConnected: z.boolean(),
   supportsVocal: z.boolean(),
+  supportsVocalMusic: z.boolean(),
+  supportsCloud: z.boolean(),
+  supportsTension: z.boolean(),
   participants: z.number().int().min(0).max(MAX_SESSION_CLIENTS),
 };
 const actionSchema = z.enum(["play", "stop", "restart"]);
@@ -231,7 +234,15 @@ export function diffProject(before: Project, after: Project): ProjectChange[] {
     }
     if (path.length) changes.push({ path, value: next });
   }
-  visit(jsonValueSchema.parse(before), jsonValueSchema.parse(after), []);
+  const previous = jsonValueSchema.parse(before),
+    next = jsonValueSchema.parse(after);
+  visit(previous, next, []);
+  if (changes.length > MAX_PROJECT_CHANGES && object(next)) {
+    const roots = new Set(changes.map((change) => change.path[0]));
+    return Object.entries(next).flatMap(([key, value]) =>
+      roots.has(key) ? [{ path: [key], value }] : [],
+    );
+  }
   return changes;
 }
 
@@ -302,43 +313,190 @@ export function applyProjectChanges(
   return readProject(updated);
 }
 
-export type VersionThreeProject = Omit<Project, "version" | "vocal"> & {
-  version: 3;
-};
+export type VersionFourProject = Omit<
+  Project,
+  "version" | "cloud" | "tension"
+> & { version: 4 };
+export type VersionThreeProject = Omit<
+  VersionFourProject,
+  "version" | "vocal"
+> & { version: 3 };
+export function versionFourProject(project: Project): VersionFourProject {
+  const {
+    cloud: _cloud,
+    tension: _tension,
+    version: _version,
+    ...previous
+  } = project;
+  return {
+    ...previous,
+    version: 4,
+    vocal:
+      project.vocal.sound >= 24
+        ? { ...project.vocal, sound: 0, muted: true }
+        : { ...project.vocal },
+  };
+}
 export function versionThreeProject(project: Project): VersionThreeProject {
-  const { vocal: _vocal, version: _version, ...previous } = project;
+  const {
+    vocal: _vocal,
+    version: _version,
+    ...previous
+  } = versionFourProject(project);
   return { ...previous, version: 3 };
 }
-type VersionThreeWelcome = Omit<
+type VersionFourWelcome = Omit<
   Extract<ServerMessage, { type: "welcome" }>,
+  "project" | "supportsCloud" | "supportsTension" | "supportsVocalMusic"
+> & { project: VersionFourProject };
+type VersionThreeWelcome = Omit<
+  VersionFourWelcome,
   "project" | "supportsVocal"
 > & { project: VersionThreeProject };
-type VersionThreePresence = Omit<
+type VersionFourPresence = Omit<
   Extract<ServerMessage, { type: "presence" }>,
-  "supportsVocal"
+  "supportsCloud" | "supportsTension" | "supportsVocalMusic"
 >;
+type VersionThreePresence = Omit<VersionFourPresence, "supportsVocal">;
 export type CompatibleServerMessage =
-  ServerMessage | VersionThreeWelcome | VersionThreePresence;
-/** Older clients receive every revision, including empty patches for vocal-only edits. */
+  | ServerMessage
+  | VersionThreeWelcome
+  | VersionThreePresence
+  | VersionFourWelcome
+  | VersionFourPresence;
+export function sessionCanChange(
+  protocol: number,
+  change: ProjectChange,
+): boolean {
+  const field = change.path[0];
+  if (protocol === 4 && field === "vocal" && "value" in change) {
+    const sound =
+      change.path.length === 2 && change.path[1] === "sound"
+        ? change.value
+        : change.path.length === 1 && object(change.value)
+          ? change.value.sound
+          : undefined;
+    if (typeof sound === "number" && sound >= 24) return false;
+  }
+  return (
+    field !== "version" &&
+    (protocol >= 4 || field !== "vocal") &&
+    (protocol >= 5 || (field !== "cloud" && field !== "tension"))
+  );
+}
+/** Every peer receives every revision, including empty patches for hidden instruments. */
 export function sessionMessageForProtocol(
   message: ServerMessage,
   protocol: number,
+  project?: Project,
 ): CompatibleServerMessage {
-  if (protocol !== 3) return message;
+  if (protocol >= 5) return message;
   if (message.type === "welcome") {
-    const { supportsVocal: _supportsVocal, project, ...previous } = message;
-    return { ...previous, project: versionThreeProject(project) };
+    const {
+      supportsVocalMusic: _vocalMusic,
+      supportsCloud: _cloud,
+      supportsTension: _tension,
+      project,
+      ...previous
+    } = message;
+    if (protocol === 4)
+      return { ...previous, project: versionFourProject(project) };
+    const { supportsVocal: _vocal, ...legacy } = previous;
+    return { ...legacy, project: versionThreeProject(project) };
   }
   if (message.type === "presence") {
-    const { supportsVocal: _supportsVocal, ...previous } = message;
-    return previous;
+    const {
+      supportsVocalMusic: _vocalMusic,
+      supportsCloud: _cloud,
+      supportsTension: _tension,
+      ...previous
+    } = message;
+    if (protocol === 4) return previous;
+    const { supportsVocal: _vocal, ...legacy } = previous;
+    return legacy;
   }
+  if (
+    message.type === "patch" &&
+    protocol === 4 &&
+    project &&
+    message.changes.some((change) => change.path[0] === "vocal")
+  )
+    return {
+      ...message,
+      changes: [
+        ...message.changes.filter(
+          (change) =>
+            change.path[0] !== "vocal" && sessionCanChange(protocol, change),
+        ),
+        { path: ["vocal"], value: versionFourProject(project).vocal },
+      ],
+    };
   if (message.type === "patch")
     return {
       ...message,
-      changes: message.changes.filter(
-        (change) => change.path[0] !== "vocal" && change.path[0] !== "version",
+      changes: message.changes.filter((change) =>
+        sessionCanChange(protocol, change),
       ),
     };
   return message;
+}
+
+/** Older full-track edits must not erase the musical sample that their projection cannot represent. */
+export function applySessionProjectChanges(
+  current: Project,
+  changes: readonly ProjectChange[],
+  protocol: number,
+): Project | null {
+  if (changes.some((change) => !sessionCanChange(protocol, change)))
+    return null;
+  if (protocol !== 4 || current.vocal.sound < 24)
+    return applyProjectChanges(current, changes);
+  const selectedSupportedSound = changes.some((change) => {
+    if (!("value" in change) || change.path[0] !== "vocal") return false;
+    const value =
+      change.path.length === 2 && change.path[1] === "sound"
+        ? change.value
+        : change.path.length === 1 &&
+            object(change.value) &&
+            !(change.value.sound === 0 && change.value.muted === true)
+          ? change.value.sound
+          : undefined;
+    return (
+      typeof value === "number" &&
+      Number.isInteger(value) &&
+      value >= 0 &&
+      value < 24
+    );
+  });
+  if (
+    !selectedSupportedSound &&
+    changes.some(
+      (change) =>
+        change.path[0] === "vocal" &&
+        change.path[1] === "muted" &&
+        "value" in change &&
+        change.value === false,
+    )
+  )
+    return null;
+  const compatible = changes.map((change) => {
+    if (
+      change.path.length === 1 &&
+      change.path[0] === "vocal" &&
+      "value" in change &&
+      object(change.value) &&
+      change.value.sound === 0 &&
+      change.value.muted === true
+    )
+      return {
+        ...change,
+        value: {
+          ...change.value,
+          sound: current.vocal.sound,
+          muted: current.vocal.muted,
+        },
+      };
+    return change;
+  });
+  return applyProjectChanges(current, compatible);
 }

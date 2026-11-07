@@ -13,6 +13,8 @@ const CHANNELS: ReadonlyArray<{ id: InstrumentId; label: string }> = [
   { id: "arp", label: "Arp" },
   { id: "pad", label: "Pads" },
   { id: "vocal", label: "Vocals" },
+  { id: "cloud", label: "Cloud" },
+  { id: "tension", label: "Tension" },
 ];
 
 export function mixerTrack(project: Project, id: string) {
@@ -21,7 +23,9 @@ export function mixerTrack(project: Project, id: string) {
     id === "keys" ||
     id === "arp" ||
     id === "pad" ||
-    id === "vocal"
+    id === "vocal" ||
+    id === "cloud" ||
+    id === "tension"
   )
     return project[id];
   return project.drums.find((track) => track.id === id);

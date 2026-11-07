@@ -2029,7 +2029,9 @@ kbd {
   transform: translateX(-50%);
   z-index: 50;
   display: flex;
-  width: min(600px, 100vw);
+  width: min(680px, 100vw);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
   padding-bottom: env(safe-area-inset-bottom, 0px);
   background: #202020f5;
   border: 1px solid #999;
@@ -2037,7 +2039,7 @@ kbd {
 }
 .instrument-nav button {
   flex: 1;
-  min-width: 0;
+  min-width: 54px;
   min-height: 44px;
   border-right: 1px solid #555;
   font: 10px var(--mono);

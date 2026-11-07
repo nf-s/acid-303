@@ -1,3 +1,7 @@
+import { CloudInstrument, cloudTailDuration } from "./cloud-audio";
+import { TensionInstrument, tensionTailDuration } from "./tension-audio";
+import type { CloudTrack } from "./cloud-model";
+import type { TensionTrack } from "./tension-model";
 import { VocalInstrument, vocalTailDuration } from "./vocal-audio";
 import { loadVocalSample } from "./vocal-samples";
 import type { LoadedVocalSample, VocalSampleStatus } from "./vocal-samples";
@@ -17,6 +21,7 @@ import {
   automatedDrum,
   automatedKeys,
   scaleNotes,
+  snapNote,
   exportPlan,
   playbackFrame,
 } from "./model";
@@ -1621,6 +1626,8 @@ export function exportTailDuration(project: Project): number {
       arpTailDuration(project.arp, project.bpm),
       padTailDuration(project.pad, project.bpm),
       vocalTailDuration(project.vocal, project.bpm),
+      cloudTailDuration(project.cloud),
+      tensionTailDuration(project.tension),
     ) + performanceFxTail(project)
   );
 }
@@ -2463,6 +2470,8 @@ export function projectEventsAtTick(
     project.pad.timing,
     logicalTick % (trackCycleTicks(project.pad.timing) / 4) === 0,
   );
+  if (!project.cloud.muted) add("cloud", project.cloud.timing, true);
+  if (!project.tension.muted) add("tension", project.tension.timing);
   return events;
 }
 function scheduleProjectTick(
@@ -2474,6 +2483,8 @@ function scheduleProjectTick(
     arp: ArpInstrument;
     pad: PadInstrument;
     vocal: VocalInstrument | null;
+    cloud: CloudInstrument;
+    tension: TensionInstrument;
   },
   logicalTick: number,
   nominalTime: number,
@@ -2495,6 +2506,24 @@ function scheduleProjectTick(
         index,
         time,
         event.duration,
+      );
+    else if (event.instrument === "cloud")
+      voices.cloud.scheduleTick(
+        project.cloud,
+        logicalTick,
+        time,
+        project.bpm,
+        project.swing,
+        project.scale,
+      );
+    else if (event.instrument === "tension")
+      voices.tension.scheduleTick(
+        project.tension,
+        logicalTick,
+        time,
+        project.bpm,
+        project.swing,
+        project.scale,
       );
     else if (event.instrument === "vocal")
       voices.vocal?.scheduleTick(
@@ -2536,6 +2565,13 @@ export class AudioEngine {
   private keys: KeysSequencer | null = null;
   private arp: ArpInstrument | null = null;
   private pad: PadInstrument | null = null;
+  private cloud: CloudInstrument | null = null;
+  private tension: TensionInstrument | null = null;
+  private cloudPreviewTimer: ReturnType<typeof setInterval> | null = null;
+  private cloudPreviewGeneration = 0;
+  private tensionPreviewGeneration = 0;
+  private cloudConfiguration = { sound: -1, muted: true };
+  private tensionConfiguration = { sound: -1, muted: true };
   private vocal: VocalInstrument | null = null;
   private vocalPreview: VocalInstrument | null = null;
   private vocalRequest: AbortController | null = null;
@@ -2632,6 +2668,11 @@ export class AudioEngine {
       graph.compressor,
       project,
     );
+    this.releaseCloudAudition();
+    this.cloud?.destroy();
+    this.tension?.destroy();
+    this.cloud = new CloudInstrument(graph.context, graph.melodicInput);
+    this.tension = new TensionInstrument(graph.context, graph.melodicInput);
     this.bass = new BassVoice(graph);
     this.keys = new KeysSequencer(graph);
     this.arp = new ArpInstrument(graph.context, graph.melodicInput);
@@ -2656,15 +2697,17 @@ export class AudioEngine {
     const bass = this.bass,
       keys = this.keys,
       arp = this.arp,
-      pad = this.pad;
-    if (!bass || !keys || !arp || !pad) return;
+      pad = this.pad,
+      cloud = this.cloud,
+      tension = this.tension;
+    if (!bass || !keys || !arp || !pad || !cloud || !tension) return;
     while (this.nextStepTime < now + LOOKAHEAD) {
       const tick = this.absoluteTick;
       const time = this.nextStepTime;
       scheduleProjectTick(
         graph,
         project,
-        { bass, keys, arp, pad, vocal: this.vocal },
+        { bass, keys, arp, pad, vocal: this.vocal, cloud, tension },
         tick,
         time,
       );
@@ -2692,6 +2735,15 @@ export class AudioEngine {
 
   stop(): void {
     this.generation += 1;
+    this.tensionPreviewGeneration++;
+    this.releaseCloudAudition();
+    for (const voice of [this.cloud, this.tension])
+      if (voice) {
+        voice.stop();
+        setTimeout(() => voice.destroy(), 30);
+      }
+    this.cloud = null;
+    this.tension = null;
     this.vocalRequest?.abort();
     this.vocalRequest = null;
     this.vocalPreviewRequest?.abort();
@@ -2734,6 +2786,28 @@ export class AudioEngine {
   }
 
   update(project: Project): void {
+    if (
+      (project.cloud.muted && !this.cloudConfiguration.muted) ||
+      project.cloud.sound !== this.cloudConfiguration.sound
+    ) {
+      this.releaseCloudAudition();
+      this.cloud?.silence();
+    }
+    if (
+      (project.tension.muted && !this.tensionConfiguration.muted) ||
+      project.tension.sound !== this.tensionConfiguration.sound
+    ) {
+      this.tensionPreviewGeneration++;
+      this.tension?.silence();
+    }
+    this.cloudConfiguration = {
+      sound: project.cloud.sound,
+      muted: project.cloud.muted,
+    };
+    this.tensionConfiguration = {
+      sound: project.tension.sound,
+      muted: project.tension.muted,
+    };
     const changed =
       project.vocal.sound !== this.vocalConfiguration.sound ||
       project.vocal.muted !== this.vocalConfiguration.muted;
@@ -2880,7 +2954,11 @@ export class AudioEngine {
         ? 0.65
         : Math.min(
             2.5,
-            Math.max(0.12, (trim.end - trim.start) / 2 ** ((note - 60) / 12)),
+            Math.max(
+              0.12,
+              (trim.end - trim.start) /
+                2 ** ((note - loaded.sample.rootNote) / 12),
+            ),
           );
       preview.audition(
         snapshot,
@@ -2910,6 +2988,67 @@ export class AudioEngine {
     } finally {
       if (this.vocalPreviewRequest === request) this.vocalPreviewRequest = null;
     }
+  }
+
+  async auditionCloud(
+    track: CloudTrack,
+    note: number,
+    velocity: number,
+    sustain = false,
+  ): Promise<void> {
+    if (!this.project)
+      throw new Error("Set the project before auditioning Cloud.");
+    if (!Number.isFinite(note) || !Number.isFinite(velocity)) return;
+    const request = ++this.cloudPreviewGeneration;
+    const graph = await this.prepare(this.project);
+    if (request !== this.cloudPreviewGeneration || this.silent) return;
+    if (!this.cloud)
+      this.cloud = new CloudInstrument(graph.context, graph.melodicInput);
+    this.cloud.audition(
+      track,
+      snapNote(note, this.project.scale, 36, 84),
+      Math.max(0, Math.min(1, velocity)),
+      graph.context.currentTime + 0.005,
+      sustain,
+    );
+    if (this.cloudPreviewTimer === null)
+      this.cloudPreviewTimer = setInterval(() => {
+        const voice = this.cloud;
+        if (!voice?.isPreviewing) {
+          if (this.cloudPreviewTimer !== null)
+            clearInterval(this.cloudPreviewTimer);
+          this.cloudPreviewTimer = null;
+          return;
+        }
+        voice.schedulePreview(graph.context.currentTime + LOOKAHEAD);
+      }, 25);
+  }
+  releaseCloudAudition(): void {
+    this.cloudPreviewGeneration++;
+    if (this.cloudPreviewTimer !== null) clearInterval(this.cloudPreviewTimer);
+    this.cloudPreviewTimer = null;
+    this.cloud?.releasePreview();
+  }
+  async auditionTension(
+    track: TensionTrack,
+    note: number,
+    velocity: number,
+  ): Promise<void> {
+    if (!this.project)
+      throw new Error("Set the project before auditioning Tension.");
+    if (!Number.isFinite(note) || !Number.isFinite(velocity)) return;
+    const request = this.tensionPreviewGeneration;
+    const graph = await this.prepare(this.project);
+    if (request !== this.tensionPreviewGeneration || this.silent) return;
+    if (!this.tension)
+      this.tension = new TensionInstrument(graph.context, graph.melodicInput);
+    this.tension.audition(
+      track,
+      note,
+      Math.max(0, Math.min(1, velocity)),
+      graph.context.currentTime + 0.005,
+      this.project.scale,
+    );
   }
 
   async audition(track: DrumTrack): Promise<void> {
@@ -2995,11 +3134,13 @@ export class AudioEngine {
     const keys = new KeysSequencer(graph);
     const arp = new ArpInstrument(context, graph.melodicInput);
     const pad = new PadInstrument(context, graph.melodicInput);
+    const cloud = new CloudInstrument(context, graph.melodicInput);
+    const tension = new TensionInstrument(context, graph.melodicInput);
     for (let tick = 0; tick < plan.ticks; tick++)
       scheduleProjectTick(
         graph,
         project,
-        { bass, keys, arp, pad, vocal },
+        { bass, keys, arp, pad, vocal, cloud, tension },
         tick,
         tickSeconds(tick, project.bpm),
       );

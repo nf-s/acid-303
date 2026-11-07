@@ -1,8 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 import { z } from "zod";
+import type { Project } from "../../../src/model";
 import { readProject } from "../../../src/model";
 import {
-  applyProjectChanges,
+  applySessionProjectChanges,
   clientIdSchema,
   clientMessageSchema,
   createSessionSchema,
@@ -16,6 +17,7 @@ import {
   sessionTokenSchema,
   sessionProjectSchema,
   sessionMessageForProtocol,
+  sessionCanChange,
 } from "../../../src/session-protocol";
 import type {
   ClientMessage,
@@ -50,7 +52,13 @@ const attachmentSchema = z.object({
   playing: z.boolean(),
   absoluteTick: z.number().finite().nonnegative().default(0),
   protocol: z
-    .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+    .union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(3),
+      z.literal(4),
+      z.literal(5),
+    ])
     .default(1),
   window: z.number(),
   packets: z.number().int().nonnegative(),
@@ -85,11 +93,19 @@ function attachment(socket: WebSocket): Attachment | null {
   const parsed = attachmentSchema.safeParse(socket.deserializeAttachment());
   return parsed.success ? parsed.data : null;
 }
-function send(socket: WebSocket, message: ServerMessage): void {
+function send(
+  socket: WebSocket,
+  message: ServerMessage,
+  project?: Project,
+): void {
   if (socket.readyState === WebSocket.OPEN)
     socket.send(
       JSON.stringify(
-        sessionMessageForProtocol(message, attachment(socket)?.protocol ?? 4),
+        sessionMessageForProtocol(
+          message,
+          attachment(socket)?.protocol ?? 5,
+          project,
+        ),
       ),
     );
 }
@@ -176,6 +192,9 @@ export class SessionRoom extends DurableObject<SessionEnv> {
   private presence(): {
     hostConnected: boolean;
     supportsVocal: boolean;
+    supportsVocalMusic: boolean;
+    supportsCloud: boolean;
+    supportsTension: boolean;
     playing: boolean;
     absoluteTick: number;
     participants: number;
@@ -184,14 +203,18 @@ export class SessionRoom extends DurableObject<SessionEnv> {
     const host = sockets.find(({ data }) => data.role === "host");
     return {
       hostConnected: host !== undefined,
-      supportsVocal: host?.data.protocol === 4,
+      supportsVocal: (host?.data.protocol ?? 0) >= 4,
+      supportsVocalMusic: (host?.data.protocol ?? 0) >= 5,
+      supportsCloud: (host?.data.protocol ?? 0) >= 5,
+      supportsTension: (host?.data.protocol ?? 0) >= 5,
       playing: host?.data.playing ?? false,
       absoluteTick: host?.data.absoluteTick ?? 0,
       participants: sockets.length,
     };
   }
   private broadcast(message: ServerMessage): void {
-    for (const { socket } of this.sockets()) send(socket, message);
+    for (const { socket } of this.sockets())
+      send(socket, message, this.record?.project);
   }
   private welcome(
     socket: WebSocket,
@@ -225,7 +248,8 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       (protocols[0] !== SESSION_PROTOCOL &&
         protocols[0] !== "grain-session-v1" &&
         protocols[0] !== "grain-session-v2" &&
-        protocols[0] !== "grain-session-v3") ||
+        protocols[0] !== "grain-session-v3" &&
+        protocols[0] !== "grain-session-v4") ||
       !token.success
     )
       return new Response("Invalid connection", { status: 400 });
@@ -304,7 +328,12 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       role,
       expiresAt: record.expiresAt,
       active: true,
-      protocol: protocols[0] === "grain-session-v3" ? 3 : 4,
+      protocol:
+        protocols[0] === "grain-session-v3"
+          ? 3
+          : protocols[0] === "grain-session-v4"
+            ? 4
+            : 5,
       playing: false,
       absoluteTick: 0,
       window: Date.now(),
@@ -429,11 +458,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       return;
     }
     if (
-      message.changes.some(
-        (change) =>
-          change.path[0] === "version" ||
-          (data.protocol === 3 && change.path[0] === "vocal"),
-      )
+      message.changes.some((change) => !sessionCanChange(data.protocol, change))
     ) {
       error(
         socket,
@@ -462,7 +487,11 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       );
       return;
     }
-    const project = applyProjectChanges(record.project, message.changes);
+    const project = applySessionProjectChanges(
+      record.project,
+      message.changes,
+      data.protocol,
+    );
     if (!project) {
       error(socket, "invalid-patch", "The edit is invalid", message.sequence);
       return;

@@ -6,6 +6,8 @@ import { PPQ, timingSchema, trackStepCount } from "./timing";
 import {
   VOCAL_BANKS,
   VOCAL_SOUNDS,
+  VOCAL_PATTERNS,
+  withVocalPattern,
   normalizedVocalValue,
   resizeVocalTrack,
   setVocalValue,
@@ -70,6 +72,8 @@ export function createVocalPanel(
   let catalogError = "";
   let status: VocalSampleStatus | null = null;
   let destroyed = false;
+  let hostSupportsVocal = true;
+  let hostSupportsMusic = true;
   const controller = new AbortController();
   const held = new Set<"start" | "end">();
   container.innerHTML = `
@@ -77,7 +81,7 @@ export function createVocalPanel(
     <p id="vocal-host-capability" class="vocal-status" hidden>Host must reload Grain to play vocals.</p>
     <div class="vocal-sample-picker"><div class="waveform-switch vocal-banks" role="group" aria-label="Vocal voice">${VOCAL_BANKS.map((item) => `<button data-vocal-bank="${item.id}">${item.label}</button>`).join("")}</div><div class="waveform-switch vocal-sounds" role="group" aria-label="Vocal sample"></div></div>
     <div class="vocal-waveform" aria-label="Vocal sample waveform"><svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"><path id="vocal-waveform-path"/><rect class="vocal-trim-shade" id="vocal-trim-before" y="0" height="100"/><rect class="vocal-trim-shade" id="vocal-trim-after" y="0" height="100"/><line class="vocal-trim-line" id="vocal-trim-start-line" y1="0" y2="100"/><line class="vocal-trim-line" id="vocal-trim-end-line" y1="0" y2="100"/></svg><label class="vocal-trim vocal-trim-start"><span>Start</span><input id="vocal-trim-start" data-source-control="vocal-start" type="range" min="0" max="100" step="0.1" aria-label="Vocal sample start"/></label><label class="vocal-trim vocal-trim-end"><span>End</span><input id="vocal-trim-end" data-source-control="vocal-end" type="range" min="0" max="100" step="0.1" aria-label="Vocal sample end"/></label></div>
-    <div class="vocal-waveform-info"><span>C4 = original sample speed</span><output id="vocal-trim-duration"></output><button id="vocal-loop" aria-pressed="false">Sustain</button></div>
+    <div class="vocal-waveform-info"><span id="vocal-pitch-reference"></span><output id="vocal-trim-duration"></output><button id="vocal-loop" aria-pressed="false">Sustain</button></div>
     <div class="vocal-status-row"><span id="vocal-sample-status" class="vocal-status" role="status"></span><button id="vocal-retry" hidden>Retry sample</button></div>
     <div class="acid-controls vocal-controls">${CONTROLS.map((control) => {
       const value = options.getTrack()[control.parameter] * 100;
@@ -92,6 +96,7 @@ export function createVocalPanel(
         `Vocal ${control.label.toLowerCase()}`,
       );
     }).join("")}</div>
+    <div class="vocal-rhythms waveform-switch" role="group" aria-label="Vocal rhythm">${VOCAL_PATTERNS.map((item) => `<button data-vocal-pattern="${item.id}">${item.label}</button>`).join("")}</div>
     <div id="vocal-pattern-controls" class="instrument-pattern-controls"></div>
     <div class="vocal-roll-tools"><div class="vocal-octaves" role="group" aria-label="Vocal pitch view"><button data-vocal-octave="-1" aria-label="Lower vocal pitch view">−</button><output id="vocal-octave-label"></output><button data-vocal-octave="1" aria-label="Raise vocal pitch view">+</button></div><output id="vocal-selected-note">Select a note</output><div class="vocal-note-actions" role="group" aria-label="Selected vocal note"><button data-vocal-note-action="shorter" aria-label="Shorten selected vocal note">− length</button><button data-vocal-note-action="longer" aria-label="Lengthen selected vocal note">+ length</button><button data-vocal-note-action="accent" aria-pressed="false">Accent</button><button data-vocal-note-action="join">Join</button><button data-vocal-note-action="delete">Delete</button></div></div>
     <div class="vocal-roll"><canvas id="vocal-roll-canvas" aria-label="Draw vocal notes and lengths"></canvas><div id="vocal-roll-access" class="matrix-access"></div></div>
@@ -122,7 +127,12 @@ export function createVocalPanel(
     throw new Error("Vocal controls are missing.");
   const preview = (
     note: number = roll.selectedNote?.note ??
-      snapNote(60, options.getScale(), 36, 84),
+      snapNote(
+        catalog?.samples[options.getTrack().sound]?.rootNote ?? 60,
+        options.getScale(),
+        36,
+        84,
+      ),
   ): void => options.onPreview(note);
   const roll: VocalRoll = new VocalRoll(canvas, access, {
     getTrack: options.getTrack,
@@ -298,6 +308,15 @@ export function createVocalPanel(
       line?.setAttribute("x1", String(Number(value) * 1000));
       line?.setAttribute("x2", String(Number(value) * 1000));
     }
+    const reference = container.querySelector("#vocal-pitch-reference");
+    if (reference)
+      reference.textContent = sample
+        ? sample.pitch?.kind === "tuned-chop"
+          ? `Tuned ${noteName(sample.rootNote)}`
+          : sample.pitch?.kind === "source-key"
+            ? `Phrase key ${noteName(sample.rootNote).replace(/-?\d+$/, "")} · original melody`
+            : `${noteName(sample.rootNote)} = original speed · unpitched`
+        : "";
     const duration = container.querySelector("#vocal-trim-duration");
     if (duration)
       duration.textContent = sample
@@ -338,6 +357,18 @@ export function createVocalPanel(
       renderStatus();
     }
   }
+  function renderHostCapability(): void {
+    const warning = container.querySelector<HTMLElement>(
+      "#vocal-host-capability",
+    );
+    if (!warning) return;
+    const newSound = options.getTrack().sound >= 24;
+    warning.hidden = hostSupportsVocal && (!newSound || hostSupportsMusic);
+    warning.textContent =
+      newSound && !hostSupportsMusic
+        ? "The host needs updated Grain to play these vocal samples."
+        : "The host needs updated Grain to play vocals.";
+  }
   function render(): void {
     if (destroyed) return;
     const track = options.getTrack();
@@ -351,6 +382,7 @@ export function createVocalPanel(
         ) ?? bank;
     }
     renderSounds();
+    renderHostCapability();
     CONTROLS.forEach(displayControl);
     renderWaveform();
     renderStatus();
@@ -408,7 +440,31 @@ export function createVocalPanel(
       options.getTrack().muted = false;
       render();
       options.onChange();
-      preview();
+      preview(
+        snapNote(
+          catalog?.samples[sound]?.rootNote ?? 60,
+          options.getScale(),
+          36,
+          84,
+        ),
+      );
+      return;
+    }
+    if (button.dataset.vocalPattern) {
+      const track = options.getTrack();
+      const sample = catalog?.samples[track.sound];
+      Object.assign(
+        track,
+        withVocalPattern(
+          track,
+          button.dataset.vocalPattern,
+          options.getScale(),
+          sample?.rootNote ?? 60,
+        ),
+      );
+      roll.cancelStroke();
+      render();
+      options.onChange();
       return;
     }
     if (button.id === "vocal-preview") {
@@ -534,11 +590,10 @@ export function createVocalPanel(
       status = next;
       renderStatus();
     },
-    setHostCapability: (supported: boolean) => {
-      const message = container.querySelector<HTMLElement>(
-        "#vocal-host-capability",
-      );
-      if (message) message.hidden = supported;
+    setHostCapability: (supported: boolean, music = supported) => {
+      hostSupportsVocal = supported;
+      hostSupportsMusic = music;
+      renderHostCapability();
     },
     destroy: () => {
       endTrim();

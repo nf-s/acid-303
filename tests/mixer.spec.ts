@@ -29,7 +29,7 @@ test("mixer levels and mutes share instrument controls, automation and undo", as
   );
   await page.goto("/");
   await page.getByText("Mixer", { exact: true }).click();
-  await expect(page.locator(".mixer-fader")).toHaveCount(10);
+  await expect(page.locator(".mixer-fader")).toHaveCount(12);
   await page.locator("#mixer-bass").press("ArrowUp");
   await expect(page.locator("#bass-volume")).toHaveAttribute(
     "aria-valuenow",
