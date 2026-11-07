@@ -2,7 +2,6 @@
 @import "@fontsource/ibm-plex-mono/latin-500.css";
 @import "@fontsource/ibm-plex-mono/latin-600.css";
 @import "@fontsource/ibm-plex-mono/latin-700.css";
-@import "@fontsource/azeret-mono/latin-900.css";
 :root {
   font-family: var(--mono);
   color: #ededed;
@@ -88,20 +87,14 @@ button:active {
   flex-shrink: 0;
 }
 .brand-wordmark {
-  font:
-    900 clamp(46px, 5.5vw, 60px) / 1.05 "Azeret Mono",
-    monospace;
-  letter-spacing: -0.085em;
-  padding-right: 0.085em;
-  background: linear-gradient(
-    #fff 0 45%,
-    transparent 45% 49%,
-    #fff 49%,
-    #b8b8b8 100%
-  );
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
+  display: block;
+  width: clamp(170px, 23vw, 236px);
+  color: #ededed;
+}
+.brand-wordmark svg {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 .brand-icon {
   display: grid;
@@ -1338,15 +1331,37 @@ kbd {
   border-color: #f5f6f7;
 }
 .preset-bar {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.preset-navigation {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: stretch;
+  gap: 5px;
+}
+.preset-scroll {
+  flex: 0 0 24px;
+  border: 1px solid #555;
+  background: #252525;
+  font-size: 24px;
 }
 .preset-options {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  display: flex;
+  flex: 1;
+  min-width: 0;
   gap: 5px;
-  overflow: visible;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  touch-action: pan-x pan-y;
 }
 .preset-options button {
+  flex: 0 0 152px;
+  scroll-snap-align: start;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1363,21 +1378,24 @@ kbd {
   font-size: 9px;
   opacity: 0.7;
 }
-@media (max-width: 950px) {
-  .preset-options {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
 @media (max-width: 650px) {
-  .preset-options {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .preset-navigation {
+    width: 100%;
+    flex-basis: 100%;
+  }
+  .visualizer-controls .dial-control {
+    flex-direction: column;
+    gap: 0;
+  }
+  .visualizer-controls .gesture-control {
+    gap: 4px;
   }
 }
 .preset-actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
-  margin-top: 7px;
+  margin: 0 0 0 auto;
 }
 .matrix-toolbar {
   position: relative;
@@ -1466,7 +1484,7 @@ kbd {
   }
   .preset-options button {
     padding: 7px 6px;
-    min-height: 62px;
+    min-height: 50px;
   }
   .preset-options button strong {
     font-size: 10px;

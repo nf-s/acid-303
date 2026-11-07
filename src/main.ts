@@ -50,6 +50,7 @@ import "./session.css";
 import "./instrument-automation.css";
 import { AudioEngine } from "./audio";
 import { FluidVisualizer } from "./visualizer";
+import grainWordmark from "./grain-wordmark.svg?raw";
 import {
   VISUALIZER_PALETTES,
   isVisualizerPaletteId,
@@ -235,9 +236,13 @@ let pendingDrum: DrumId | null = null;
 let lastPaintPreview = 0;
 let motion = true;
 let visualizerPalette: VisualizerPaletteId = "mono";
+let visualizerSwirl = 0;
 try {
   const savedPalette = localStorage.getItem("grain-visualizer-palette-v1");
   if (isVisualizerPaletteId(savedPalette)) visualizerPalette = savedPalette;
+  const savedSwirl = Number(localStorage.getItem("grain-visualizer-swirl-v1"));
+  if (Number.isFinite(savedSwirl))
+    visualizerSwirl = Math.max(0, Math.min(100, savedSwirl));
 } catch {
   // Visual preferences remain usable when browser storage is unavailable.
 }
@@ -255,7 +260,7 @@ const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Application container is missing.");
 app.innerHTML = `
     <section id="visualizer-panel" class="visualizer-panel" aria-label="Drum pattern visualizer"><canvas id="fluid-canvas" aria-label="Drum-reactive fluid shapes"></canvas></section>
-  <header class="app-header"><a class="brand" href="/" aria-label="Grain home"><span class="brand-icon">${icon("audio-lines")}</span><span class="brand-wordmark">GRAIN</span><span class="brand-divider"></span><span class="brand-detail">BEAT MACHINE</span></a><div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="global-undo" aria-label="Undo last edit" disabled>Undo</button><button class="button secondary" id="global-redo" aria-label="Redo last edit" disabled>Redo</button><button class="button secondary" id="share-track">Share</button><button class="button secondary" id="session-toggle" aria-expanded="false" aria-controls="session-panel">Session</button><button class="button secondary" id="phone-motion" aria-label="Enable phone motion control" aria-pressed="false" title="Hold a knob and tilt or move your phone">Motion</button><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div></header>
+  <header class="app-header"><a class="brand" href="/" aria-label="Grain home"><span class="brand-icon">${icon("audio-lines")}</span><span class="brand-wordmark">${grainWordmark}</span><span class="brand-divider"></span><span class="brand-detail">BEAT MACHINE</span></a><div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="global-undo" aria-label="Undo last edit" disabled>Undo</button><button class="button secondary" id="global-redo" aria-label="Redo last edit" disabled>Redo</button><button class="button secondary" id="share-track">Share</button><button class="button secondary" id="session-toggle" aria-expanded="false" aria-controls="session-panel">Session</button><button class="button secondary" id="phone-motion" aria-label="Enable phone motion control" aria-pressed="false" title="Hold a knob and tilt or move your phone">Motion</button><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div></header>
   <div class="motion-options" id="phone-motion-options" hidden><span>Hold a knob</span><div role="group" aria-label="Phone motion axis"><button data-phone-mode="tilt" aria-pressed="true">Tilt</button><button data-phone-mode="move" aria-pressed="false">Move</button><button data-phone-mode="twist" aria-pressed="false">Twist</button></div><span id="phone-motion-help">Tilt forwards / back or sideways</span></div>
   <div class="share-panel" id="share-panel" hidden><label for="share-url">Track link</label><input id="share-url" readonly><button id="copy-share">Copy</button><button id="close-share" aria-label="Close share link">×</button></div>
   <section id="session-panel" hidden></section>
@@ -270,7 +275,7 @@ app.innerHTML = `
     </section>
     <section class="scale-panel panel" aria-label="Musical scale"><div class="scale-row"><span>ROOT</span><div class="scale-roots" role="group" aria-label="Root note">${Array.from({ length: 12 }, (_, root) => `<button data-root="${root}" aria-label="Root ${noteName(root + 60).slice(0, -1)}" aria-pressed="${project.scale.root === root}">${noteName(root + 60).slice(0, -1)}</button>`).join("")}</div></div><div class="scale-row"><span>SCALE</span><div class="scale-modes" role="group" aria-label="Scale type">${SCALE_MODES.map((scale) => `<button data-scale="${scale.id}" aria-pressed="${project.scale.mode === scale.id}">${scale.name}</button>`).join("")}</div></div></section>
     <section class="preset-section panel" aria-label="Examples">
-        <div class="preset-bar"><div class="preset-options" role="group" aria-label="Genre examples">${PRESETS.map((preset) => `<button data-preset="${preset.id}" aria-label="${preset.name} — ${preset.genre}"><strong>${preset.name}</strong><span>${preset.genre}</span></button>`).join("")}</div><div class="preset-actions"><button id="remix" class="remix-button">${icon("shuffle")} Remix</button><button id="undo-remix" class="text-button undo-remix" disabled>Undo</button></div></div>
+        <div class="preset-bar"><div class="preset-navigation"><button class="preset-scroll" data-example-scroll="-1" aria-label="Scroll examples left">‹</button><div class="preset-options" role="group" aria-label="Genre examples">${PRESETS.map((preset) => `<button data-preset="${preset.id}" aria-label="${preset.name} — ${preset.genre}"><strong>${preset.name}</strong><span>${preset.genre}</span></button>`).join("")}</div><button class="preset-scroll" data-example-scroll="1" aria-label="Scroll examples right">›</button></div><div class="preset-actions"><button id="remix" class="remix-button">${icon("shuffle")} Remix</button><button id="undo-remix" class="text-button undo-remix" disabled>Undo</button></div></div>
     </section>
     <div class="studio-grid"><div class="sequencers">
       <section class="panel drums-panel" aria-labelledby="drums-title">
@@ -294,7 +299,7 @@ app.innerHTML = `
       <section id="pad-panel" class="panel bass-panel pad-panel" aria-labelledby="pad-title"></section>
     </div>
 </div>
-<div class="visualizer-toolbar" role="region" aria-label="Visualizer controls"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><div class="visualizer-controls"><button id="visualizer-colour" class="visualizer-button palette-toggle" aria-expanded="false" aria-controls="visualizer-palettes"><span class="palette-current" aria-hidden="true"></span>Colour</button>${slider("intensity", "Intensity", 0, 100, 30, "30%")}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div><div id="visualizer-palettes" class="visualizer-palettes" role="group" aria-label="Visualizer colour" hidden>${VISUALIZER_PALETTES.map((palette) => `<button data-visualizer-palette="${palette.id}" aria-pressed="${palette.id === visualizerPalette}"><span class="palette-swatch" style="background:${palette.swatch}" aria-hidden="true"></span><span>${palette.label}</span></button>`).join("")}</div></div>
+<div class="visualizer-toolbar" role="region" aria-label="Visualizer controls"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><div class="visualizer-controls"><button id="visualizer-colour" class="visualizer-button palette-toggle" aria-expanded="false" aria-controls="visualizer-palettes"><span class="palette-current" aria-hidden="true"></span>Colour</button>${slider("intensity", "Intensity", 0, 100, 30, "30%")}${slider("swirl", "Swirl", 0, 100, visualizerSwirl, `${visualizerSwirl}%`, "1", "Visualizer swirl", undefined, 0)}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div><div id="visualizer-palettes" class="visualizer-palettes" role="group" aria-label="Visualizer colour" hidden>${VISUALIZER_PALETTES.map((palette) => `<button data-visualizer-palette="${palette.id}" aria-pressed="${palette.id === visualizerPalette}"><span class="palette-swatch" style="background:${palette.swatch}" aria-hidden="true"></span><span>${palette.label}</span></button>`).join("")}</div></div>
     <footer class="app-footer"><span><kbd>SPACE</kbd> Play / stop</span><span>16 STEPS <span>·</span> 4/4</span><span id="project-name"></span></footer>
   </main><div id="toast" role="status" class="toast" hidden></div>`;
 
@@ -308,6 +313,7 @@ function slider(
   step = "1",
   ariaLabel = "",
   allowedValues?: number[],
+  resetValue = value,
 ): string {
   const automation = automationControls.find((control) => control.id === id);
   const name =
@@ -323,7 +329,7 @@ function slider(
               ? "Visualizer intensity"
               : "Swing"
         : `${id.startsWith("keys-") ? "Texture" : "Bass"} ${label.toLowerCase()}`);
-  return `<div class="dial-control"><span class="dial-label">${label}</span><div class="gesture-control" id="${id}" role="slider" tabindex="0" title="${automation ? "Click or Enter to draw automation · Drag to adjust" : "Drag up/down · Shift for fine control · Double-tap to reset"}" ${automation ? `data-automation-control="${id}" aria-controls="${automation.target.track === "drums" ? automation.target.id : automation.target.track}-matrix-canvas"` : ""} aria-label="${name}" aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}" aria-valuetext="${display}" aria-orientation="vertical" data-step="${step}" ${allowedValues ? `data-values="${allowedValues.join(",")}"` : ""} data-reset="${value}" style="--knob-angle:${-135 + ((value - min) / (max - min)) * 270}deg"><span class="knob-face" aria-hidden="true"><span></span></span><output id="${id}-value">${display}</output></div></div>`;
+  return `<div class="dial-control"><span class="dial-label">${label}</span><div class="gesture-control" id="${id}" role="slider" tabindex="0" title="${automation ? "Click or Enter to draw automation · Drag to adjust" : "Drag up/down · Shift for fine control · Double-tap to reset"}" ${automation ? `data-automation-control="${id}" aria-controls="${automation.target.track === "drums" ? automation.target.id : automation.target.track}-matrix-canvas"` : ""} aria-label="${name}" aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}" aria-valuetext="${display}" aria-orientation="vertical" data-step="${step}" ${allowedValues ? `data-values="${allowedValues.join(",")}"` : ""} data-reset="${resetValue}" style="--knob-angle:${-135 + ((value - min) / (max - min)) * 270}deg"><span class="knob-face" aria-hidden="true"><span></span></span><output id="${id}-value">${display}</output></div></div>`;
 }
 function formatFrequency(value: number): string {
   return value >= 1000
@@ -822,6 +828,7 @@ if (!(canvas instanceof HTMLCanvasElement))
   throw new Error("Visualizer canvas is missing.");
 const visualizer = new FluidVisualizer(canvas);
 visualizer.setPalette(visualizerPalette);
+visualizer.setSwirl(visualizerSwirl / 100);
 updateVisualizerPalette();
 engine.update(project);
 visualizer.setMotion(motion);
@@ -1384,6 +1391,15 @@ document.addEventListener("click", async (event) => {
     );
     refreshIcons();
   }
+  if (dataset.exampleScroll) {
+    const strip = document.querySelector(".preset-options");
+    if (strip instanceof HTMLElement)
+      strip.scrollBy({
+        left:
+          Math.sign(Number(dataset.exampleScroll)) * strip.clientWidth * 0.8,
+        behavior: "smooth",
+      });
+  }
   if (id === "visualizer-colour") {
     const palettes = document.getElementById("visualizer-palettes");
     if (palettes) setVisualizerPaletteOpen(palettes.hidden);
@@ -1592,6 +1608,17 @@ function updateControl(id: string, value: number): void {
     if (stage instanceof HTMLElement) {
       stage.style.opacity = String(value / 100);
       stage.style.visibility = value === 0 ? "hidden" : "visible";
+    }
+    return;
+  }
+  if (id === "swirl") {
+    visualizerSwirl = value;
+    visualizer.setSwirl(value / 100);
+    setOutput(id, `${value}%`);
+    try {
+      localStorage.setItem("grain-visualizer-swirl-v1", String(value));
+    } catch {
+      // The current swirl setting remains usable without storage.
     }
     return;
   }

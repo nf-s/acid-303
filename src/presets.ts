@@ -60,7 +60,7 @@ interface GenrePreset {
 const GENRE_PRESETS: GenrePreset[] = [
   {
     id: "house",
-    name: "Disco Moth",
+    name: "Afterhours",
     genre: "House",
     scale: { root: 0, mode: "major" },
     bpm: 124,
@@ -104,7 +104,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "tech-house",
-    name: "Kick Gremlin",
+    name: "Lowline",
     genre: "Tech house",
     scale: { root: 9, mode: "dorian" },
     bpm: 128,
@@ -153,7 +153,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "techno",
-    name: "Wire Wraith",
+    name: "Contact",
     genre: "Techno",
     scale: { root: 5, mode: "minor" },
     bpm: 134,
@@ -210,7 +210,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "driving-techno",
-    name: "Tunnel Imp",
+    name: "Transit",
     genre: "Driving techno",
     scale: { root: 2, mode: "phrygian" },
     bpm: 142,
@@ -260,7 +260,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "melodic-techno",
-    name: "Moon Sprite",
+    name: "Halflight",
     genre: "Melodic techno",
     scale: { root: 9, mode: "minor" },
     bpm: 124,
@@ -304,7 +304,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "atmospheric-techno",
-    name: "Cloud Goblin",
+    name: "Drift",
     genre: "Experimental atmospheric techno",
     scale: { root: 2, mode: "pentatonic" },
     bpm: 116,
@@ -361,7 +361,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "garage",
-    name: "Velvet Fox",
+    name: "Side Street",
     genre: "Garage",
     scale: { root: 7, mode: "minor" },
     bpm: 132,
@@ -410,7 +410,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "speed-garage",
-    name: "Turbo Rat",
+    name: "Undertow",
     genre: "Speed garage",
     scale: { root: 5, mode: "minor" },
     bpm: 138,
@@ -459,7 +459,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "jungle",
-    name: "Moss Raver",
+    name: "Crosscut",
     genre: "Jungle",
     scale: { root: 2, mode: "minor" },
     bpm: 170,
@@ -518,7 +518,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "bass-house",
-    name: "Sub Gremlin",
+    name: "Offset",
     genre: "Bass house",
     scale: { root: 5, mode: "minor" },
     bpm: 128,
@@ -567,7 +567,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "dub-techno",
-    name: "Echo Fern",
+    name: "Vapour",
     genre: "Dub techno",
     scale: { root: 4, mode: "minor" },
     bpm: 120,
@@ -617,7 +617,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "electro",
-    name: "Circuit Eel",
+    name: "Relay",
     genre: "Electro",
     scale: { root: 0, mode: "minor" },
     bpm: 130,
@@ -666,7 +666,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "microhouse",
-    name: "Static Flea",
+    name: "Pinpoint",
     genre: "Microhouse",
     scale: { root: 7, mode: "dorian" },
     bpm: 123,
@@ -721,7 +721,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "deep-techno",
-    name: "Amber Coil",
+    name: "Stillwater",
     genre: "Deep techno",
     scale: { root: 7, mode: "minor" },
     bpm: 126,
@@ -771,7 +771,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "acid-techno",
-    name: "Chrome Newt",
+    name: "Etch",
     genre: "Acid techno",
     scale: { root: 2, mode: "minor" },
     bpm: 138,
@@ -820,7 +820,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "detroit-techno",
-    name: "Glass Orbit",
+    name: "Meridian",
     genre: "Detroit techno",
     scale: { root: 3, mode: "minor" },
     bpm: 128,
@@ -869,7 +869,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "industrial-techno",
-    name: "Iron Wren",
+    name: "Ferrite",
     genre: "Industrial techno",
     scale: { root: 6, mode: "phrygian" },
     bpm: 146,
@@ -929,7 +929,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "ambient-breaks",
-    name: "Tidal Ghost",
+    name: "Blue Hour",
     genre: "Ambient breaks",
     scale: { root: 9, mode: "minor" },
     bpm: 108,
@@ -983,7 +983,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "broken-beat",
-    name: "Pocket Meteor",
+    name: "Stagger",
     genre: "Broken beat",
     scale: { root: 5, mode: "dorian" },
     bpm: 118,
@@ -1032,7 +1032,7 @@ const GENRE_PRESETS: GenrePreset[] = [
   },
   {
     id: "uk-bass",
-    name: "Low Lantern",
+    name: "Sublevel",
     genre: "UK bass",
     scale: { root: 3, mode: "minor" },
     bpm: 136,
@@ -1497,6 +1497,26 @@ export const PRESETS: ReadonlyArray<{
 }> = GENRE_PRESETS.map(({ id, name, genre }) => ({ id, name, genre }));
 
 const legacyPresetIds = new Map([
+  ["Disco Moth", "house"],
+  ["Kick Gremlin", "tech-house"],
+  ["Wire Wraith", "techno"],
+  ["Tunnel Imp", "driving-techno"],
+  ["Moon Sprite", "melodic-techno"],
+  ["Cloud Goblin", "atmospheric-techno"],
+  ["Velvet Fox", "garage"],
+  ["Turbo Rat", "speed-garage"],
+  ["Moss Raver", "jungle"],
+  ["Sub Gremlin", "bass-house"],
+  ["Echo Fern", "dub-techno"],
+  ["Circuit Eel", "electro"],
+  ["Static Flea", "microhouse"],
+  ["Amber Coil", "deep-techno"],
+  ["Chrome Newt", "acid-techno"],
+  ["Glass Orbit", "detroit-techno"],
+  ["Iron Wren", "industrial-techno"],
+  ["Tidal Ghost", "ambient-breaks"],
+  ["Pocket Meteor", "broken-beat"],
+  ["Low Lantern", "uk-bass"],
   ["Sunday Socks", "house"],
   ["Pocket Disco", "tech-house"],
   ["Little Machine", "techno"],

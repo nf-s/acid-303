@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 354 76" aria-hidden="true">
+  <g fill="currentColor" transform="translate(24 2) skewX(-18)">
+    <path
+      d="M12 0H58L66 10V22H46V16H22V56H44V44H34V30H66V62L56 72H10L0 60V12Z"
+    />
+    <path
+      fill-rule="evenodd"
+      d="M76 0H130L140 12V34L128 46H119L142 72H116L98 48V72H76ZM98 16V32H118V16Z"
+    />
+    <path
+      fill-rule="evenodd"
+      d="M164 0H204L216 12V72H194V50H174V72H152V12ZM174 16V34H194V16Z"
+    />
+    <path d="M228 0H250V72H228Z" />
+    <path d="M262 0H282L304 36V0H326V60L314 72H304L284 38V72H262Z" />
+  </g>
+</svg>

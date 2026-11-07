@@ -14,6 +14,7 @@ interface DrumPulse {
 
 interface FluidFrame {
   phase: number;
+  swirl: number;
   kick: number;
   snare: number;
   hat: number;
@@ -92,6 +93,18 @@ void main() {
   gl_FragColor = vec4(vec3(clamp(light * vignette, 0.0, 1.0)), 1.0);
 }`;
 
+// A separate program preserves the original shader's exact floating-point output.
+const SWIRL_SHADER = FLUID_SHADER.replace(
+  "uniform float uRim;",
+  "uniform float uRim;\nuniform float uSwirl;",
+).replace(
+  "float time = uPhase * 0.7;",
+  `float time = uPhase * 0.7;
+  vec2 centre = vec2(sin(time * 0.36) * 0.5, cos(time * 0.29) * 0.4);
+  p = whirl(p, centre, uSwirl * (3.8 + sin(time * 0.72) * 1.6));
+  p = whirl(p, vec2(0.95, -0.7), -uSwirl * (2.9 + cos(time * 0.61) * 1.3));`,
+);
+
 const GRAIN_SHADER = `
 precision highp float;
 varying vec2 vUv;
@@ -126,6 +139,7 @@ interface ShaderPass {
   phase: WebGLUniformLocation | null;
   hits: WebGLUniformLocation | null;
   rim: WebGLUniformLocation | null;
+  swirl: WebGLUniformLocation | null;
   field: WebGLUniformLocation | null;
   grain: WebGLUniformLocation | null;
   palette: WebGLUniformLocation | null;
@@ -179,6 +193,7 @@ function createPass(
     phase: gl.getUniformLocation(program, "uPhase"),
     hits: gl.getUniformLocation(program, "uHits"),
     rim: gl.getUniformLocation(program, "uRim"),
+    swirl: gl.getUniformLocation(program, "uSwirl"),
     field: gl.getUniformLocation(program, "uField"),
     grain: gl.getUniformLocation(program, "uGrain"),
     palette: gl.getUniformLocation(program, "uPalette"),
@@ -221,6 +236,7 @@ class FluidGpu {
     readonly canvas: HTMLCanvasElement,
     private readonly gl: WebGLRenderingContext,
     private readonly fluid: ShaderPass,
+    private readonly swirlFluid: ShaderPass,
     private readonly grain: ShaderPass,
     private readonly vertices: WebGLBuffer,
     private readonly fieldTexture: WebGLTexture,
@@ -238,6 +254,7 @@ class FluidGpu {
     });
     if (!gl) return null;
     const fluid = createPass(gl, FLUID_SHADER);
+    const swirlFluid = createPass(gl, SWIRL_SHADER);
     const grain = createPass(gl, GRAIN_SHADER);
     const vertices = gl.createBuffer();
     const fieldTexture = gl.createTexture();
@@ -246,6 +263,7 @@ class FluidGpu {
     const framebuffer = gl.createFramebuffer();
     if (
       !fluid ||
+      !swirlFluid ||
       !grain ||
       !vertices ||
       !fieldTexture ||
@@ -254,6 +272,7 @@ class FluidGpu {
       !framebuffer
     ) {
       gl.deleteProgram(fluid?.program ?? null);
+      gl.deleteProgram(swirlFluid?.program ?? null);
       gl.deleteProgram(grain?.program ?? null);
       gl.deleteBuffer(vertices);
       gl.deleteTexture(fieldTexture);
@@ -307,6 +326,7 @@ class FluidGpu {
       canvas,
       gl,
       fluid,
+      swirlFluid,
       grain,
       vertices,
       fieldTexture,
@@ -381,6 +401,7 @@ class FluidGpu {
     gl.uniform1f(pass.phase, frame.phase);
     gl.uniform4f(pass.hits, frame.kick, frame.snare, frame.hat, frame.clap);
     gl.uniform1f(pass.rim, frame.rim);
+    gl.uniform1f(pass.swirl, frame.swirl);
   }
 
   draw(frame: FluidFrame): boolean {
@@ -388,7 +409,12 @@ class FluidGpu {
     if (!this.ready || gl.isContextLost()) return false;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
     gl.viewport(0, 0, this.fieldWidth, this.fieldHeight);
-    this.use(this.fluid, this.fieldWidth, this.fieldHeight, frame);
+    this.use(
+      frame.swirl > 0 ? this.swirlFluid : this.fluid,
+      this.fieldWidth,
+      this.fieldHeight,
+      frame,
+    );
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -409,6 +435,7 @@ class FluidGpu {
 
   destroy(): void {
     this.gl.deleteProgram(this.fluid.program);
+    this.gl.deleteProgram(this.swirlFluid.program);
     this.gl.deleteProgram(this.grain.program);
     this.gl.deleteBuffer(this.vertices);
     this.gl.deleteTexture(this.fieldTexture);
@@ -446,6 +473,7 @@ export class FluidVisualizer {
   private rimTurn = 0;
   private palette: VisualizerPaletteId = "mono";
   private paletteLookup = createPaletteLookup("mono");
+  private swirl = 0;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.context = canvas.getContext("2d", { alpha: false });
@@ -488,6 +516,13 @@ export class FluidVisualizer {
     this.palette = id;
     this.paletteLookup = createPaletteLookup(id);
     this.gpu?.setPalette(id, this.paletteLookup);
+    this.draw();
+  }
+
+  setSwirl(value: number): void {
+    const next = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+    if (this.destroyed || this.swirl === next) return;
+    this.swirl = next;
     this.draw();
   }
 
@@ -557,7 +592,8 @@ export class FluidVisualizer {
       (this.rimDirection - this.rimTurn) * (1 - Math.exp(-seconds / 0.16));
     this.phase +=
       seconds *
-      (1.6 + this.pulses.kick.value * 0.9 + this.pulses.snare.value * 0.5);
+      (1.6 + this.pulses.kick.value * 0.9 + this.pulses.snare.value * 0.5) *
+      (1 + this.swirl * 1.4);
     this.draw();
   };
 
@@ -571,10 +607,29 @@ export class FluidVisualizer {
     const size = Math.min(width, height);
     const zoom = 1 + frame.kick * 0.24;
     const time = frame.phase * 0.7;
+    const centreX = Math.sin(time * 0.36) * 0.5;
+    const centreY = Math.cos(time * 0.29) * 0.4;
+    const firstTurn = frame.swirl * (3.8 + Math.sin(time * 0.72) * 1.6);
+    const secondTurn = -frame.swirl * (2.9 + Math.cos(time * 0.61) * 1.3);
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
-        const px = (((x - width * 0.5) / size) * 4) / zoom;
-        const py = (((y - height * 0.5) / size) * 4) / zoom;
+        let px = (((x - width * 0.5) / size) * 4) / zoom;
+        let py = (((y - height * 0.5) / size) * 4) / zoom;
+        if (frame.swirl > 0) {
+          for (let vortex = 0; vortex < 2; vortex++) {
+            const cx = vortex === 0 ? centreX : 0.95;
+            const cy = vortex === 0 ? centreY : -0.7;
+            const dx = px - cx;
+            const dy = py - cy;
+            const angle =
+              (vortex === 0 ? firstTurn : secondTurn) *
+              Math.exp(-(dx * dx + dy * dy) * 0.65);
+            const cosine = Math.cos(angle);
+            const sine = Math.sin(angle);
+            px = cx + cosine * dx + sine * dy;
+            py = cy - sine * dx + cosine * dy;
+          }
+        }
         const bend = Math.sin(py * 1.8 + time * 0.7) + frame.rim * 0.7;
         const fx = px + bend * 0.6 + Math.sin(px + time) * frame.clap * 0.3;
         const fy =
@@ -642,6 +697,7 @@ export class FluidVisualizer {
     if (!this.context || this.destroyed) return;
     const frame: FluidFrame = {
       phase: this.phase,
+      swirl: this.swirl,
       kick: this.pulses.kick.value,
       snare: this.pulses.snare.value,
       hat: this.pulses.hat.value,

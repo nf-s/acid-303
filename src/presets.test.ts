@@ -11,9 +11,9 @@ import {
   withScale,
 } from "./model";
 
-async function presetHash(id: string, ignoreName = false): Promise<string> {
+async function presetHash(id: string): Promise<string> {
   const project = createPreset(id);
-  if (ignoreName) project.name = "";
+  project.name = "";
   const bytes = new TextEncoder().encode(JSON.stringify(project));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (value) =>
@@ -24,6 +24,25 @@ async function presetHash(id: string, ignoreName = false): Promise<string> {
 describe("genre examples", () => {
   it("resolves current and saved legacy names without changing the saved arrangement", () => {
     const legacyNames = [
+      { name: "Disco Moth", id: "house" },
+      { name: "Kick Gremlin", id: "tech-house" },
+      { name: "Wire Wraith", id: "techno" },
+      { name: "Tunnel Imp", id: "driving-techno" },
+      { name: "Moon Sprite", id: "melodic-techno" },
+      { name: "Velvet Fox", id: "garage" },
+      { name: "Turbo Rat", id: "speed-garage" },
+      { name: "Moss Raver", id: "jungle" },
+      { name: "Sub Gremlin", id: "bass-house" },
+      { name: "Echo Fern", id: "dub-techno" },
+      { name: "Circuit Eel", id: "electro" },
+      { name: "Static Flea", id: "microhouse" },
+      { name: "Amber Coil", id: "deep-techno" },
+      { name: "Chrome Newt", id: "acid-techno" },
+      { name: "Glass Orbit", id: "detroit-techno" },
+      { name: "Iron Wren", id: "industrial-techno" },
+      { name: "Tidal Ghost", id: "ambient-breaks" },
+      { name: "Pocket Meteor", id: "broken-beat" },
+      { name: "Low Lantern", id: "uk-bass" },
       { name: "Sunday Socks", id: "house" },
       { name: "Pocket Disco", id: "tech-house" },
       { name: "Little Machine", id: "techno" },
@@ -56,26 +75,19 @@ describe("genre examples", () => {
     expect(findPresetByName("__proto__")).toBeUndefined();
   });
 
-  it("keeps the complete House and Tech house arrangements unchanged", async () => {
-    // Captured before the eight other genres were re-authored, including every instrument and automation lane.
+  it("preserves all twenty complete musical arrangements while changing only their names", async () => {
+    // Captured before renaming; only project.name is excluded from each complete-project hash.
     const frozen = [
       {
         id: "house",
         sha256:
-          "fcbdcf6e99035e0afeb103737415188480db8647623e6e73a06954a63c5e50ea",
+          "e19a6d1d8e5db8f0342306d3f721431cd7fbc3903c482bf8c28f8254e69bd8fa",
       },
       {
         id: "tech-house",
         sha256:
-          "a4e34edbb5646477852f2e3202e919653fcb03c8d537e7da3742173141e45f4f",
+          "72e7007fc7b3a0db11f8bae69b475c4f3404fc097acb66766f5ff16629ed1a02",
       },
-    ];
-    for (const { id, sha256 } of frozen)
-      expect(await presetHash(id)).toBe(sha256);
-  });
-
-  it("preserves the other eight arrangements while renaming only Velvet Imp", async () => {
-    const frozen = [
       {
         id: "techno",
         sha256:
@@ -116,13 +128,59 @@ describe("genre examples", () => {
         sha256:
           "a743593fdd90c39e953450636f0fa8005e87d31286ed1d2b10c32d18814d30cc",
       },
+      {
+        id: "dub-techno",
+        sha256:
+          "084c2b28f1a389033b6c485f7b4956d94a3a47eba7507d612c580b8f19fec546",
+      },
+      {
+        id: "electro",
+        sha256:
+          "c94eea2a9d9ff103cbfc0934f7704a71ac97ffd4df941b9a7783ec1b42c712c4",
+      },
+      {
+        id: "microhouse",
+        sha256:
+          "eb3ff357c57b6720ff352f5734117e993dd7aebb1f4f51ca4eceeb554414abfd",
+      },
+      {
+        id: "deep-techno",
+        sha256:
+          "d845433405d763daf6a50eb86ff9bf5db653103b360da3d58fdf59277afb75b2",
+      },
+      {
+        id: "acid-techno",
+        sha256:
+          "02d79b903ef1072a2c9f29c9cf4bfe9087a722fb525175b60809b188c33b99a3",
+      },
+      {
+        id: "detroit-techno",
+        sha256:
+          "3e88234d7669ecb74828075c9e792c3531126b4d47920d6e1bb254d81704a9f9",
+      },
+      {
+        id: "industrial-techno",
+        sha256:
+          "7a51439812cd20a252f38e96a1958770d72947addea64539c510ec4513390239",
+      },
+      {
+        id: "ambient-breaks",
+        sha256:
+          "638f1620f1cce15636e7dcac224aaea4ae7203e976c0c6936b98feb19c56e545",
+      },
+      {
+        id: "broken-beat",
+        sha256:
+          "b84200d04805f3bec06399ef5a9663b5ef2f7fae85a4fd2c376fba19dfedfa50",
+      },
+      {
+        id: "uk-bass",
+        sha256:
+          "0b498f25977f12059246cdba111eb07bac69a0718447e359c4be22f3a1d81288",
+      },
     ];
     for (const { id, sha256 } of frozen)
-      expect(await presetHash(id, true)).toBe(sha256);
-    expect(createPreset("garage").name).toBe("Velvet Fox");
-    expect(
-      PRESETS.filter((preset) => /\bImp\b/.test(preset.name)),
-    ).toHaveLength(1);
+      expect(await presetHash(id)).toBe(sha256);
   });
 
   it("provides twenty distinct valid arrangements with notes locked to their scales", () => {
@@ -149,27 +207,28 @@ describe("genre examples", () => {
       "uk-bass",
     ]);
     expect(PRESETS.map((preset) => preset.name)).toEqual([
-      "Disco Moth",
-      "Kick Gremlin",
-      "Wire Wraith",
-      "Tunnel Imp",
-      "Moon Sprite",
-      "Cloud Goblin",
-      "Velvet Fox",
-      "Turbo Rat",
-      "Moss Raver",
-      "Sub Gremlin",
-      "Echo Fern",
-      "Circuit Eel",
-      "Static Flea",
-      "Amber Coil",
-      "Chrome Newt",
-      "Glass Orbit",
-      "Iron Wren",
-      "Tidal Ghost",
-      "Pocket Meteor",
-      "Low Lantern",
+      "Afterhours",
+      "Lowline",
+      "Contact",
+      "Transit",
+      "Halflight",
+      "Drift",
+      "Side Street",
+      "Undertow",
+      "Crosscut",
+      "Offset",
+      "Vapour",
+      "Relay",
+      "Pinpoint",
+      "Stillwater",
+      "Etch",
+      "Meridian",
+      "Ferrite",
+      "Blue Hour",
+      "Stagger",
+      "Sublevel",
     ]);
+    expect(new Set(PRESETS.map((preset) => preset.name)).size).toBe(20);
     const projects = PRESETS.map((preset) => createPreset(preset.id));
     for (const project of projects) {
       expect(projectSchema.safeParse(project).success).toBe(true);
@@ -322,7 +381,7 @@ describe("genre examples", () => {
 
   it("preserves genre-specific pulse, breaks and space without filling every instrument", () => {
     const atmospheric = createPreset("atmospheric-techno");
-    expect(atmospheric.name).toBe("Cloud Goblin");
+    expect(atmospheric.name).toBe("Drift");
     expect(atmospheric.bass.muted && atmospheric.arp.muted).toBe(true);
     expect(atmospheric.pad.muted).toBe(false);
     expect(atmospheric.keys.steps.filter((step) => step.on)).toHaveLength(2);
@@ -391,6 +450,6 @@ describe("genre examples", () => {
         ),
       ).toBe(true);
     }
-    expect(createPreset("missing").name).toBe("Disco Moth");
+    expect(createPreset("missing").name).toBe("Afterhours");
   });
 });

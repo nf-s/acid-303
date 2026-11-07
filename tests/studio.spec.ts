@@ -656,6 +656,80 @@ test("visualizer defaults on at 30%, responds silently, and pauses all grain and
   expect(await frame()).toBe(stopped);
 });
 
+test("examples swipe horizontally and swirl changes visuals without changing the track", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 375, height: 812 },
+    hasTouch: true,
+    isMobile: true,
+  });
+  const page = await context.newPage();
+  await page.goto("/");
+  const strip = page.locator(".preset-options");
+  const box = await strip.boundingBox();
+  if (!box) throw new Error("Example strip is missing");
+  const session = await context.newCDPSession(page);
+  const y = box.y + box.height / 2;
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ id: 1, x: box.x + box.width - 10, y }],
+  });
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchMove",
+    touchPoints: [{ id: 1, x: box.x + 10, y }],
+  });
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+  });
+  await expect
+    .poll(() => strip.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(30);
+  await expect(page.locator(".preset-section")).toHaveCSS(
+    "overflow-x",
+    "visible",
+  );
+  expect(
+    await page
+      .locator(".preset-section")
+      .evaluate((element) => element.clientHeight),
+  ).toBeLessThan(125);
+  await expect(page.locator("[data-preset]")).toHaveCount(20);
+  await page
+    .getByRole("slider", { name: "Master volume", exact: true })
+    .press("Home");
+  const before = await page.evaluate(() =>
+    localStorage.getItem("acid-303-project-v1"),
+  );
+  const swirl = page.getByRole("slider", {
+    name: "Visualizer swirl",
+    exact: true,
+  });
+  await expect(swirl).toHaveAttribute("aria-valuenow", "0");
+  const frame = () =>
+    page
+      .locator("#fluid-canvas")
+      .evaluate((canvas) =>
+        canvas instanceof HTMLCanvasElement ? canvas.toDataURL() : "",
+      );
+  const original = await frame();
+  await swirl.press("End");
+  expect(await frame()).not.toBe(original);
+  expect(
+    await page.evaluate(() => localStorage.getItem("acid-303-project-v1")),
+  ).toBe(before);
+  await page.reload();
+  await expect(swirl).toHaveAttribute("aria-valuenow", "100");
+  await swirl.dblclick();
+  await expect(swirl).toHaveAttribute("aria-valuenow", "0");
+  await expect(page.locator("#visualizer-panel")).toHaveCSS("opacity", "0.3");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    375,
+  );
+  await context.close();
+});
+
 test("phone fullscreen visualizer and sticky playback remain accessible", async ({
   page,
 }) => {
