@@ -11,6 +11,16 @@ import {
   withScale,
 } from "./model";
 
+async function presetHash(id: string, ignoreName = false): Promise<string> {
+  const project = createPreset(id);
+  if (ignoreName) project.name = "";
+  const bytes = new TextEncoder().encode(JSON.stringify(project));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (value) =>
+    value.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 describe("genre examples", () => {
   it("resolves current and saved legacy names without changing the saved arrangement", () => {
     const legacyNames = [
@@ -21,6 +31,7 @@ describe("genre examples", () => {
       { name: "Moon Jelly", id: "melodic-techno" },
       { name: "Cloud Goblin", id: "atmospheric-techno" },
       { name: "Velvet Steps", id: "garage" },
+      { name: "Velvet Imp", id: "garage" },
       { name: "Turbo Biscuit", id: "speed-garage" },
       { name: "Jungle Gym", id: "jungle" },
       { name: "Switchback", id: "bass-house" },
@@ -59,18 +70,62 @@ describe("genre examples", () => {
           "a4e34edbb5646477852f2e3202e919653fcb03c8d537e7da3742173141e45f4f",
       },
     ];
-    for (const { id, sha256 } of frozen) {
-      const bytes = new TextEncoder().encode(JSON.stringify(createPreset(id)));
-      const digest = await crypto.subtle.digest("SHA-256", bytes);
-      expect(
-        Array.from(new Uint8Array(digest), (value) =>
-          value.toString(16).padStart(2, "0"),
-        ).join(""),
-      ).toBe(sha256);
-    }
+    for (const { id, sha256 } of frozen)
+      expect(await presetHash(id)).toBe(sha256);
   });
 
-  it("provides ten distinct valid arrangements with notes locked to their scales", () => {
+  it("preserves the other eight arrangements while renaming only Velvet Imp", async () => {
+    const frozen = [
+      {
+        id: "techno",
+        sha256:
+          "fd6f256a9cc877b96c8a63c14a8d9ce401eec90acd6835642bd8203acf387d91",
+      },
+      {
+        id: "driving-techno",
+        sha256:
+          "309e173a87bcb7b1355648d6f17b048e3c0a6b93626a8aaba23b337aed952f29",
+      },
+      {
+        id: "melodic-techno",
+        sha256:
+          "502e66036e9da692e8800a9c2faf69905a277f053eb6a01e918fdfd37edbd504",
+      },
+      {
+        id: "atmospheric-techno",
+        sha256:
+          "2fbd775051e6eee3bc28076f3fa7da791509b71d0313bbb14893684eb642d883",
+      },
+      {
+        id: "garage",
+        sha256:
+          "ae315724b562b3be0cef8574efdadb51de5fe828129e45c064af0d5c79a9e097",
+      },
+      {
+        id: "speed-garage",
+        sha256:
+          "b43384c5941ef747a4422009cb2cf06515719ae3533fc1e5131fd6d75f62164f",
+      },
+      {
+        id: "jungle",
+        sha256:
+          "89ff4d7587e9c586af1334c27ce1a342a9558b64e9c4acdee7b3c7efb978e143",
+      },
+      {
+        id: "bass-house",
+        sha256:
+          "a743593fdd90c39e953450636f0fa8005e87d31286ed1d2b10c32d18814d30cc",
+      },
+    ];
+    for (const { id, sha256 } of frozen)
+      expect(await presetHash(id, true)).toBe(sha256);
+    expect(createPreset("garage").name).toBe("Velvet Fox");
+    expect(
+      PRESETS.filter((preset) => /\bImp\b/.test(preset.name)),
+    ).toHaveLength(1);
+  });
+
+  it("provides twenty distinct valid arrangements with notes locked to their scales", () => {
     expect(PRESETS.map((preset) => preset.id)).toEqual([
       "house",
       "tech-house",
@@ -82,6 +137,16 @@ describe("genre examples", () => {
       "speed-garage",
       "jungle",
       "bass-house",
+      "dub-techno",
+      "electro",
+      "microhouse",
+      "deep-techno",
+      "acid-techno",
+      "detroit-techno",
+      "industrial-techno",
+      "ambient-breaks",
+      "broken-beat",
+      "uk-bass",
     ]);
     expect(PRESETS.map((preset) => preset.name)).toEqual([
       "Disco Moth",
@@ -90,10 +155,20 @@ describe("genre examples", () => {
       "Tunnel Imp",
       "Moon Sprite",
       "Cloud Goblin",
-      "Velvet Imp",
+      "Velvet Fox",
       "Turbo Rat",
       "Moss Raver",
       "Sub Gremlin",
+      "Echo Fern",
+      "Circuit Eel",
+      "Static Flea",
+      "Amber Coil",
+      "Chrome Newt",
+      "Glass Orbit",
+      "Iron Wren",
+      "Tidal Ghost",
+      "Pocket Meteor",
+      "Low Lantern",
     ]);
     const projects = PRESETS.map((preset) => createPreset(preset.id));
     for (const project of projects) {
@@ -138,17 +213,17 @@ describe("genre examples", () => {
           JSON.stringify(project.drums.map((drum) => drum.steps)),
         ),
       ).size,
-    ).toBe(10);
+    ).toBe(20);
     expect(
       new Set(
         projects.map((project) =>
           JSON.stringify([project.bass.sound, project.bass.steps]),
         ),
       ).size,
-    ).toBe(10);
+    ).toBe(20);
   });
 
-  it("limits the revised examples to four or five audible roles", () => {
+  it("limits authored additions and revisions to three to five audible roles", () => {
     for (const preset of PRESETS.slice(2)) {
       const project = createPreset(preset.id);
       const melodic = [
@@ -160,7 +235,7 @@ describe("genre examples", () => {
       const drums = project.drums.filter(
         (drum) => !drum.muted && drum.steps.some(Boolean),
       );
-      expect(drums.length + melodic.length).toBeGreaterThanOrEqual(4);
+      expect(drums.length + melodic.length).toBeGreaterThanOrEqual(3);
       expect(drums.length + melodic.length).toBeLessThanOrEqual(5);
       expect(melodic.length).toBeLessThanOrEqual(2);
       for (const drum of project.drums)
@@ -172,6 +247,53 @@ describe("genre examples", () => {
         !project.bass.steps.some((step) => step.on),
       );
     }
+  });
+
+  it("gives the ten additions varied roles and purposeful automation", () => {
+    const additions = PRESETS.slice(10).map((preset) =>
+      createPreset(preset.id),
+    );
+    expect(additions).toHaveLength(10);
+    expect(new Set(PRESETS.map((preset) => preset.genre)).size).toBe(20);
+    const combinations = additions.map((project) =>
+      [
+        project.bass.muted ? "" : "bass",
+        project.keys.muted ? "" : "texture",
+        project.arp.muted ? "" : "arp",
+        project.pad.muted ? "" : "pad",
+      ]
+        .filter(Boolean)
+        .join("+"),
+    );
+    expect(new Set(combinations).size).toBeGreaterThanOrEqual(6);
+    expect(createPreset("dub-techno").bass.muted).toBe(true);
+    expect(
+      createPreset("industrial-techno").drums.find((drum) => drum.id === "hat")
+        ?.muted,
+    ).toBe(true);
+    expect(createPreset("ambient-breaks").bpm).toBeLessThan(115);
+    expect(
+      createPreset("uk-bass")
+        .drums.find((drum) => drum.id === "snare")
+        ?.steps.filter(Boolean),
+    ).toHaveLength(1);
+    expect(createPreset("acid-techno").bass.sound).toBe(2);
+    expect(createPreset("acid-techno").bass.resonance).toBeLessThan(8);
+    for (const lane of [
+      createPreset("dub-techno").keys.automation.space,
+      createPreset("electro").arp.automation.tone,
+      createPreset("deep-techno").pad.automation.tone,
+      createPreset("detroit-techno").pad.automation.volume,
+    ]) {
+      expect(lane).toHaveLength(16);
+      if (!lane) throw new Error("Authored automation lane is missing.");
+      expect(new Set(lane).size).toBeGreaterThan(1);
+    }
+    const deep = createPreset("deep-techno");
+    const tone = deep.pad.automation.tone;
+    if (!tone) throw new Error("Deep techno pad tone curve is missing.");
+    tone[0] = 1;
+    expect(createPreset("deep-techno").pad.automation.tone?.[0]).not.toBe(1);
   });
 
   it("gives techno a short low-resonance rhythm and melodic techno one restrained minor arp", () => {

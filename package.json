@@ -13,6 +13,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@fontsource/azeret-mono": "^5.3.0",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "lucide": "^0.468.0",
     "zod": "^4.0.0"

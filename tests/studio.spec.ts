@@ -661,6 +661,7 @@ test("phone fullscreen visualizer and sticky playback remain accessible", async 
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/");
+  await expect(page.locator("#fullscreen svg")).toBeVisible();
   await page.locator("#keys-matrix-canvas").scrollIntoViewIfNeeded();
   await expect(
     page.getByRole("button", { name: "Play pattern", exact: true }),
@@ -674,10 +675,101 @@ test("phone fullscreen visualizer and sticky playback remain accessible", async 
       exact: true,
     }),
   ).toBeVisible();
+  await page.mouse.click(180, 300);
+  await expect(page.locator("body")).not.toHaveClass(/visualizer-expanded/);
+  await expect(page.locator(".preset-section")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Fullscreen visualizer", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Exit fullscreen visualizer", exact: true })
     .click();
   expect((await page.locator("#fluid-canvas").boundingBox())?.height).toBe(812);
+  await page.evaluate(() => {
+    Object.defineProperty(document.documentElement, "requestFullscreen", {
+      value: undefined,
+      configurable: true,
+    });
+  });
+  await page.locator("#fullscreen").click();
+  await expect(page.locator("#visualizer-panel")).toHaveClass(/expanded/);
+  await page.mouse.click(20, 20);
+  await expect(page.locator("body")).not.toHaveClass(/visualizer-expanded/);
+});
+
+test("visualizer palettes colour the fluid, persist locally and freeze with motion", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/");
+  const colour = page.getByRole("button", { name: "Colour", exact: true });
+  await colour.click();
+  await expect(
+    page.getByRole("button", { name: "Mono", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  const frame = () =>
+    page
+      .locator("#fluid-canvas")
+      .evaluate((canvas) =>
+        canvas instanceof HTMLCanvasElement ? canvas.toDataURL() : "",
+      );
+  const mono = await frame();
+  for (const name of ["Cobalt", "Violet", "Ember", "Rainbow"]) {
+    const option = page.getByRole("button", { name, exact: true });
+    await option.click();
+    await expect(option).toHaveAttribute("aria-pressed", "true");
+    expect(await frame()).not.toBe(mono);
+  }
+  const colouredPixels = await page
+    .locator("#fluid-canvas")
+    .evaluate((canvas) => {
+      if (!(canvas instanceof HTMLCanvasElement)) return 0;
+      const sample = document.createElement("canvas");
+      sample.width = sample.height = 32;
+      const context = sample.getContext("2d");
+      if (!context) return 0;
+      context.drawImage(canvas, 0, 0, 32, 32);
+      const data = context.getImageData(0, 0, 32, 32).data;
+      let count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const channels = [data[i] ?? 0, data[i + 1] ?? 0, data[i + 2] ?? 0];
+        if (Math.max(...channels) - Math.min(...channels) > 30) count++;
+      }
+      return count;
+    });
+  expect(colouredPixels).toBeGreaterThan(100);
+  await page.reload();
+  await colour.click();
+  await expect(
+    page.getByRole("button", { name: "Rainbow", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.locator("#fullscreen").click();
+  await colour.click();
+  await expect(
+    page.getByRole("button", { name: "Rainbow", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("slider", { name: "Master volume", exact: true })
+    .press("Home");
+  await page.getByRole("button", { name: "Play pattern", exact: true }).click();
+  const moving = await frame();
+  await expect.poll(frame).not.toBe(moving);
+  await page
+    .getByRole("button", { name: "Pause visualizer motion", exact: true })
+    .click();
+  const paused = await frame();
+  await page.waitForTimeout(250);
+  expect(await frame()).toBe(paused);
+  await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
+  await colour.click();
+  await page.getByRole("button", { name: "Mono", exact: true }).click();
+  await expect(page.locator("#visualizer-panel")).toHaveCSS("opacity", "0.3");
+  await page.reload();
+  await colour.click();
+  await expect(
+    page.getByRole("button", { name: "Mono", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
 });
 
 test("retracting a glide line restores gates outside the final stroke", async ({

@@ -50,6 +50,11 @@ import "./session.css";
 import "./instrument-automation.css";
 import { AudioEngine } from "./audio";
 import { FluidVisualizer } from "./visualizer";
+import {
+  VISUALIZER_PALETTES,
+  isVisualizerPaletteId,
+} from "./visualizer-palettes";
+import type { VisualizerPaletteId } from "./visualizer-palettes";
 import { BeatCanvas } from "./beat-canvas";
 import { installGestures } from "./gestures";
 import { MotionControls } from "./motion-controls";
@@ -229,6 +234,13 @@ let starting = false;
 let pendingDrum: DrumId | null = null;
 let lastPaintPreview = 0;
 let motion = true;
+let visualizerPalette: VisualizerPaletteId = "mono";
+try {
+  const savedPalette = localStorage.getItem("grain-visualizer-palette-v1");
+  if (isVisualizerPaletteId(savedPalette)) visualizerPalette = savedPalette;
+} catch {
+  // Visual preferences remain usable when browser storage is unavailable.
+}
 const matrixUndo: Record<NoteTrack, MatrixSnapshot | null> = {
   bass: null,
   keys: null,
@@ -243,7 +255,7 @@ const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Application container is missing.");
 app.innerHTML = `
     <section id="visualizer-panel" class="visualizer-panel" aria-label="Drum pattern visualizer"><canvas id="fluid-canvas" aria-label="Drum-reactive fluid shapes"></canvas></section>
-  <header class="app-header"><a class="brand" href="/" aria-label="Grain home"><span class="brand-icon">${icon("audio-lines")}</span><span>GRAIN</span><span class="brand-divider"></span><span class="brand-detail">BEAT MACHINE</span></a><div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="global-undo" aria-label="Undo last edit" disabled>Undo</button><button class="button secondary" id="global-redo" aria-label="Redo last edit" disabled>Redo</button><button class="button secondary" id="share-track">Share</button><button class="button secondary" id="session-toggle" aria-expanded="false" aria-controls="session-panel">Session</button><button class="button secondary" id="phone-motion" aria-label="Enable phone motion control" aria-pressed="false" title="Hold a knob and tilt or move your phone">Motion</button><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div></header>
+  <header class="app-header"><a class="brand" href="/" aria-label="Grain home"><span class="brand-icon">${icon("audio-lines")}</span><span class="brand-wordmark">GRAIN</span><span class="brand-divider"></span><span class="brand-detail">BEAT MACHINE</span></a><div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="global-undo" aria-label="Undo last edit" disabled>Undo</button><button class="button secondary" id="global-redo" aria-label="Redo last edit" disabled>Redo</button><button class="button secondary" id="share-track">Share</button><button class="button secondary" id="session-toggle" aria-expanded="false" aria-controls="session-panel">Session</button><button class="button secondary" id="phone-motion" aria-label="Enable phone motion control" aria-pressed="false" title="Hold a knob and tilt or move your phone">Motion</button><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div></header>
   <div class="motion-options" id="phone-motion-options" hidden><span>Hold a knob</span><div role="group" aria-label="Phone motion axis"><button data-phone-mode="tilt" aria-pressed="true">Tilt</button><button data-phone-mode="move" aria-pressed="false">Move</button><button data-phone-mode="twist" aria-pressed="false">Twist</button></div><span id="phone-motion-help">Tilt forwards / back or sideways</span></div>
   <div class="share-panel" id="share-panel" hidden><label for="share-url">Track link</label><input id="share-url" readonly><button id="copy-share">Copy</button><button id="close-share" aria-label="Close share link">×</button></div>
   <section id="session-panel" hidden></section>
@@ -282,7 +294,7 @@ app.innerHTML = `
       <section id="pad-panel" class="panel bass-panel pad-panel" aria-labelledby="pad-title"></section>
     </div>
 </div>
-<div class="visualizer-toolbar"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><span class="visualizer-mode"><span class="visualizer-dot"></span>FLUID</span><div class="visualizer-controls">${slider("intensity", "Intensity", 0, 100, 30, "30%")}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div></div>
+<div class="visualizer-toolbar" role="region" aria-label="Visualizer controls"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><div class="visualizer-controls"><button id="visualizer-colour" class="visualizer-button palette-toggle" aria-expanded="false" aria-controls="visualizer-palettes"><span class="palette-current" aria-hidden="true"></span>Colour</button>${slider("intensity", "Intensity", 0, 100, 30, "30%")}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div><div id="visualizer-palettes" class="visualizer-palettes" role="group" aria-label="Visualizer colour" hidden>${VISUALIZER_PALETTES.map((palette) => `<button data-visualizer-palette="${palette.id}" aria-pressed="${palette.id === visualizerPalette}"><span class="palette-swatch" style="background:${palette.swatch}" aria-hidden="true"></span><span>${palette.label}</span></button>`).join("")}</div></div>
     <footer class="app-footer"><span><kbd>SPACE</kbd> Play / stop</span><span>16 STEPS <span>·</span> 4/4</span><span id="project-name"></span></footer>
   </main><div id="toast" role="status" class="toast" hidden></div>`;
 
@@ -809,6 +821,8 @@ const canvas = document.querySelector("#fluid-canvas");
 if (!(canvas instanceof HTMLCanvasElement))
   throw new Error("Visualizer canvas is missing.");
 const visualizer = new FluidVisualizer(canvas);
+visualizer.setPalette(visualizerPalette);
+updateVisualizerPalette();
 engine.update(project);
 visualizer.setMotion(motion);
 
@@ -1370,12 +1384,26 @@ document.addEventListener("click", async (event) => {
     );
     refreshIcons();
   }
+  if (id === "visualizer-colour") {
+    const palettes = document.getElementById("visualizer-palettes");
+    if (palettes) setVisualizerPaletteOpen(palettes.hidden);
+  }
+  if (isVisualizerPaletteId(dataset.visualizerPalette)) {
+    visualizerPalette = dataset.visualizerPalette;
+    visualizer.setPalette(visualizerPalette);
+    updateVisualizerPalette();
+    try {
+      localStorage.setItem("grain-visualizer-palette-v1", visualizerPalette);
+    } catch {
+      // The selected palette still applies for this visit.
+    }
+  }
   if (id === "fullscreen") {
     const panel = document.querySelector("#visualizer-panel");
     if (panel instanceof HTMLElement) {
-      if (panel.classList.contains("expanded"))
-        panel.classList.remove("expanded");
-      else if (document.fullscreenElement) await document.exitFullscreen();
+      setVisualizerPaletteOpen(false);
+      if (panel.classList.contains("expanded") || document.fullscreenElement)
+        await exitVisualizerFullscreen();
       else {
         try {
           if (typeof document.documentElement.requestFullscreen === "function")
@@ -1620,6 +1648,54 @@ document.addEventListener("keydown", (event) => {
   event.preventDefault();
   void togglePlayback();
 });
+function setVisualizerPaletteOpen(open: boolean): void {
+  const palettes = document.getElementById("visualizer-palettes");
+  if (palettes) palettes.hidden = !open;
+  document
+    .getElementById("visualizer-colour")
+    ?.setAttribute("aria-expanded", String(open));
+}
+function updateVisualizerPalette(): void {
+  const palette = VISUALIZER_PALETTES.find(
+    (option) => option.id === visualizerPalette,
+  );
+  const current = document.querySelector(".palette-current");
+  if (palette && current instanceof HTMLElement)
+    current.style.background = palette.swatch;
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-visualizer-palette]")
+    .forEach((button) => {
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.visualizerPalette === visualizerPalette),
+      );
+    });
+}
+async function exitVisualizerFullscreen(): Promise<void> {
+  document.querySelector("#visualizer-panel")?.classList.remove("expanded");
+  if (document.fullscreenElement) {
+    try {
+      await document.exitFullscreen();
+    } catch {
+      // Keep the fullscreen button in sync if the browser refuses to exit.
+    }
+  }
+  updateFullscreenButton();
+}
+document.addEventListener(
+  "click",
+  (event) => {
+    const target = event.target;
+    if (target instanceof Element && target.closest(".visualizer-toolbar"))
+      return;
+    setVisualizerPaletteOpen(false);
+    if (!document.body.classList.contains("visualizer-expanded")) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void exitVisualizerFullscreen();
+  },
+  true,
+);
 function updateFullscreenButton(): void {
   const expanded =
     Boolean(document.fullscreenElement) ||
@@ -1640,8 +1716,8 @@ function updateFullscreenButton(): void {
 document.addEventListener("fullscreenchange", updateFullscreenButton);
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
-    document.querySelector("#visualizer-panel")?.classList.remove("expanded");
-    updateFullscreenButton();
+    setVisualizerPaletteOpen(false);
+    void exitVisualizerFullscreen();
   }
 });
 window.addEventListener("pageshow", (event) => {
@@ -1662,6 +1738,7 @@ window.addEventListener("pagehide", () => {
   }
 });
 refreshProject();
+refreshIcons();
 void document.fonts.ready.then(() => {
   beatCanvas.update(project);
   matrices.bass.update(project.bass.steps, project.scale, project.bass.muted);

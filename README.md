@@ -9,9 +9,9 @@ Run `npm install`, then `npm run dev`. `npm run build` checks TypeScript and cre
 ## Structure
 
 - `src/model.ts`: validated project schema, scale locking, shared types and sequencer timing.
-- `src/presets.ts`: ten authored genre examples with distinct sound palettes and automation.
+- `src/presets.ts`: twenty authored genre examples with distinct sound palettes and automation.
 - `src/audio.ts`: browser audio synthesis, timing and WAV rendering.
-- `src/visualizer.ts`: monochrome, drum-pattern-driven full-page distortion.
+- `src/visualizer.ts` and `src/visualizer-palettes.ts`: drum-pattern-driven full-page fluid distortion and colour palettes.
 - `src/beat-canvas.ts`: multi-pointer beat painting and rendering.
 - `src/note-matrix.ts`: scale-locked pitch curves and gate/accent/glide drawing.
 - `src/drum-editor.ts`: simple drum grid controls and expanded per-drum automation matrices.
@@ -27,7 +27,7 @@ Run `npm install`, then `npm run dev`. `npm run build` checks TypeScript and cre
 
 Use strict TypeScript without type assertions or non-null assertions. Validate persisted data at its boundary using the shared schema. Keep rendering, audio and visualizer responsibilities separate. The design follows the operator’s monochrome retro direction: bevelled chrome, black/white surfaces and full-page reactive inversion. Keep sound controls beside the beat canvas. Use direct sound buttons and vertical gestures rather than dropdowns. Do not add slogans or decorative copy.
 
-Interface and canvas labels use locally bundled IBM Plex Mono, including control values and headings.
+Interface and canvas labels use locally bundled IBM Plex Mono. The GRAIN title uses heavy, upright Azeret Mono at weight 900 with a horizontal cut through the lettering.
 
 ## Controls
 
@@ -55,24 +55,34 @@ The Arpeggiator plays your selected notes in Up, Down, Up/down, Played or determ
 
 Chord pads play four sustained chords over 2, 4, 8 or 16 bars. Choose a progression, then select a chord card to edit its scale degree and inversion. The exact notes appear on each card. Velvet, Air, Choir, Glass, Dust and Drone provide six textures with eight controls. Enable pads with On; the transport and chord cards show the current bar and chord. The chord timeline shows each chord’s bar or beat span, with degree and inversion controls beside the selected chord. Progression presets open with Progressions. Arp automation repeats each bar; Pad automation interpolates 16 points across the selected 2–16-bar progression. Both instruments follow the global scale and are included in saving, history and sharing. Upgrading an existing project leaves them muted.
 
-Genre examples sit above the instrument sections. House and Tech house preserve their original musical settings. The other eight use fewer active layers: Techno has short, low-resonance Knock bass; Melodic techno pairs a restrained one-octave arp with sub; atmospheric techno leaves room for Frost and slow pads; Bass house focuses on Pressure bass and drums.
+Twenty genre examples sit above the instrument sections in complete rows: five columns on desktop, four on tablets and two on phones. House and Tech house preserve their original musical settings. The other eight original examples use fewer active layers: Techno has short, low-resonance Knock bass; Melodic techno pairs a restrained one-octave arp with sub; atmospheric techno leaves room for Frost and slow pads; Bass house focuses on Pressure bass and drums.
 
 Genre examples:
 
-| Name         | Genre                           |
-| ------------ | ------------------------------- |
-| Disco Moth   | House                           |
-| Kick Gremlin | Tech house                      |
-| Wire Wraith  | Techno                          |
-| Tunnel Imp   | Driving techno                  |
-| Moon Sprite  | Melodic techno                  |
-| Cloud Goblin | Experimental atmospheric techno |
-| Velvet Imp   | Garage                          |
-| Turbo Rat    | Speed garage                    |
-| Moss Raver   | Jungle                          |
-| Sub Gremlin  | Bass house                      |
+| Name          | Genre                           |
+| ------------- | ------------------------------- |
+| Disco Moth    | House                           |
+| Kick Gremlin  | Tech house                      |
+| Wire Wraith   | Techno                          |
+| Tunnel Imp    | Driving techno                  |
+| Moon Sprite   | Melodic techno                  |
+| Cloud Goblin  | Experimental atmospheric techno |
+| Velvet Fox    | Garage                          |
+| Turbo Rat     | Speed garage                    |
+| Moss Raver    | Jungle                          |
+| Sub Gremlin   | Bass house                      |
+| Echo Fern     | Dub techno                      |
+| Circuit Eel   | Electro                         |
+| Static Flea   | Microhouse                      |
+| Amber Coil    | Deep techno                     |
+| Chrome Newt   | Acid techno                     |
+| Glass Orbit   | Detroit techno                  |
+| Iron Wren     | Industrial techno               |
+| Tidal Ghost   | Ambient breaks                  |
+| Pocket Meteor | Broken beat                     |
+| Low Lantern   | UK bass                         |
 
-The visualizer uses organic fluid motion and fine film grain, driven directly by the programmed drum steps even with master volume at zero. Motion is enabled by default, including when the system requests reduced motion, as explicitly requested for this instrument. Intensity starts at 30% and changes overlay opacity without reducing movement; zero hides it. Pause freezes both fluid and grain. A Canvas fallback works without WebGL.
+The visualizer uses organic fluid motion and fine film grain, driven directly by the programmed drum steps even with master volume at zero. Motion is enabled by default, including when the system requests reduced motion, as explicitly requested for this instrument. Intensity starts at 30% and changes overlay opacity without reducing movement; zero hides it. Pause freezes both fluid and grain. Colour opens direct swatches for Mono, Cobalt, Violet, Ember and Rainbow. Mono remains the default and renders identically to the original visualizer; Rainbow continuously changes hue with the fluid and freezes when motion pauses. Palette selection is saved locally on each device and is independent of shared musical state. Tap the fullscreen visual surface anywhere to exit; the toolbar remains available for colour, intensity and motion. A Canvas fallback supports every palette without WebGL.
 
 Global Undo and Redo restore whole projects, including example changes, notes, sounds and automation. One continuous gesture is one history entry. Use the header buttons or Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (Ctrl+Y also redoes). The session retains up to 100 edits.
 

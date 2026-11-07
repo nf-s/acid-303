@@ -1,5 +1,7 @@
 import { STEP_COUNT } from "./model";
 import type { DrumId, DrumTrack } from "./model";
+import { createPaletteLookup } from "./visualizer-palettes";
+import type { VisualizerPaletteId } from "./visualizer-palettes";
 
 const FRAME_INTERVAL = 1000 / 30;
 
@@ -97,6 +99,8 @@ uniform vec2 uSize;
 uniform float uPhase;
 uniform sampler2D uField;
 uniform sampler2D uGrain;
+uniform sampler2D uPalette;
+uniform float uPaletteMode;
 void main() {
   float light = texture2D(uField, vUv).r;
   vec2 grainUv = vUv * uSize / 256.0 + vec2(uPhase * 0.009, uPhase * -0.006);
@@ -104,7 +108,15 @@ void main() {
   float detail = texture2D(uGrain, grainUv * 0.37 + 0.23).r - 0.5;
   float grain = fine * 0.67 + detail * 0.1;
   float luminance = clamp(light + grain * (0.32 + sqrt(light) * 0.68), 0.0, 1.0);
-  gl_FragColor = vec4(vec3(luminance), 1.0);
+  if (uPaletteMode < 0.5) {
+    gl_FragColor = vec4(vec3(luminance), 1.0);
+  } else if (uPaletteMode < 1.5) {
+    gl_FragColor = vec4(texture2D(uPalette, vec2(luminance, 0.5)).rgb, 1.0);
+  } else {
+    float hue = fract(light * 1.35 + vUv.x * 0.28 + vUv.y * 0.22 + uPhase * 0.055);
+    vec3 colour = texture2D(uPalette, vec2(hue, 0.5)).rgb;
+    gl_FragColor = vec4(colour * min(1.0, pow(luminance, 0.68) * 1.12), 1.0);
+  }
 }`;
 
 interface ShaderPass {
@@ -116,6 +128,8 @@ interface ShaderPass {
   rim: WebGLUniformLocation | null;
   field: WebGLUniformLocation | null;
   grain: WebGLUniformLocation | null;
+  palette: WebGLUniformLocation | null;
+  paletteMode: WebGLUniformLocation | null;
 }
 
 function createPass(
@@ -167,6 +181,8 @@ function createPass(
     rim: gl.getUniformLocation(program, "uRim"),
     field: gl.getUniformLocation(program, "uField"),
     grain: gl.getUniformLocation(program, "uGrain"),
+    palette: gl.getUniformLocation(program, "uPalette"),
+    paletteMode: gl.getUniformLocation(program, "uPaletteMode"),
   };
 }
 
@@ -199,6 +215,7 @@ class FluidGpu {
   private fieldWidth = 1;
   private fieldHeight = 1;
   private ready = false;
+  private paletteMode = 0;
 
   private constructor(
     readonly canvas: HTMLCanvasElement,
@@ -208,6 +225,7 @@ class FluidGpu {
     private readonly vertices: WebGLBuffer,
     private readonly fieldTexture: WebGLTexture,
     private readonly grainTexture: WebGLTexture,
+    private readonly paletteTexture: WebGLTexture,
     private readonly framebuffer: WebGLFramebuffer,
   ) {}
 
@@ -224,6 +242,7 @@ class FluidGpu {
     const vertices = gl.createBuffer();
     const fieldTexture = gl.createTexture();
     const grainTexture = gl.createTexture();
+    const paletteTexture = gl.createTexture();
     const framebuffer = gl.createFramebuffer();
     if (
       !fluid ||
@@ -231,6 +250,7 @@ class FluidGpu {
       !vertices ||
       !fieldTexture ||
       !grainTexture ||
+      !paletteTexture ||
       !framebuffer
     ) {
       gl.deleteProgram(fluid?.program ?? null);
@@ -238,6 +258,7 @@ class FluidGpu {
       gl.deleteBuffer(vertices);
       gl.deleteTexture(fieldTexture);
       gl.deleteTexture(grainTexture);
+      gl.deleteTexture(paletteTexture);
       gl.deleteFramebuffer(framebuffer);
       return null;
     }
@@ -265,6 +286,22 @@ class FluidGpu {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, paletteTexture);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      256,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      createPaletteLookup("mono"),
+    );
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.disable(gl.DITHER);
     return new FluidGpu(
       canvas,
@@ -274,6 +311,7 @@ class FluidGpu {
       vertices,
       fieldTexture,
       grainTexture,
+      paletteTexture,
       framebuffer,
     );
   }
@@ -310,6 +348,24 @@ class FluidGpu {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
+  setPalette(id: VisualizerPaletteId, lookup: Uint8Array): void {
+    const gl = this.gl;
+    this.paletteMode = id === "mono" ? 0 : id === "rainbow" ? 2 : 1;
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      256,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      lookup,
+    );
+  }
+
   private use(
     pass: ShaderPass,
     width: number,
@@ -343,6 +399,10 @@ class FluidGpu {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.grainTexture);
     gl.uniform1i(this.grain.grain, 1);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
+    gl.uniform1i(this.grain.palette, 2);
+    gl.uniform1f(this.grain.paletteMode, this.paletteMode);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     return true;
   }
@@ -353,6 +413,7 @@ class FluidGpu {
     this.gl.deleteBuffer(this.vertices);
     this.gl.deleteTexture(this.fieldTexture);
     this.gl.deleteTexture(this.grainTexture);
+    this.gl.deleteTexture(this.paletteTexture);
     this.gl.deleteFramebuffer(this.framebuffer);
     this.canvas.width = 1;
     this.canvas.height = 1;
@@ -383,6 +444,8 @@ export class FluidVisualizer {
   private phase = 1.2;
   private rimDirection = 1;
   private rimTurn = 0;
+  private palette: VisualizerPaletteId = "mono";
+  private paletteLookup = createPaletteLookup("mono");
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.context = canvas.getContext("2d", { alpha: false });
@@ -418,6 +481,14 @@ export class FluidVisualizer {
   setPlaying(playing: boolean): void {
     this.playing = playing;
     this.syncAnimation();
+  }
+
+  setPalette(id: VisualizerPaletteId): void {
+    if (this.destroyed || this.palette === id) return;
+    this.palette = id;
+    this.paletteLookup = createPaletteLookup(id);
+    this.gpu?.setPalette(id, this.paletteLookup);
+    this.draw();
   }
 
   destroy(): void {
@@ -518,9 +589,29 @@ export class FluidVisualizer {
           0.5;
         const value = Math.round(Math.pow(Math.max(0, cloud), 1.4) * 255);
         const index = (y * width + x) * 4;
-        pixels.data[index] = value;
-        pixels.data[index + 1] = value;
-        pixels.data[index + 2] = value;
+        if (this.palette === "mono") {
+          pixels.data[index] = value;
+          pixels.data[index + 1] = value;
+          pixels.data[index + 2] = value;
+        } else {
+          const rainbow = this.palette === "rainbow";
+          const hue =
+            (value / 255) * 1.35 +
+            (x / width) * 0.28 +
+            (1 - y / height) * 0.22 +
+            frame.phase * 0.055;
+          const colourIndex =
+            (rainbow ? Math.floor((hue % 1) * 255) : value) * 4;
+          const brightness = rainbow
+            ? Math.min(1, Math.pow(value / 255, 0.68) * 1.12)
+            : 1;
+          pixels.data[index] =
+            (this.paletteLookup[colourIndex] ?? 0) * brightness;
+          pixels.data[index + 1] =
+            (this.paletteLookup[colourIndex + 1] ?? 0) * brightness;
+          pixels.data[index + 2] =
+            (this.paletteLookup[colourIndex + 2] ?? 0) * brightness;
+        }
         pixels.data[index + 3] = 255;
       }
     }
