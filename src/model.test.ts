@@ -5,6 +5,7 @@ import {
   projectSchema,
   stepDuration,
   remixProject,
+  readProject,
 } from "./model";
 
 describe("project boundary validation", () => {
@@ -79,4 +80,81 @@ describe("remix", () => {
     expect(remixed.bass.steps[0]?.on).toBe(true);
     expect(original.bass.steps[0]?.note).toBe(33);
   });
+});
+
+describe("saved project migration", () => {
+  it("preserves v1 rhythm, pitch and expression while replacing the bell", () => {
+    const original = createProject();
+    const legacy = {
+      version: 1,
+      name: original.name,
+      bpm: 139,
+      swing: original.swing,
+      drive: 0.28,
+      volume: original.volume,
+      drums: original.drums.map((track) => ({
+        ...track,
+        id: track.id === "rim" ? "cowbell" : track.id,
+        pitch: track.id === "rim" ? -4 : track.pitch,
+      })),
+      bass: {
+        ...original.bass,
+        steps: original.bass.steps.map((step) => ({ ...step, slide: true })),
+      },
+    };
+    const upgraded = readProject(legacy);
+    expect(upgraded?.version).toBe(2);
+    expect(upgraded?.bpm).toBe(139);
+    expect(upgraded?.drums.find((track) => track.id === "rim")?.pitch).toBe(-4);
+    expect(upgraded?.drums.map((track) => track.steps)).toEqual(
+      original.drums.map((track) => track.steps),
+    );
+    expect(upgraded?.bass.steps).toEqual(
+      original.bass.steps.map((step) => ({ ...step, slide: true })),
+    );
+    expect(upgraded?.drive).toBe(0.18);
+    expect(upgraded?.keys.steps).toHaveLength(16);
+    expect(upgraded && projectSchema.safeParse(upgraded).success).toBe(true);
+  });
+  it("rejects invalid legacy input and preserves current-version Keys settings", () => {
+    expect(readProject({ version: 1, bpm: 0 })).toBeNull();
+    const current = createProject();
+    current.keys.tone = 0.82;
+    expect(readProject(current)).toEqual(current);
+    expect(
+      projectSchema.safeParse({
+        ...current,
+        keys: { ...current.keys, volume: 7 },
+      }).success,
+    ).toBe(false);
+  });
+});
+
+it("loads saved v2 notes without expression fields and rejects invalid expression values", () => {
+  const project = createProject();
+  const saved = {
+    ...project,
+    bass: {
+      ...project.bass,
+      steps: project.bass.steps.map(({ note, on, accent }) => ({
+        note,
+        on,
+        accent,
+      })),
+    },
+    keys: {
+      ...project.keys,
+      steps: project.keys.steps.map(({ note, on }) => ({ note, on })),
+    },
+  };
+  expect(readProject(saved)).toEqual(project);
+  expect(
+    readProject({
+      ...project,
+      keys: {
+        ...project.keys,
+        steps: project.keys.steps.map((step) => ({ ...step, accent: "loud" })),
+      },
+    }),
+  ).toBeNull();
 });

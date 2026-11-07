@@ -16,13 +16,13 @@ interface Cell {
   step: number;
 }
 
-const DRUMS: DrumId[] = ["kick", "snare", "hat", "clap", "cowbell"];
+const DRUMS: DrumId[] = ["kick", "snare", "hat", "clap", "rim"];
 const LABELS: Record<DrumId, string> = {
   kick: "KICK",
   snare: "SNARE",
   hat: "HAT",
   clap: "CLAP",
-  cowbell: "BELL",
+  rim: "RIM",
 };
 const LABEL_WIDTH = 54;
 const HEADER_HEIGHT = 27;

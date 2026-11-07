@@ -1,8 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { encodeWav, midiFrequency } from "./audio";
+import {
+  encodeWav,
+  exportTailDuration,
+  midiFrequency,
+  saturationSample,
+  tiesNextStep,
+} from "./audio";
 import { createProject, projectSchema, stepDuration } from "./model";
 
 describe("audio timing and project boundary", () => {
+  it("ties only adjacent enabled notes and includes the loop boundary", () => {
+    const steps = Array.from({ length: 16 }, () => ({
+      on: false,
+      slide: false,
+    }));
+    steps[0] = { on: true, slide: true };
+    steps[1] = { on: true, slide: false };
+    expect(tiesNextStep(steps, 0)).toBe(true);
+    steps[1] = { on: false, slide: true };
+    steps[2] = { on: true, slide: false };
+    expect(tiesNextStep(steps, 0)).toBe(false);
+    expect(tiesNextStep(steps, 1)).toBe(false);
+    steps[15] = { on: true, slide: true };
+    expect(tiesNextStep(steps, 15)).toBe(true);
+    steps[0] = { on: false, slide: false };
+    expect(tiesNextStep(steps, 15)).toBe(false);
+  });
+
   it("preserves bar duration at maximum swing and the supported tempos", () => {
     for (const bpm of [60, 126, 180]) {
       const duration = Array.from({ length: 16 }, (_, step) =>
@@ -43,6 +67,20 @@ describe("audio timing and project boundary", () => {
 });
 
 describe("WAV export", () => {
+  it("retains the longest keys release and echoes at the slowest tempo", () => {
+    const project = createProject();
+    project.bpm = 60;
+    project.keys.decay = 2;
+    project.keys.space = 1;
+    expect(exportTailDuration(project)).toBeGreaterThanOrEqual(3.55);
+    project.keys.muted = true;
+    const hat = project.drums.find((track) => track.id === "hat");
+    if (!hat) throw new Error("Expected the default hi-hat track.");
+    hat.sound = 1;
+    hat.decay = 1.5;
+    expect(exportTailDuration(project)).toBeGreaterThanOrEqual(2.55);
+  });
+
   it("writes an interleaved stereo PCM file with correctly clamped samples", async () => {
     const blob = encodeWav(
       [new Float32Array([-2, 0.5, NaN]), new Float32Array([2, -0.5, Infinity])],
@@ -71,5 +109,19 @@ describe("WAV export", () => {
     expect(() =>
       encodeWav([new Float32Array(2), new Float32Array(1)], 44100),
     ).toThrow();
+  });
+});
+
+describe("controlled saturation", () => {
+  it("preserves quiet signals instead of multiplying bass gain as drive increases", () => {
+    for (const drive of [0, 0.12, 0.28, 1]) {
+      expect(saturationSample(0.001, drive)).toBeCloseTo(0.001, 6);
+      expect(Math.abs(saturationSample(0.5, drive))).toBeLessThanOrEqual(0.5);
+      expect(saturationSample(-0.5, drive)).toBeCloseTo(
+        -saturationSample(0.5, drive),
+        10,
+      );
+      expect(saturationSample(0, drive)).toBe(0);
+    }
   });
 });

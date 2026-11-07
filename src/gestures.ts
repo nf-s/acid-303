@@ -14,7 +14,12 @@ interface DragState {
   lastY: number;
   rawValue: number;
   emittedValue: number;
+  axis: "pending" | "pitch" | "slide" | "held";
+  holdTimer: ReturnType<typeof setTimeout> | null;
+  slideDirection: "join" | "separate" | null;
 }
+
+export type NoteAction = "gate" | "accent" | "join" | "separate";
 
 function numberAttribute(element: HTMLElement, name: string): number | null {
   const attribute = element.getAttribute(name);
@@ -63,10 +68,11 @@ function showValue(
   );
 }
 
-/** Delegated vertical controls: drag upward, or use arrows, +/- and Home/End. */
+/** Vertical controls plus tap, sideways slide and hold gestures on note pads. */
 export function installGestures(
   root: HTMLElement,
   onChange: (element: HTMLElement, value: number) => void,
+  onNoteAction?: (element: HTMLElement, action: NoteAction) => void,
 ): () => void {
   const pointers = new Map<number, DragState>();
   let destroyed = false;
@@ -113,6 +119,7 @@ export function installGestures(
 
   const finish = (pointerId: number): void => {
     const state = pointers.get(pointerId);
+    if (state?.holdTimer) clearTimeout(state.holdTimer);
     pointers.delete(pointerId);
     if (
       state &&
@@ -120,7 +127,7 @@ export function installGestures(
         (pointer) => pointer.element === state.element,
       )
     )
-      state.element.classList.remove("dragging");
+      state.element.classList.remove("dragging", "holding", "held", "sliding");
     if (root.hasPointerCapture(pointerId))
       root.releasePointerCapture(pointerId);
   };
@@ -136,9 +143,13 @@ export function installGestures(
     if (!element) return;
     const range = readRange(element);
     if (!range) return;
+    if (
+      Array.from(pointers.values()).some((state) => state.element === element)
+    )
+      return;
     event.preventDefault();
     element.focus({ preventScroll: true });
-    pointers.set(event.pointerId, {
+    const state: DragState = {
       element,
       startX: event.clientX,
       startY: event.clientY,
@@ -147,7 +158,28 @@ export function installGestures(
       lastY: event.clientY,
       rawValue: range.value,
       emittedValue: range.value,
-    });
+      axis: "pending",
+      holdTimer: null,
+      slideDirection: null,
+    };
+    pointers.set(event.pointerId, state);
+    if (element.dataset.notePad && onNoteAction) {
+      element.classList.add("holding");
+      state.holdTimer = setTimeout(() => {
+        state.holdTimer = null;
+        if (
+          !root.contains(element) ||
+          state.axis !== "pending" ||
+          !pointers.has(event.pointerId)
+        )
+          return;
+        state.axis = "held";
+        state.dragged = true;
+        element.classList.remove("holding");
+        element.classList.add("held");
+        onNoteAction(element, "accent");
+      }, 420);
+    }
     element.classList.add("dragging");
     // Capture on the stable root so replacing an inspector does not strand a drag.
     try {
@@ -166,6 +198,30 @@ export function installGestures(
       return;
     }
     event.preventDefault();
+    if (state.element.dataset.notePad && onNoteAction) {
+      const dx = event.clientX - state.startX;
+      const dy = event.clientY - state.startY;
+      if (
+        (state.axis === "pending" || state.axis === "held") &&
+        Math.max(Math.abs(dx), Math.abs(dy)) > 8
+      ) {
+        state.axis = Math.abs(dx) > Math.abs(dy) * 1.2 ? "slide" : "pitch";
+        state.dragged = true;
+        if (state.holdTimer) clearTimeout(state.holdTimer);
+        state.holdTimer = null;
+        state.element.classList.remove("holding");
+      }
+      if (state.axis === "slide") {
+        state.element.classList.add("sliding");
+        const direction = dx >= 20 ? "join" : dx <= -20 ? "separate" : null;
+        if (direction && direction !== state.slideDirection) {
+          state.slideDirection = direction;
+          onNoteAction(state.element, direction);
+        }
+        return;
+      }
+      if (state.axis !== "pitch") return;
+    }
     if (
       Math.abs(event.clientX - state.startX) > 4 ||
       Math.abs(event.clientY - state.startY) > 4
@@ -189,7 +245,11 @@ export function installGestures(
     pointerMove(event);
     const state = pointers.get(event.pointerId);
     const now = performance.now();
-    if (state && !state.dragged && now - state.started < 500) {
+    if (state?.element.dataset.notePad && onNoteAction) {
+      if (!state.dragged && now - state.started < 420)
+        onNoteAction(state.element, "gate");
+      lastTap = null;
+    } else if (state && !state.dragged && now - state.started < 500) {
       if (
         lastTap?.element === state.element &&
         now - lastTap.time < 350 &&
@@ -214,10 +274,28 @@ export function installGestures(
   };
 
   const keyDown = (event: KeyboardEvent): void => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     const element = findControl(event.target);
     if (!element) return;
     const range = readRange(element);
     if (!range) return;
+    if (element.dataset.notePad && onNoteAction) {
+      const action =
+        event.key.toLowerCase() === "a"
+          ? "accent"
+          : event.key === "ArrowRight"
+            ? "join"
+            : event.key === "ArrowLeft"
+              ? "separate"
+              : event.key === "Enter" || event.key === " "
+                ? "gate"
+                : null;
+      if (action) {
+        event.preventDefault();
+        if (!event.repeat) onNoteAction(element, action);
+        return;
+      }
+    }
     let next: number;
     if (["ArrowUp", "ArrowRight", "+", "="].includes(event.key))
       next = range.value + range.step;
@@ -234,7 +312,7 @@ export function installGestures(
 
   const doubleClick = (event: MouseEvent): void => {
     const element = findControl(event.target);
-    if (!element) return;
+    if (!element || element.dataset.notePad) return;
     const reset = numberAttribute(element, "data-reset");
     if (reset === null) return;
     event.preventDefault();
@@ -243,6 +321,9 @@ export function installGestures(
 
   const visibilityChange = (): void => {
     if (document.hidden) cancelAll();
+  };
+  const contextMenu = (event: MouseEvent): void => {
+    if (findControl(event.target)?.dataset.notePad) event.preventDefault();
   };
   const observer = new MutationObserver((mutations) => {
     for (const [pointerId, state] of pointers)
@@ -260,6 +341,7 @@ export function installGestures(
   root.addEventListener("lostpointercapture", pointerCancel);
   root.addEventListener("keydown", keyDown);
   root.addEventListener("dblclick", doubleClick);
+  root.addEventListener("contextmenu", contextMenu);
   window.addEventListener("blur", cancelAll);
   document.addEventListener("visibilitychange", visibilityChange);
 
@@ -275,6 +357,7 @@ export function installGestures(
     root.removeEventListener("lostpointercapture", pointerCancel);
     root.removeEventListener("keydown", keyDown);
     root.removeEventListener("dblclick", doubleClick);
+    root.removeEventListener("contextmenu", contextMenu);
     window.removeEventListener("blur", cancelAll);
     document.removeEventListener("visibilitychange", visibilityChange);
   };

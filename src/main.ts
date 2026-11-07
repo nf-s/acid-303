@@ -16,14 +16,16 @@ import {
   DRUM_META,
   drumIdSchema,
   noteName,
-  projectSchema,
+  readProject,
+  KEYS_SOUNDS,
   remixProject,
 } from "./model";
-import type { DrumId } from "./model";
+import type { BassStep, DrumId } from "./model";
 import { AudioEngine } from "./audio";
 import { FluidVisualizer } from "./visualizer";
 import { BeatCanvas } from "./beat-canvas";
 import { installGestures } from "./gestures";
+import type { NoteAction } from "./gestures";
 import "./style.css";
 
 const storageKey = "acid-303-project-v1";
@@ -32,8 +34,8 @@ let storageAvailable = true;
 try {
   const stored = localStorage.getItem(storageKey);
   if (stored) {
-    const parsed = projectSchema.safeParse(JSON.parse(stored));
-    if (parsed.success) project = parsed.data;
+    const parsed = readProject(JSON.parse(stored));
+    if (parsed) project = parsed;
   }
 } catch {
   storageAvailable = false;
@@ -75,7 +77,14 @@ app.innerHTML = `
         <div class="section-header"><div class="section-title"><span class="section-number">02</span><h2 id="bass-title">Acid bass</h2><span class="small-tag">303</span></div><div class="bass-actions"><button id="bass-mute" class="mute-button" aria-label="Mute acid bass" aria-pressed="${project.bass.muted}">M</button><button id="generate" class="text-button">${icon("shuffle")} Generate</button></div></div>
         <div class="bass-meta"><div class="waveform-switch" role="group" aria-label="Bass waveform"><button data-waveform="sawtooth">${icon("audio-lines")} Saw</button><button data-waveform="square">${icon("waves")} Square</button></div><span class="bass-key">A MINOR <span>·</span> 1 BAR</span></div>
         <div class="acid-controls">${slider("cutoff", "Cutoff", 0, 100, Math.round((Math.log(project.bass.cutoff / 80) / Math.log(100)) * 100), formatFrequency(project.bass.cutoff))}${slider("resonance", "Resonance", 0, 22, project.bass.resonance, `${Math.round((project.bass.resonance / 22) * 100)}%`, "0.1")}${slider("envelope", "Envelope", 0, 100, project.bass.envelope * 100, `${Math.round(project.bass.envelope * 100)}%`)}${slider("bass-decay", "Decay", 50, 1500, project.bass.decay * 1000, `${Math.round(project.bass.decay * 1000)} ms`, "10")}${slider("bass-volume", "Level", 0, 100, project.bass.volume * 100, `${Math.round(project.bass.volume * 100)}%`)}</div><div class="sequence-scroll"><div class="bass-grid" id="bass-grid"></div></div>
-        <div class="section-footer"><span>Gate plays a note · Accent adds emphasis · Slide ties to the next note</span></div>
+        <div class="section-footer note-help" id="bass-note-help"><span>↕ Pitch · Tap to play · Hold for accent</span><span>← Separate · Join next →</span></div>
+      </section>
+      <section class="panel bass-panel keys-panel" aria-labelledby="keys-title">
+        <div class="section-header"><div class="section-title"><span class="section-number">03</span><h2 id="keys-title">Keys</h2></div><div class="bass-actions"><button id="keys-mute" class="mute-button" aria-label="Mute Keys" aria-pressed="${project.keys.muted}">M</button><button id="keys-generate" class="text-button">${icon("shuffle")} New melody</button></div></div>
+        <div class="bass-meta"><div class="waveform-switch keys-sounds" role="group" aria-label="Keys sound">${KEYS_SOUNDS.map((sound, index) => `<button data-key-sound="${index}">${sound}</button>`).join("")}</div><span class="bass-key keys-key">A MINOR</span></div>
+        <div class="acid-controls">${slider("keys-tone", "Tone", 0, 100, project.keys.tone * 100, `${Math.round(project.keys.tone * 100)}%`)}${slider("keys-decay", "Decay", 80, 2000, project.keys.decay * 1000, `${Math.round(project.keys.decay * 1000)} ms`, "10")}${slider("keys-space", "Space", 0, 100, project.keys.space * 100, `${Math.round(project.keys.space * 100)}%`)}${slider("keys-volume", "Level", 0, 100, project.keys.volume * 100, `${Math.round(project.keys.volume * 100)}%`)}</div>
+        <div class="sequence-scroll"><div class="bass-grid" id="keys-grid"></div></div>
+        <div class="section-footer note-help" id="keys-note-help"><span>↕ Pitch · Tap to play · Hold for accent</span><span>← Separate · Join next →</span></div>
       </section>
     </div>
 </div>
@@ -105,7 +114,7 @@ function slider(
             : id === "intensity"
               ? "Visualizer intensity"
               : "Swing"
-        : `Bass ${label.toLowerCase()}`);
+        : `${id.startsWith("keys-") ? "Keys" : "Bass"} ${label.toLowerCase()}`);
   return `<div class="dial-control"><span class="dial-label">${label}</span><div class="gesture-control" id="${id}" role="slider" tabindex="0" title="Drag up/down · Shift for fine control · Double-tap to reset" aria-label="${name}" aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}" aria-valuetext="${display}" aria-orientation="vertical" data-step="${step}" data-reset="${value}" style="--knob-angle:${-135 + ((value - min) / (max - min)) * 270}deg"><span class="knob-face" aria-hidden="true"><span></span></span><output id="${id}-value">${display}</output></div></div>`;
 }
 function formatFrequency(value: number): string {
@@ -162,29 +171,70 @@ function renderDrums(): void {
   beatCanvas.update(project);
   beatCanvas.setSelectedDrum(selectedDrum);
 }
+type NoteTrack = "bass" | "keys";
+function notePad(track: NoteTrack, step: BassStep, index: number): string {
+  const id = track === "bass" ? `note-${index}` : `keys-note-${index}`;
+  const label = track === "bass" ? "Bass" : "Keys";
+  return `<div class="bass-step ${index % 4 === 0 ? "group-start" : ""}" data-${track}-index="${index}"><div class="note-cell gesture-control ${step.on ? "on" : ""} ${step.accent ? "accented" : ""} ${step.slide && step.on ? "joined" : ""}" id="${id}" data-note-pad="${track}" data-note-index="${index}" data-accent="${step.accent}" data-slide="${step.slide}" role="slider" tabindex="0" aria-label="${label} note step ${index + 1}" aria-describedby="${track}-note-help" aria-description="${noteDescription(step)}" aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight A Enter Space" aria-valuemin="${track === "bass" ? 24 : 48}" aria-valuemax="${track === "bass" ? 60 : 84}" aria-valuenow="${step.note}" aria-valuetext="${noteName(step.note)}" aria-orientation="vertical" data-step="1"><span class="note-index">${String(index + 1).padStart(2, "0")}</span><output id="${id}-value">${noteName(step.note)}</output><span class="note-expression" aria-hidden="true"><i class="accent-mark">◆</i><i class="slide-mark">${index === 15 ? "↩" : "↗"}</i></span><span class="hold-progress" aria-hidden="true"></span><span class="slide-link" aria-hidden="true"></span></div><button class="bass-toggle gate ${step.on ? "on" : ""}" ${track === "bass" ? `data-bass-toggle="on" data-step="${index}"` : `data-keys-gate="${index}"`} aria-label="${label} gate step ${index + 1}" aria-pressed="${step.on}"><span></span></button></div>`;
+}
+function noteDescription(step: BassStep): string {
+  return `${step.on ? "Playing" : "Rest"}. Accent ${step.accent ? "on" : "off"}. Slide ${step.slide ? "on" : "off"}. Up/down: pitch. Right: join next. Left: separate. A: accent. Enter: gate.`;
+}
+function refreshNoteStates(track: NoteTrack): void {
+  project[track].steps.forEach((step, index) => {
+    const pad = document.getElementById(
+      track === "bass" ? `note-${index}` : `keys-note-${index}`,
+    );
+    if (!pad) return;
+    pad.classList.toggle("on", step.on);
+    pad.classList.toggle("accented", step.accent);
+    pad.classList.toggle(
+      "joined",
+      step.slide &&
+        step.on &&
+        Boolean(project[track].steps[(index + 1) % 16]?.on),
+    );
+    pad.dataset.accent = String(step.accent);
+    pad.dataset.slide = String(step.slide);
+    pad.setAttribute("aria-description", noteDescription(step));
+    const gate = pad.parentElement?.querySelector(".gate");
+    gate?.classList.toggle("on", step.on);
+    gate?.setAttribute("aria-pressed", String(step.on));
+  });
+}
+function performNoteAction(control: HTMLElement, action: NoteAction): void {
+  const track = control.dataset.notePad;
+  if (track !== "bass" && track !== "keys") return;
+  const index = Number(control.dataset.noteIndex);
+  const step = project[track].steps[index];
+  if (!step) return;
+  if (action === "gate") step.on = !step.on;
+  if (action === "accent") step.accent = !step.accent;
+  if (action === "join") {
+    step.slide = true;
+    step.on = true;
+    const next = project[track].steps[(index + 1) % 16];
+    if (next) next.on = true;
+  }
+  if (action === "separate") step.slide = false;
+  refreshNoteStates(track);
+  persist();
+  if (step.on && !engine.isPlaying) void previewNote(track, step);
+}
+async function previewNote(track: NoteTrack, step: BassStep): Promise<void> {
+  try {
+    if (track === "bass")
+      await engine.auditionBass(project.bass, step.note, step.accent);
+    else await engine.auditionKeys(project.keys, step.note, step.accent);
+    visualizer.setAnalyser(engine.getAnalyser());
+  } catch {
+    toast("Note preview could not start.");
+  }
+}
 function renderBass(): void {
   const grid = document.querySelector("#bass-grid");
   if (!grid) return;
-  grid.innerHTML = `<div class="bass-labels"><span>NOTE</span><span>GATE</span><span>ACCENT</span><span>SLIDE</span></div><div class="bass-steps">${project.bass.steps
-    .map(
-      (step, index) =>
-        `<div class="bass-step ${index % 4 === 0 ? "group-start" : ""}" data-bass-index="${index}"><div class="note-cell gesture-control ${step.on ? "on" : ""}" id="note-${index}" role="slider" tabindex="0" aria-label="Bass note step ${index + 1}" aria-valuemin="24" aria-valuemax="60" aria-valuenow="${step.note}" aria-valuetext="${noteName(step.note)}" aria-orientation="vertical" data-step="1" data-reset="33"><span>${String(index + 1).padStart(2, "0")}</span><output id="note-${index}-value">${noteName(step.note)}</output></div>${[
-          "on",
-          "accent",
-          "slide",
-        ]
-          .map((type) => {
-            const enabled =
-              type === "on"
-                ? step.on
-                : type === "accent"
-                  ? step.accent
-                  : step.slide;
-            return `<button class="bass-toggle ${type === "on" ? "gate" : type} ${enabled ? "on" : ""}" data-bass-toggle="${type}" data-step="${index}" aria-label="Bass ${type === "on" ? "gate" : type} step ${index + 1}" aria-pressed="${enabled}"><span></span></button>`;
-          })
-          .join("")}</div>`,
-    )
-    .join("")}</div>`;
+  grid.innerHTML = `<div class="bass-labels"><span>NOTE</span><span>GATE</span></div><div class="bass-steps">${project.bass.steps.map((step, index) => notePad("bass", step, index)).join("")}</div>`;
   document
     .querySelectorAll<HTMLButtonElement>("[data-waveform]")
     .forEach((button) => {
@@ -201,6 +251,32 @@ function renderBass(): void {
     .querySelector("#bass-mute")
     ?.setAttribute("aria-pressed", String(project.bass.muted));
   grid.classList.toggle("muted", project.bass.muted);
+  refreshNoteStates("bass");
+}
+function renderKeys(): void {
+  const grid = document.querySelector("#keys-grid");
+  if (!grid) return;
+  grid.innerHTML = `<div class="bass-labels"><span>NOTE</span><span>GATE</span></div><div class="bass-steps">${project.keys.steps.map((step, index) => notePad("keys", step, index)).join("")}</div>`;
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-key-sound]")
+    .forEach((button) => {
+      const selected = Number(button.dataset.keySound) === project.keys.sound;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+  document
+    .querySelector("#keys-mute")
+    ?.setAttribute("aria-pressed", String(project.keys.muted));
+  grid.classList.toggle("muted", project.keys.muted);
+  refreshNoteStates("keys");
+}
+async function previewKeys(note: number): Promise<void> {
+  try {
+    await engine.auditionKeys(project.keys, note);
+    visualizer.setAnalyser(engine.getAnalyser());
+  } catch {
+    toast("Keys preview could not start.");
+  }
 }
 function setOutput(id: string, value: string): void {
   const output = document.getElementById(`${id}-value`);
@@ -235,10 +311,22 @@ function updatePresetLabels(): void {
 function refreshProject(): void {
   renderDrums();
   renderBass();
+  renderKeys();
   updatePresetLabels();
   const bassKey = document.querySelector(".bass-key");
   if (bassKey)
     bassKey.innerHTML = `${project.name === "Broken circuit" ? "C" : "A"} MINOR <span>·</span> 1 BAR`;
+  const keysKey = document.querySelector(".keys-key");
+  if (keysKey)
+    keysKey.textContent = `${project.name === "Broken circuit" ? "C" : "A"} MINOR`;
+  setInput("keys-tone", project.keys.tone * 100);
+  setOutput("keys-tone", `${Math.round(project.keys.tone * 100)}%`);
+  setInput("keys-decay", project.keys.decay * 1000);
+  setOutput("keys-decay", `${Math.round(project.keys.decay * 1000)} ms`);
+  setInput("keys-space", project.keys.space * 100);
+  setOutput("keys-space", `${Math.round(project.keys.space * 100)}%`);
+  setInput("keys-volume", project.keys.volume * 100);
+  setOutput("keys-volume", `${Math.round(project.keys.volume * 100)}%`);
   setInput("bpm", project.bpm);
   setOutput("bpm", String(project.bpm));
   setInput("swing", project.swing * 100);
@@ -268,7 +356,7 @@ const engine = new AudioEngine((step) => {
     .forEach((element) => element.classList.remove("current"));
   document
     .querySelectorAll(
-      `[data-drum-step][data-step="${step}"], [data-bass-toggle][data-step="${step}"], [data-bass-index="${step}"]`,
+      `[data-drum-step][data-step="${step}"], [data-bass-toggle][data-step="${step}"], [data-bass-index="${step}"], [data-keys-index="${step}"]`,
     )
     .forEach((element) => element.classList.add("current"));
   document
@@ -319,7 +407,11 @@ const beatCanvas = new BeatCanvas(
     }
   },
 );
-installGestures(app, (control, value) => updateControl(control.id, value));
+installGestures(
+  app,
+  (control, value) => updateControl(control.id, value),
+  performNoteAction,
+);
 const applyPendingInstrument = () => {
   if (pendingDrum && !document.querySelector(".gesture-control.dragging")) {
     selectedDrum = pendingDrum;
@@ -508,22 +600,43 @@ document.addEventListener("click", async (event) => {
     const step = project.bass.steps[Number(dataset.step)];
     if (step) {
       if (dataset.bassToggle === "on") step.on = !step.on;
-      if (dataset.bassToggle === "accent") step.accent = !step.accent;
-      if (dataset.bassToggle === "slide") step.slide = !step.slide;
-      renderBass();
+      refreshNoteStates("bass");
       persist();
     }
   }
   if (id === "generate") {
-    const scale = [33, 33, 36, 38, 40, 41, 44, 45];
-    project.bass.steps = project.bass.steps.map((_, index) => ({
-      note: scale[Math.floor(Math.random() * scale.length)] ?? 33,
-      on: index === 0 || Math.random() > 0.2,
-      accent: index % 4 === 0 || Math.random() > 0.8,
-      slide: Math.random() > 0.75,
-    }));
+    project.bass.steps = remixProject(project).bass.steps;
     renderBass();
     persist();
+  }
+  if (id === "keys-generate") {
+    project.keys.steps = remixProject(project).keys.steps;
+    renderKeys();
+    persist();
+  }
+  if (id === "keys-mute") {
+    project.keys.muted = !project.keys.muted;
+    renderKeys();
+    persist();
+  }
+  if (dataset.keySound !== undefined) {
+    const sound = Number(dataset.keySound);
+    if ([0, 1, 2].includes(sound)) {
+      project.keys.sound = sound;
+      renderKeys();
+      persist();
+      if (!engine.isPlaying)
+        void previewKeys(project.keys.steps[0]?.note ?? 57);
+    }
+  }
+  if (dataset.keysGate !== undefined) {
+    const step = project.keys.steps[Number(dataset.keysGate)];
+    if (step) {
+      step.on = !step.on;
+      refreshNoteStates("keys");
+      persist();
+      if (step.on && !engine.isPlaying) void previewKeys(step.note);
+    }
   }
   if (id === "motion") {
     motion = !motion;
@@ -613,12 +726,43 @@ function updateControl(id: string, value: number): void {
     project.bass.volume = value / 100;
     setOutput(id, `${value}%`);
   }
+  if (id === "keys-tone") {
+    project.keys.tone = value / 100;
+    setOutput(id, `${value}%`);
+  }
+  if (id === "keys-decay") {
+    project.keys.decay = value / 1000;
+    setOutput(id, `${value} ms`);
+  }
+  if (id === "keys-space") {
+    project.keys.space = value / 100;
+    setOutput(id, `${value}%`);
+  }
+  if (id === "keys-volume") {
+    project.keys.volume = value / 100;
+    setOutput(id, `${value}%`);
+  }
+  if (id.startsWith("keys-note-")) {
+    const step = project.keys.steps[Number(id.slice(10))];
+    if (step) {
+      step.note = value;
+      setOutput(id, noteName(value));
+      if (!engine.isPlaying && performance.now() - lastPaintPreview > 110) {
+        lastPaintPreview = performance.now();
+        void previewNote("keys", step);
+      }
+    }
+  }
   if (id.startsWith("note-")) {
     const index = Number(id.slice(5));
     const step = project.bass.steps[index];
     if (step) {
       step.note = value;
       setOutput(id, noteName(value));
+      if (!engine.isPlaying && performance.now() - lastPaintPreview > 110) {
+        lastPaintPreview = performance.now();
+        void previewNote("bass", step);
+      }
     }
   }
   for (const track of project.drums) {

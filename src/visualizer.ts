@@ -16,33 +16,22 @@ interface SpectralSheet {
 
 const SHEETS: SpectralSheet[] = [
   {
-    offset: -0.16,
-    width: 0.24,
+    offset: -0.13,
+    width: 0.2,
     phase: 2.4,
-    opacity: 0.62,
-    colours: ["#202020", "#888888", "#e5e5e5", "#555555", "#bbbbbb"],
+    opacity: 0.78,
+    colours: ["#242424", "#747474", "#ababab", "#515151", "#8e8e8e"],
   },
   {
-    offset: 0.18,
-    width: 0.29,
-    phase: 4.1,
-    opacity: 0.72,
-    colours: ["#a0a0a0", "#383838", "#fafafa", "#919191", "#333333"],
-  },
-  {
-    offset: 0,
-    width: 0.24,
+    offset: 0.08,
+    width: 0.23,
     phase: 0.3,
-    opacity: 0.8,
-    colours: ["#303030", "#d8d8d8", "#767676", "#ededed", "#505050"],
+    opacity: 0.96,
+    colours: ["#454545", "#d7d7d7", "#f2f2f2", "#929292", "#c5c5c5"],
   },
 ];
 
-const EDGE_COLOURS = ["#676767", "#a4a4a4", "#dedede", "#8b8b8b", "#bfbfbf"];
-const triangle = (value: number): number =>
-  (2 / Math.PI) * Math.asin(Math.sin(value));
-
-/** A prismatic fluid field: audio deforms geometry without flashing brightness. */
+/** Two defined fluid forms follow bass; expanding outlines follow drum transients. */
 export class FluidVisualizer {
   private readonly canvas: HTMLCanvasElement;
   private readonly context: CanvasRenderingContext2D | null;
@@ -55,6 +44,7 @@ export class FluidVisualizer {
   );
   private analyser: AnalyserNode | null = null;
   private frequencies = new Uint8Array(0);
+  private waveform = new Float32Array(0);
   private width = 1;
   private height = 1;
   private intensity = 0.6;
@@ -68,6 +58,8 @@ export class FluidVisualizer {
   private mid = 0;
   private lowAverage = 0;
   private impact = 0;
+  private levelAverage = 0;
+  private onsetPeak = 0;
 
   private get portrait(): boolean {
     return this.height > this.width * 1.15;
@@ -94,6 +86,7 @@ export class FluidVisualizer {
   setAnalyser(analyser: AnalyserNode | null): void {
     this.analyser = analyser;
     this.frequencies = new Uint8Array(analyser?.frequencyBinCount ?? 0);
+    this.waveform = new Float32Array(analyser?.fftSize ?? 0);
   }
 
   setIntensity(value: number): void {
@@ -165,10 +158,10 @@ export class FluidVisualizer {
     this.sampleAudio(seconds);
     this.phase +=
       seconds *
-      (0.16 +
-        this.intensity * 0.42 +
-        this.bass * this.intensity * 0.4 +
-        this.impact * this.intensity * 0.8);
+      (0.3 +
+        this.intensity * 0.9 +
+        this.bass * this.intensity * 0.75 +
+        this.impact * this.intensity * 1.5);
     this.draw();
   };
 
@@ -176,11 +169,18 @@ export class FluidVisualizer {
     const analyser = this.analyser;
     let low = 0;
     let middle = 0;
+    let level = 0;
     if (analyser) {
       if (this.frequencies.length !== analyser.frequencyBinCount) {
         this.frequencies = new Uint8Array(analyser.frequencyBinCount);
       }
       analyser.getByteFrequencyData(this.frequencies);
+      if (this.waveform.length !== analyser.fftSize) {
+        this.waveform = new Float32Array(analyser.fftSize);
+      }
+      analyser.getFloatTimeDomainData(this.waveform);
+      for (const sample of this.waveform) level += sample * sample;
+      level = Math.sqrt(level / Math.max(1, this.waveform.length));
       const binHz = analyser.context.sampleRate / analyser.fftSize;
       let lowCount = 0;
       let midCount = 0;
@@ -200,37 +200,46 @@ export class FluidVisualizer {
       low /= Math.max(1, lowCount);
       middle /= Math.max(1, midCount);
     }
-    const smoothing = 1 - Math.exp(-seconds / 0.18);
+    const smoothing = 1 - Math.exp(-seconds / 0.16);
     this.lowAverage +=
       (low - this.lowAverage) * (1 - Math.exp(-seconds / 0.75));
-    const onset = Math.min(1, Math.max(0, low - this.lowAverage) * 4);
-    this.impact += (onset - this.impact) * smoothing;
+    this.levelAverage +=
+      (level - this.levelAverage) * (1 - Math.exp(-seconds / 0.6));
+    const onset = Math.min(
+      1,
+      Math.max(0, low - this.lowAverage) * 2.5 +
+        Math.max(0, level - this.levelAverage) * 20,
+    );
+    this.onsetPeak = Math.max(
+      onset,
+      this.onsetPeak * Math.exp(-seconds / 0.24),
+    );
+    this.impact += (this.onsetPeak - this.impact) * smoothing;
     this.bass += (low - this.bass) * smoothing;
     this.mid += (middle - this.mid) * smoothing;
   }
 
   private point(position: number, strand: number, sheet: SpectralSheet): Point {
     const angle = position * TAU;
-    const energy = (this.bass * 0.4 + this.impact * 0.9) * this.intensity;
-    const acid = this.mid * this.intensity;
+    const energy = (this.bass * 0.75 + this.impact * 0.35) * this.intensity;
+    const acid = Math.min(1, this.mid * 1.6) * this.intensity;
     const twist = Math.sin(
-      angle * 1.37 - this.phase * 0.42 + sheet.phase + acid * 0.8,
+      angle * 1.37 - this.phase * 0.58 + sheet.phase + acid * 1.15,
     );
     const width =
       sheet.width *
       (0.62 + 0.38 * Math.cos(angle + sheet.phase)) *
-      (1 + energy * 0.34);
-    const fracture = triangle(angle * 2.3 + this.phase * 0.22 + sheet.phase);
+      (1 + energy * 0.5);
     const wave =
-      triangle(angle * 0.86 + this.phase * 0.35 + sheet.phase) *
-        (0.2 + energy * 0.18) +
-      Math.sin(angle * 1.72 - this.phase * 0.18 + sheet.phase) * 0.11 +
-      fracture * (0.035 + this.intensity * 0.035) +
+      Math.sin(angle * 0.86 + this.phase * 0.46 + sheet.phase) *
+        (0.19 + energy * 0.18) +
+      Math.sin(angle * 1.72 - this.phase * 0.31 + sheet.phase) *
+        (0.11 + acid * 0.035) +
       Math.sin(angle * 0.6 + sheet.phase) * energy * 0.11;
     const fold = Math.sin(strand * Math.PI + twist * 1.5) * width * 0.4;
     const x =
       this.sceneWidth *
-      (position + Math.sin(strand * 1.8 + twist * 1.6) * 0.032);
+      (position + Math.sin(strand * 1.8 + twist * 1.6) * (0.05 + acid * 0.025));
     const y =
       this.sceneHeight *
       (0.5 + sheet.offset + wave + strand * width * twist + fold);
@@ -249,12 +258,37 @@ export class FluidVisualizer {
       Math.exp(-distance * 1.4) *
       (1.2 +
         this.intensity * 1.65 +
-        energy * 1.1 +
-        acid * 0.5 +
+        energy * 1.35 +
+        acid * 0.8 +
         Math.sin(this.phase * 0.27) * 0.55);
+    const warpedX = centreX + dx * Math.cos(rotation) - dy * Math.sin(rotation);
+    const warpedY = centreY + dx * Math.sin(rotation) + dy * Math.cos(rotation);
+    const counterX = this.sceneWidth * 0.22;
+    const counterY =
+      this.sceneHeight * (0.5 + Math.sin(this.phase * 0.43) * 0.11);
+    const offsetX = warpedX - counterX;
+    const offsetY = warpedY - counterY;
+    const counterRadius = Math.min(
+      this.sceneWidth * 0.36,
+      this.sceneHeight * 1.2,
+    );
+    const influence = Math.exp(
+      -(offsetX * offsetX + offsetY * offsetY) /
+        (counterRadius * counterRadius),
+    );
+    const counterRotation =
+      -influence *
+      Math.sin(this.phase * 0.52 + sheet.phase * 0.45) *
+      (this.intensity * 0.42 + acid * 0.5 + energy * 0.55);
     return {
-      x: centreX + dx * Math.cos(rotation) - dy * Math.sin(rotation),
-      y: centreY + dx * Math.sin(rotation) + dy * Math.cos(rotation),
+      x:
+        counterX +
+        offsetX * Math.cos(counterRotation) -
+        offsetY * Math.sin(counterRotation),
+      y:
+        counterY +
+        offsetX * Math.sin(counterRotation) +
+        offsetY * Math.cos(counterRotation),
     };
   }
 
@@ -294,164 +328,57 @@ export class FluidVisualizer {
     context.closePath();
     context.fill();
 
-    const facets = this.sceneWidth < 600 ? 12 : 20;
-    for (let index = 0; index < facets; index += 1) {
-      const position = -0.15 + (index / facets) * 1.3;
-      const next = position + 1.3 / facets;
-      const a = this.point(position, -1, sheet);
-      const b = this.point(next, -1, sheet);
-      const c = this.point(next, 1, sheet);
-      const d = this.point(position, 1, sheet);
-      context.globalAlpha = 0.12;
-      context.fillStyle = index % 3 === 0 ? "#111111" : "#dfdfdf";
-      context.beginPath();
-      context.moveTo(a.x, a.y);
-      context.lineTo(b.x, b.y);
-      context.lineTo(index % 2 === 0 ? c.x : d.x, index % 2 === 0 ? c.y : d.y);
-      context.closePath();
-      context.fill();
-    }
-
-    const strands = this.sceneWidth < 600 ? 5 : 7;
-    for (let index = 0; index <= strands; index += 1) {
-      const strand = -1 + (index / strands) * 2;
-      context.globalAlpha = index % 3 === 0 ? 0.38 : 0.16;
-      context.strokeStyle = index % 4 === 0 ? "#dedede" : "#8b8b8b";
-      context.lineWidth = index % 3 === 0 ? 1.6 : 1;
-      context.beginPath();
-      this.sheetPath(context, sheet, strand);
-      context.stroke();
-    }
-
-    context.save();
-    context.globalCompositeOperation = "screen";
-    context.globalAlpha = 0.85;
+    context.globalAlpha = 0.22;
+    context.strokeStyle = "#ffffff";
     context.lineWidth = 1.5;
+    context.beginPath();
+    this.sheetPath(context, sheet, -0.2);
+    context.stroke();
+
     for (const edge of [-1, 1]) {
-      context.strokeStyle = edge < 0 ? "#d0d0d0" : "#9b9b9b";
-      context.translate(edge * 2.5, edge * 1.2);
+      context.globalAlpha = 0.9;
+      context.strokeStyle = "#000000";
+      context.lineWidth = 5;
       context.beginPath();
       this.sheetPath(context, sheet, edge);
       context.stroke();
+      context.strokeStyle = edge < 0 ? "#eeeeee" : "#aaaaaa";
+      context.lineWidth = edge < 0 ? 1.8 : 1.3;
+      context.stroke();
     }
-    context.restore();
     context.globalAlpha = 1;
   }
 
-  private drawPrism(
+  private drawPulseRing(
     context: CanvasRenderingContext2D,
     centre: number,
     offset: number,
   ): void {
     const push = this.impact * this.intensity;
-    const centreX =
-      this.sceneWidth *
-      (centre + Math.cos(this.phase * 0.33 + offset) * push * 0.035);
+    const centreX = this.sceneWidth * centre;
     const centreY =
-      this.sceneHeight *
-      (0.5 + Math.sin(this.phase * 0.19 + offset) * (0.08 + push * 0.08));
+      this.sceneHeight * (0.5 + Math.sin(this.phase * 0.18 + offset) * 0.07);
     const radiusX =
-      Math.min(this.sceneWidth * 0.22, this.sceneHeight * 0.85) *
-      (1 + push * 0.16);
+      Math.min(this.sceneWidth * 0.24, this.sceneHeight * 0.72) *
+      (0.76 + push * 0.55);
     const radiusY =
-      Math.min(this.sceneHeight * 0.64, this.sceneWidth * 0.27) *
-      (1 + push * 0.16);
-    const rings = this.sceneWidth < 600 ? 5 : 7;
-    const vertices = 18;
-    for (let ring = rings; ring > 0; ring -= 1) {
-      const radius = 0.22 + (ring / rings) * 0.82;
-      const angleOffset = this.phase * 0.06 + offset + ring * 0.035;
-      context.beginPath();
-      for (let vertex = 0; vertex <= vertices; vertex += 1) {
-        const angle = (vertex / vertices) * TAU + angleOffset;
-        const tooth =
-          1 + Math.sin(angle * 5 + offset) * 0.17 + (vertex % 2) * 0.13;
-        const x = centreX + Math.cos(angle) * radiusX * radius * tooth;
-        const y = centreY + Math.sin(angle) * radiusY * radius * tooth;
-        if (vertex === 0) context.moveTo(x, y);
-        else context.lineTo(x, y);
-      }
-      context.closePath();
-      const colour =
-        EDGE_COLOURS[(ring + Math.floor(offset)) % EDGE_COLOURS.length] ??
-        "#a4a4a4";
-      context.globalAlpha = ring % 3 === 0 ? 0.36 : 0.17;
-      context.strokeStyle = colour;
-      context.lineWidth = ring % 3 === 0 ? 4 : 2;
-      context.stroke();
-    }
-    context.globalAlpha = 1;
-  }
-
-  private drawFracture(context: CanvasRenderingContext2D): void {
-    const segments = this.sceneWidth < 600 ? 18 : 30;
-    const gradient = context.createLinearGradient(0, 0, this.sceneWidth, 0);
-    gradient.addColorStop(0, "#444444");
-    gradient.addColorStop(0.22, "#bbbbbb");
-    gradient.addColorStop(0.48, "#555555");
-    gradient.addColorStop(0.68, "#dedede");
-    gradient.addColorStop(0.84, "#777777");
-    gradient.addColorStop(1, "#aaaaaa");
-    const point = (index: number, edge: number): Point => {
-      const position = index / segments;
-      const wave =
-        triangle(
-          position * TAU * 1.6 +
-            this.phase * 0.2 +
-            this.mid * this.intensity * 0.45,
-        ) *
-        (0.16 + this.impact * this.intensity * 0.09);
-      const notch = index % 3 === 0 ? 0.018 : -0.009;
-      const breadth = 0.085 + Math.sin(position * TAU * 0.85 + 1) * 0.045;
-      return {
-        x: position * this.sceneWidth,
-        y: this.sceneHeight * (0.54 + wave + notch + edge * breadth),
-      };
-    };
+      Math.min(this.sceneHeight * 0.59, this.sceneWidth * 0.25) *
+      (0.76 + push * 0.55);
+    const vertices = 16;
     context.beginPath();
-    for (let index = 0; index <= segments; index += 1) {
-      const vertex = point(index, -1);
-      if (index === 0) context.moveTo(vertex.x, vertex.y);
-      else context.lineTo(vertex.x, vertex.y);
-    }
-    for (let index = segments; index >= 0; index -= 1) {
-      const vertex = point(index, 1);
-      context.lineTo(vertex.x, vertex.y);
+    for (let vertex = 0; vertex <= vertices; vertex += 1) {
+      const angle = (vertex / vertices) * TAU + this.phase * 0.08 + offset;
+      const radius = 1 + Math.sin(angle * 3 + offset) * 0.035;
+      const x = centreX + Math.cos(angle) * radiusX * radius;
+      const y = centreY + Math.sin(angle) * radiusY * radius;
+      if (vertex === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
     }
     context.closePath();
-    context.globalAlpha = 0.48;
-    context.fillStyle = gradient;
-    context.fill();
-    context.strokeStyle = gradient;
-    for (let line = 0; line <= 3; line += 1) {
-      context.beginPath();
-      for (let index = 0; index <= segments; index += 1) {
-        const vertex = point(index, (line / 3) * 2 - 1);
-        if (index === 0) context.moveTo(vertex.x, vertex.y);
-        else context.lineTo(vertex.x, vertex.y);
-      }
-      context.globalAlpha = line === 0 || line === 3 ? 0.65 : 0.2;
-      context.lineWidth = line === 0 || line === 3 ? 2 : 1;
-      context.stroke();
-    }
-    context.globalAlpha = 1;
-  }
-
-  private drawDigitalFragments(context: CanvasRenderingContext2D): void {
-    const count = this.sceneWidth < 600 ? 15 : 30;
-    for (let index = 0; index < count; index += 1) {
-      const column = ((index * 137 + 41) % 997) / 997;
-      const row = ((index * 73 + 29) % 197) / 197;
-      const x =
-        column * this.sceneWidth + Math.sin(this.phase * 0.2 + index) * 7;
-      const y = this.sceneHeight * (0.14 + row * 0.73);
-      const width = 7 + ((index * 19) % 43);
-      context.globalAlpha = index % 3 === 0 ? 0.48 : 0.18;
-      context.fillStyle =
-        EDGE_COLOURS[index % EDGE_COLOURS.length] ?? "#a4a4a4";
-      context.fillRect(x, y, width, index % 3 === 0 ? 2 : 1);
-      if (index % 4 === 0) context.fillRect(x + width - 1, y, 1, 9);
-    }
+    context.globalAlpha = 0.68;
+    context.strokeStyle = "#bdbdbd";
+    context.lineWidth = 2.5;
+    context.stroke();
     context.globalAlpha = 1;
   }
 
@@ -466,39 +393,20 @@ export class FluidVisualizer {
       context.translate(this.width, 0);
       context.rotate(Math.PI / 2);
     }
-    this.drawPrism(context, 0.2, 0.5);
-    this.drawPrism(context, 0.79, 3.5);
-    this.drawFracture(context);
+    const punch = this.impact * this.intensity;
+    context.translate(
+      this.sceneWidth * (0.5 + Math.sin(this.phase * 0.8) * punch * 0.035),
+      this.sceneHeight * (0.5 + Math.cos(this.phase * 0.67) * punch * 0.04),
+    );
+    context.rotate(Math.sin(this.phase * 0.24) * this.intensity * 0.055);
+    context.scale(1 + punch * 0.09, 1 + punch * 0.09);
+    context.translate(-this.sceneWidth * 0.5, -this.sceneHeight * 0.5);
+    this.drawPulseRing(context, 0.22, 0.5);
+    this.drawPulseRing(context, 0.78, 3.5);
     for (const sheet of SHEETS) this.drawSheet(context, sheet);
-    this.drawDigitalFragments(context);
     context.restore();
 
     output.drawImage(this.field, 0, 0, this.width, this.height);
-    const slices = this.width < 600 ? 5 : 8;
-    for (let index = 0; index < slices; index += 1) {
-      const y = this.height * (0.19 + (index / slices) * 0.64);
-      const height = Math.max(2, this.height * (index % 3 === 0 ? 0.04 : 0.02));
-      const shift =
-        Math.sin(this.phase * 0.31 + index * 1.7) *
-        (6 +
-          this.intensity * 15 +
-          this.bass * this.intensity * 14 +
-          this.impact * this.intensity * 32);
-      const inset = Math.abs(shift) + 1;
-      if (this.width <= inset * 2) continue;
-      output.drawImage(
-        this.field,
-        inset * this.ratio,
-        y * this.ratio,
-        (this.width - inset * 2) * this.ratio,
-        height * this.ratio,
-        inset + shift,
-        y,
-        this.width - inset * 2,
-        height,
-      );
-    }
-
     const shade = output.createLinearGradient(0, 0, 0, this.height);
     shade.addColorStop(0, "rgba(0, 0, 0, 0.65)");
     shade.addColorStop(0.22, "rgba(0, 0, 0, 0.02)");

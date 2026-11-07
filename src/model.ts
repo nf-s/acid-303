@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const STEP_COUNT = 16;
-export const drumIdSchema = z.enum(["kick", "snare", "hat", "clap", "cowbell"]);
+export const drumIdSchema = z.enum(["kick", "snare", "hat", "clap", "rim"]);
 export type DrumId = z.infer<typeof drumIdSchema>;
 export const drumSchema = z.object({
   id: drumIdSchema,
@@ -17,7 +17,7 @@ export const bassStepSchema = z.object({
   note: z.number().int().min(24).max(60),
   on: z.boolean(),
   accent: z.boolean(),
-  slide: z.boolean(),
+  slide: z.boolean().default(false),
 });
 export type BassStep = z.infer<typeof bassStepSchema>;
 export const bassSchema = z.object({
@@ -31,8 +31,43 @@ export const bassSchema = z.object({
   steps: z.array(bassStepSchema).length(STEP_COUNT),
 });
 export type BassTrack = z.infer<typeof bassSchema>;
+export const keysStepSchema = z.object({
+  note: z.number().int().min(48).max(84),
+  on: z.boolean(),
+  accent: z.boolean().default(false),
+  slide: z.boolean().default(false),
+});
+export const keysSchema = z.object({
+  sound: z.number().int().min(0).max(2),
+  tone: z.number().min(0).max(1),
+  decay: z.number().min(0.08).max(2),
+  space: z.number().min(0).max(1),
+  volume: z.number().min(0).max(1),
+  muted: z.boolean(),
+  steps: z.array(keysStepSchema).length(STEP_COUNT),
+});
+export type KeysTrack = z.infer<typeof keysSchema>;
+export const KEYS_SOUNDS = ["Velvet", "Pluck", "Tape"];
+export function createKeys(preset = 0): KeysTrack {
+  const root = preset === 2 ? 60 : 57;
+  const intervals = [0, 7, 12, 7, 3, 7, 12, 11, 7, 12, 15, 12, 3, 7, 11, 7];
+  return {
+    sound: 0,
+    tone: 0.48,
+    decay: 0.55,
+    space: 0.22,
+    volume: 0.38,
+    muted: false,
+    steps: intervals.map((interval, index) => ({
+      note: root + interval,
+      on: [0, 3, 6, 8, 12, 14].includes(index),
+      accent: false,
+      slide: false,
+    })),
+  };
+}
 export const projectSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   name: z.string().max(80),
   bpm: z.number().min(60).max(180),
   swing: z.number().min(0).max(0.5),
@@ -43,6 +78,7 @@ export const projectSchema = z.object({
     .length(5)
     .refine((drums) => new Set(drums.map((drum) => drum.id)).size === 5),
   bass: bassSchema,
+  keys: keysSchema,
 });
 export type Project = z.infer<typeof projectSchema>;
 export const DRUM_META: Record<
@@ -73,11 +109,11 @@ export const DRUM_META: Record<
     sounds: ["Classic", "Wide", "Crunchy"],
     icon: "audio-lines",
   },
-  cowbell: {
-    name: "Cowbell",
-    short: "CB",
-    sounds: ["Classic 808", "Hollow", "Dark bell"],
-    icon: "bell",
+  rim: {
+    name: "Rimshot",
+    short: "RM",
+    sounds: ["Dry", "Wood", "Click"],
+    icon: "circle-dot",
   },
 };
 const pattern = (hits: number[]) =>
@@ -107,8 +143,8 @@ export function createProject(preset = 0): Project {
             [4, 11, 12],
             [3, 6, 10, 15],
           ];
-  const ids: DrumId[] = ["kick", "snare", "hat", "clap", "cowbell"];
-  const decays = [0.36, 0.2, 0.08, 0.18, 0.24];
+  const ids: DrumId[] = ["kick", "snare", "hat", "clap", "rim"];
+  const decays = [0.23, 0.2, 0.08, 0.18, 0.12];
   const notes =
     preset === 1
       ? [33, 33, 40, 45, 33, 36, 33, 40, 33, 45, 43, 40, 36, 33, 40, 32]
@@ -116,11 +152,11 @@ export function createProject(preset = 0): Project {
         ? [36, 48, 39, 36, 42, 39, 48, 36, 36, 43, 42, 39, 36, 48, 39, 35]
         : [33, 33, 45, 36, 33, 40, 33, 43, 33, 45, 40, 36, 33, 40, 36, 32];
   return {
-    version: 1,
+    version: 2,
     name: ["Acid funk", "After hours", "Broken circuit"][preset] ?? "Acid funk",
     bpm: preset === 1 ? 118 : preset === 2 ? 132 : 126,
     swing: 0.16,
-    drive: 0.28,
+    drive: 0.12,
     volume: 0.65,
     drums: ids.map((id, index) => ({
       id,
@@ -131,22 +167,66 @@ export function createProject(preset = 0): Project {
       muted: false,
       steps: pattern(drumHits[index] ?? []),
     })),
+    keys: createKeys(preset),
     bass: {
       waveform: "sawtooth",
-      cutoff: 460,
-      resonance: 15,
-      envelope: 0.68,
-      decay: 0.23,
-      volume: 0.48,
+      cutoff: 680,
+      resonance: 11,
+      envelope: 0.5,
+      decay: 0.18,
+      volume: 0.4,
       muted: false,
       steps: notes.map((note, index) => ({
         note,
         on: ![1, 6, 10].includes(index),
         accent: [0, 7, 12, 15].includes(index),
-        slide: [2, 7, 13].includes(index),
+        slide: false,
       })),
     },
   };
+}
+const legacyProjectSchema = projectSchema.omit({ keys: true }).extend({
+  version: z.literal(1),
+  drums: z
+    .array(
+      drumSchema.extend({
+        id: z.enum(["kick", "snare", "hat", "clap", "cowbell"]),
+      }),
+    )
+    .length(5)
+    .refine((drums) => new Set(drums.map((drum) => drum.id)).size === 5),
+  bass: bassSchema.extend({
+    steps: z
+      .array(bassStepSchema.extend({ slide: z.boolean() }))
+      .length(STEP_COUNT),
+  }),
+});
+export function readProject(value: unknown): Project | null {
+  const current = projectSchema.safeParse(value);
+  if (current.success) return current.data;
+  const legacy = legacyProjectSchema.safeParse(value);
+  if (!legacy.success) return null;
+  const original = legacy.data;
+  return projectSchema.parse({
+    ...original,
+    version: 2,
+    drive: Math.min(original.drive, 0.18),
+    drums: original.drums.map((track) =>
+      track.id === "cowbell"
+        ? { ...track, id: "rim", sound: 0, decay: 0.12 }
+        : track,
+    ),
+    bass: {
+      ...original.bass,
+      steps: original.bass.steps.map(({ note, on, accent, slide }) => ({
+        note,
+        on,
+        accent,
+        slide,
+      })),
+    },
+    keys: createKeys(original.name === "Broken circuit" ? 2 : 0),
+  });
 }
 export function noteName(note: number): string {
   const names = [
@@ -204,7 +284,16 @@ export function remixProject(
     note: root + (scale[Math.floor(random() * scale.length)] ?? 0),
     on: index % 4 === 0 || random() > 0.2,
     accent: index % 4 === 0 || random() > 0.8,
-    slide: index % 4 !== 0 && random() > 0.7,
+    slide: false,
+  }));
+  const keyRoot = project.name === "Broken circuit" ? 60 : 57;
+  const keyIntervals = [0, 3, 7, 11, 12, 15];
+  remix.keys.steps = remix.keys.steps.map((_, index) => ({
+    note:
+      keyRoot + (keyIntervals[Math.floor(random() * keyIntervals.length)] ?? 0),
+    on: index === 0 || (index % 2 === 0 ? random() > 0.45 : random() > 0.85),
+    accent: false,
+    slide: false,
   }));
   return remix;
 }

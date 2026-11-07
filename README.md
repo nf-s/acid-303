@@ -1,6 +1,6 @@
 # ACID 303
 
-A local-first drum machine and 303-inspired bass sequencer. Audio is synthesized in the browser using Web Audio. Patterns are saved in this browser; no audio or patterns are sent to a server.
+A local-first drum machine, 303-inspired bass sequencer and melodic Keys instrument. Audio is synthesized in the browser using Web Audio. Patterns are saved in this browser; no audio or patterns are sent to a server.
 
 ## Development
 
@@ -19,15 +19,17 @@ Use strict TypeScript without type assertions or non-null assertions. Validate p
 
 ## Controls
 
-Press Play or Space to start and stop. Remix generates a new rhythm and bass line, starts playback, and can be reversed with Undo.
+Press Play or Space to start and stop. Remix generates a new drum pattern, bass line and Keys melody, starts playback, and can be reversed with Undo.
 
 Drag across the drum canvas to paint steps. Begin on a filled cell to erase; fast strokes interpolate across every crossed cell. Multiple fingers can paint and adjust a dial simultaneously. Tapping a lane or instrument tab brings that drum’s sound buttons, pitch, decay and level beside the canvas. Painting while stopped previews the drum sound.
 
-Drag controls upward/downward to raise/lower their value. Hold Shift for finer movement. Double-tap to reset. Keyboard controls use arrows, Page Up/Down and Home/End. Drum-grid keyboard navigation uses arrow keys and Enter/Space. Bass pitches are draggable note cells; gate, accent and slide remain direct toggles.
+Drag controls upward/downward to raise/lower their value. Hold Shift for finer movement. Double-tap to reset. Keyboard controls use arrows, Page Up/Down and Home/End. Drum-grid keyboard navigation uses arrow keys and Enter/Space. Bass and Keys use expressive note pads: tap to toggle a note, drag vertically for pitch, swipe right to join the next note, swipe left to separate, and hold for 420 ms to toggle accent. Joining enables the following note; ties stop at rests and can wrap from step 16 to step 1. The pad shows accent and a link to the following note. Keyboard: Up/Down changes pitch, Right joins, Left separates, A toggles accent, and Enter/Space toggles the note. Swipe the gate row or scrollbar to reach later notes on a phone.
 
-The full-page visualizer follows the audio and inverts the interface spatially as it moves. Intensity zero hides it; motion can be paused. It respects reduced-motion preferences. No rapid strobe effect is used.
+Keys sits below the bass with Velvet, Pluck and Tape sounds, draggable notes, gate toggles, and Tone, Decay, Space and Level controls. New melody changes only its notes; its sound settings stay intact. The rimshot replaces the cowbell with Dry, Wood and Click sounds. Crunch uses compensated parallel saturation, and Keys plays through the clean bus.
 
-All drum steps fit on a phone. Swipe the bass sequence to reach later notes. Playback stays accessible while scrolling. WAV export includes two bars and a 1.6-second release tail. Saved patterns stay on the same device and browser.
+The full-page visualizer uses two defined silver fluid shapes and expanding drum-hit rings. It follows the audio and inverts the interface spatially as it moves. Intensity zero hides it; motion can be paused. It respects reduced-motion preferences. No rapid strobe effect is used.
+
+All drum steps fit on a phone. Swipe the bass sequence to reach later notes. Playback stays accessible while scrolling. WAV export includes two bars and enough release time for the selected sounds and echo taps. Saved patterns stay on the same device and browser. Version 1 saves upgrade automatically: steps, pitches and bass expression are preserved, cowbell becomes rimshot, and Keys is added. Version 2 saves without expression fields load with slides and Keys accents off.
 
 ## Deployment
 

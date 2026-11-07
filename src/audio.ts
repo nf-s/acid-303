@@ -1,11 +1,14 @@
 import { STEP_COUNT, stepDuration } from "./model";
-import type { BassTrack, DrumTrack, Project } from "./model";
+import type { BassTrack, DrumTrack, KeysTrack, Project } from "./model";
 
 type ScheduledSource = OscillatorNode | AudioBufferSourceNode;
 
 interface AudioGraph {
   context: BaseAudioContext;
   input: GainNode;
+  cleanInput: GainNode;
+  dry: GainNode;
+  wet: GainNode;
   distortion: WaveShaperNode;
   compressor: DynamicsCompressorNode;
   master: GainNode;
@@ -13,6 +16,7 @@ interface AudioGraph {
   noise: AudioBuffer;
   sources: Set<ScheduledSource>;
   drive: number;
+  bpm: number;
 }
 
 const MIN_GAIN = 0.0001;
@@ -23,39 +27,79 @@ export function midiFrequency(note: number): number {
   return 440 * 2 ** ((note - 69) / 12);
 }
 
+export function tiesNextStep(
+  steps: ReadonlyArray<{ on: boolean; slide: boolean }>,
+  step: number,
+): boolean {
+  const current = steps[step];
+  const next = steps[(step + 1) % STEP_COUNT];
+  return current?.on === true && current.slide && next?.on === true;
+}
+
+export function saturationSample(value: number, drive: number): number {
+  const amount = 1 + drive * 4;
+  // Compensate the input gain: drive must not multiply quiet bass by 5–17×.
+  return Math.tanh(value * amount) / amount;
+}
+
 function distortionCurve(drive: number): Float32Array<ArrayBuffer> {
   const curve = new Float32Array(2048);
-  const amount = 1 + drive * 16;
-  const normalization = Math.tanh(amount);
   for (let index = 0; index < curve.length; index += 1) {
     const value = (index / (curve.length - 1)) * 2 - 1;
-    curve[index] =
-      drive < 0.001 ? value : Math.tanh(value * amount) / normalization;
+    curve[index] = saturationSample(value, drive);
   }
   return curve;
 }
 
 function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   const input = context.createGain();
+  const cleanInput = context.createGain();
+  const dry = context.createGain();
+  const wet = context.createGain();
   const distortion = context.createWaveShaper();
+  const highpass = context.createBiquadFilter();
   const compressor = context.createDynamicsCompressor();
   const master = context.createGain();
+  const safety = context.createWaveShaper();
   const analyser = context.createAnalyser();
   input.gain.value = 0.6;
+  cleanInput.gain.value = 0.72;
+  dry.gain.value = 1 - project.drive * 0.45;
+  wet.gain.value = project.drive * 0.45;
   distortion.curve = distortionCurve(project.drive);
-  distortion.oversample = "4x";
-  compressor.threshold.value = -10;
-  compressor.knee.value = 6;
-  compressor.ratio.value = 16;
-  compressor.attack.value = 0.003;
-  compressor.release.value = 0.14;
+  // Keep the parallel paths sample-aligned; oversampling delays only the wet path.
+  distortion.oversample = "none";
+  highpass.type = "highpass";
+  highpass.frequency.value = 22;
+  highpass.Q.value = 0.7;
+  compressor.threshold.value = -7;
+  compressor.knee.value = 5;
+  compressor.ratio.value = 6;
+  compressor.attack.value = 0.008;
+  compressor.release.value = 0.11;
   master.gain.value = project.volume * 0.8;
+  const ceiling = new Float32Array(2048);
+  for (let index = 0; index < ceiling.length; index += 1) {
+    const value = (index / (ceiling.length - 1)) * 2 - 1;
+    ceiling[index] =
+      Math.abs(value) <= 0.85
+        ? value
+        : Math.sign(value) *
+          (0.85 + 0.1 * Math.tanh((Math.abs(value) - 0.85) / 0.1));
+  }
+  safety.curve = ceiling;
   analyser.fftSize = 1024;
   analyser.smoothingTimeConstant = 0.82;
+  input.connect(dry);
+  dry.connect(highpass);
   input.connect(distortion);
-  distortion.connect(compressor);
+  distortion.connect(wet);
+  wet.connect(highpass);
+  cleanInput.connect(highpass);
+  highpass.connect(compressor);
   compressor.connect(master);
-  master.connect(analyser);
+  master.connect(safety);
+  safety.connect(analyser);
   analyser.connect(context.destination);
   const noise = context.createBuffer(
     1,
@@ -68,6 +112,9 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   return {
     context,
     input,
+    cleanInput,
+    dry,
+    wet,
     distortion,
     compressor,
     master,
@@ -75,6 +122,7 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
     noise,
     sources: new Set(),
     drive: project.drive,
+    bpm: project.bpm,
   };
 }
 
@@ -82,8 +130,11 @@ function updateGraph(graph: AudioGraph, project: Project): void {
   const now = graph.context.currentTime;
   graph.master.gain.cancelAndHoldAtTime(now);
   graph.master.gain.setTargetAtTime(project.volume * 0.8, now, 0.015);
+  graph.bpm = project.bpm;
   if (graph.drive !== project.drive) {
     graph.distortion.curve = distortionCurve(project.drive);
+    graph.dry.gain.setTargetAtTime(1 - project.drive * 0.45, now, 0.015);
+    graph.wet.gain.setTargetAtTime(project.drive * 0.45, now, 0.015);
     graph.drive = project.drive;
   }
 }
@@ -169,27 +220,23 @@ function drumVoice(graph: AudioGraph, track: DrumTrack, time: number): void {
   };
 
   if (track.id === "kick") {
-    const frequencies = [49, 57, 44];
-    const fundamental = frequencies[track.sound] ?? 49;
+    const frequencies = [55, 62, 51];
+    const fundamental = frequencies[track.sound] ?? 55;
     const source = oscillator(
       track.sound === 2 ? "triangle" : "sine",
-      fundamental * 3.8,
+      fundamental * (track.sound === 1 ? 2.8 : 2.2),
       output,
     );
     source.frequency.exponentialRampToValueAtTime(
       fundamental * pitch,
-      time + 0.045,
-    );
-    source.frequency.exponentialRampToValueAtTime(
-      Math.max(20, fundamental * pitch * 0.7),
-      time + decay,
+      time + 0.022,
     );
     envelope(output.gain, 0.95, decay);
     const click = context.createGain();
     click.connect(graph.input);
     nodes.push(click);
     noise("highpass", track.sound === 1 ? 2800 : 1400, click);
-    envelope(click.gain, track.sound === 1 ? 0.15 : 0.07, 0.012);
+    envelope(click.gain, track.sound === 1 ? 0.1 : 0.035, 0.009);
   } else if (track.id === "snare") {
     const body = context.createGain();
     const snap = context.createGain();
@@ -232,20 +279,28 @@ function drumVoice(graph: AudioGraph, track: DrumTrack, time: number): void {
       envelope(output.gain, 0.62, 0.009, pulse * spread);
     envelope(output.gain, 0.46, decay, 3 * spread);
     end = time + 3 * spread + decay + 0.05;
-  } else {
-    const filter = context.createBiquadFilter();
-    filter.type = "bandpass";
-    filter.frequency.value = Math.min(
-      16000,
-      (track.sound === 2 ? 720 : 1100) * pitch,
+  } else if (track.id === "rim") {
+    const body = context.createGain();
+    const snap = context.createGain();
+    body.connect(output);
+    snap.connect(output);
+    nodes.push(body, snap);
+    output.gain.value = 1;
+    oscillator("sine", track.sound === 1 ? 610 : 430, body);
+    oscillator(
+      "sine",
+      track.sound === 2 ? 2400 : track.sound === 1 ? 1680 : 1480,
+      body,
     );
-    filter.Q.value = track.sound === 1 ? 2.2 : 0.75;
-    filter.connect(output);
-    nodes.push(filter);
-    const base = track.sound === 2 ? 360 : track.sound === 1 ? 610 : 540;
-    oscillator(track.sound === 1 ? "triangle" : "square", base, filter);
-    oscillator("square", base * 1.4815, filter);
-    envelope(output.gain, 0.28, decay);
+    const length = Math.max(0.018, decay * (track.sound === 1 ? 0.65 : 0.4));
+    envelope(body.gain, track.sound === 2 ? 0.1 : 0.22, length);
+    noise("highpass", track.sound === 2 ? 3800 : 2200, snap);
+    envelope(
+      snap.gain,
+      track.sound === 2 ? 0.26 : 0.11,
+      Math.min(0.025, length * 0.5),
+    );
+    end = time + length + 0.03;
   }
   scheduleSources(graph, sources, nodes, time, end);
 }
@@ -289,7 +344,6 @@ class BassVoice {
     duration: number,
   ): void {
     const step = track.steps[stepIndex];
-    const next = track.steps[(stepIndex + 1) % STEP_COUNT];
     const envelope = this.gain.gain;
     envelope.cancelAndHoldAtTime(time);
     if (!step?.on || track.muted || track.volume === 0) {
@@ -298,55 +352,61 @@ class BassVoice {
       return;
     }
     const incomingSlide = this.sliding;
-    const outgoingSlide = step.slide && next?.on === true;
+    const outgoingSlide = tiesNextStep(track.steps, stepIndex);
     const frequency = midiFrequency(step.note);
     this.oscillator.type = track.waveform;
     this.oscillator.frequency.cancelAndHoldAtTime(time);
     if (incomingSlide)
       this.oscillator.frequency.exponentialRampToValueAtTime(
         frequency,
-        time + Math.min(0.065, duration * 0.6),
+        time + Math.min(0.07, duration * 0.6),
       );
     else this.oscillator.frequency.setValueAtTime(frequency, time);
 
     const amplitude = Math.max(
       MIN_GAIN,
-      (track.volume * (step.accent ? 0.48 : 0.32)) /
-        (1 + track.resonance * 0.018),
+      (track.volume * (step.accent ? 0.46 : 0.34)) /
+        (1 + track.resonance * 0.012),
     );
     if (!incomingSlide) {
       envelope.setValueAtTime(MIN_GAIN, time);
-      envelope.linearRampToValueAtTime(amplitude, time + 0.003);
-    }
-    if (outgoingSlide) {
+      envelope.linearRampToValueAtTime(amplitude, time + 0.004);
+    } else if (step.accent)
+      envelope.linearRampToValueAtTime(amplitude, time + 0.02);
+    if (outgoingSlide)
       envelope.exponentialRampToValueAtTime(
         Math.max(MIN_GAIN, amplitude * 0.74),
         time + duration,
       );
-    } else {
+    else {
       envelope.exponentialRampToValueAtTime(
-        Math.max(MIN_GAIN, amplitude * 0.5),
-        time + duration * 0.68,
+        Math.max(MIN_GAIN, amplitude * 0.4),
+        time + duration * 0.66,
       );
-      envelope.exponentialRampToValueAtTime(MIN_GAIN, time + duration * 0.92);
-      envelope.linearRampToValueAtTime(0, time + duration * 0.96);
+      envelope.exponentialRampToValueAtTime(MIN_GAIN, time + duration * 0.88);
+      envelope.linearRampToValueAtTime(0, time + duration * 0.94);
     }
 
     this.filters.forEach((filter, index) => {
       const base = Math.min(17000, track.cutoff * (index === 0 ? 1 : 1.12));
       const peak = Math.min(
-        18000,
-        base + track.envelope * (step.accent ? 10500 : 7200),
+        16000,
+        base * (1 + track.envelope * 5) +
+          track.envelope * (step.accent ? 2200 : 1400),
       );
       filter.Q.setValueAtTime(
-        index === 0 ? 0.8 + track.resonance * 0.45 : 0.7,
+        index === 0 ? 0.7 + track.resonance * 0.28 : 0.7,
         time,
       );
       filter.frequency.cancelAndHoldAtTime(time);
       if (!incomingSlide) {
         filter.frequency.setValueAtTime(base, time);
         filter.frequency.exponentialRampToValueAtTime(peak, time + 0.004);
-      }
+      } else if (step.accent)
+        filter.frequency.exponentialRampToValueAtTime(
+          base + (peak - base) * 0.65,
+          time + 0.02,
+        );
       filter.frequency.exponentialRampToValueAtTime(base, time + track.decay);
     });
     this.sliding = outgoingSlide;
@@ -356,6 +416,279 @@ class BassVoice {
     this.gain.gain.cancelAndHoldAtTime(time);
     this.gain.gain.linearRampToValueAtTime(0, time + 0.008);
     this.oscillator.stop(time + 0.012);
+  }
+}
+
+function keysEchoTail(track: KeysTrack, bpm: number): number {
+  return track.space > 0 ? (60 / bpm) * 1.5 : 0;
+}
+
+export function exportTailDuration(project: Project): number {
+  const drumTail = project.drums.reduce((longest, track) => {
+    if (track.muted || track.volume === 0) return longest;
+    const decay =
+      track.id === "hat" && track.sound === 1
+        ? Math.min(2.5, track.decay * 3.2)
+        : track.decay;
+    return Math.max(longest, decay + 0.12);
+  }, 0);
+  const keysTail =
+    project.keys.muted || project.keys.volume === 0
+      ? 0
+      : project.keys.decay + keysEchoTail(project.keys, project.bpm) + 0.08;
+  return Math.max(0.35, drumTail, keysTail);
+}
+
+interface KeysTone {
+  type: OscillatorType;
+  multiplier: number;
+  level: number;
+  detune: number;
+}
+
+function keysTones(sound: number): KeysTone[] {
+  if (sound === 0)
+    return [
+      { type: "sine", multiplier: 1, level: 0.76, detune: 0 },
+      { type: "triangle", multiplier: 1, level: 0.2, detune: 2 },
+      { type: "sine", multiplier: 2, level: 0.04, detune: 0 },
+    ];
+  if (sound === 1)
+    return [
+      { type: "triangle", multiplier: 1, level: 0.65, detune: 0 },
+      { type: "sine", multiplier: 1, level: 0.25, detune: 0 },
+      { type: "sine", multiplier: 2, level: 0.1, detune: 0 },
+    ];
+  return [
+    { type: "sine", multiplier: 1, level: 0.47, detune: -3 },
+    { type: "triangle", multiplier: 1, level: 0.47, detune: 3 },
+    { type: "sawtooth", multiplier: 1, level: 0.06, detune: 0 },
+  ];
+}
+
+class KeysVoice {
+  private readonly filter: BiquadFilterNode;
+  private readonly envelope: GainNode;
+  private readonly tones: Array<{
+    oscillator: OscillatorNode;
+    gain: GainNode;
+  }> = [];
+  private readonly echoes: Array<{
+    delay: DelayNode;
+    damping: BiquadFilterNode;
+    gain: GainNode;
+  }> = [];
+  private echoTail = 0;
+  finished = false;
+
+  constructor(
+    private readonly graph: AudioGraph,
+    track: KeysTrack,
+    time: number,
+  ) {
+    const context = graph.context;
+    this.filter = context.createBiquadFilter();
+    this.filter.type = "lowpass";
+    this.filter.Q.value = 0.55;
+    this.envelope = context.createGain();
+    this.envelope.gain.value = 0;
+    this.filter.connect(this.envelope);
+    this.envelope.connect(graph.cleanInput);
+    const nodes: AudioNode[] = [this.filter, this.envelope];
+    const sources: OscillatorNode[] = [];
+    for (const tone of keysTones(track.sound)) {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = tone.type;
+      oscillator.detune.value = tone.detune;
+      gain.gain.value = tone.level;
+      oscillator.connect(gain);
+      gain.connect(this.filter);
+      sources.push(oscillator);
+      nodes.push(gain);
+      this.tones.push({ oscillator, gain });
+      oscillator.addEventListener(
+        "ended",
+        () => {
+          this.finished = true;
+        },
+        { once: true },
+      );
+    }
+    for (let index = 0; index < 3; index += 1) {
+      const delay = context.createDelay(2);
+      const damping = context.createBiquadFilter();
+      const gain = context.createGain();
+      const pan = context.createStereoPanner();
+      damping.type = "lowpass";
+      damping.Q.value = 0.5;
+      gain.gain.value = 0;
+      pan.pan.value = index % 2 === 0 ? -0.5 : 0.5;
+      this.envelope.connect(delay);
+      delay.connect(damping);
+      damping.connect(gain);
+      gain.connect(pan);
+      pan.connect(graph.cleanInput);
+      nodes.push(delay, damping, gain, pan);
+      this.echoes.push({ delay, damping, gain });
+    }
+    scheduleSources(
+      graph,
+      sources,
+      nodes,
+      time,
+      time + track.decay + keysEchoTail(track, graph.bpm) + 0.05,
+    );
+  }
+
+  schedule(
+    track: KeysTrack,
+    note: number,
+    accent: boolean,
+    time: number,
+    duration: number,
+    incomingSlide: boolean,
+    outgoingSlide: boolean,
+  ): void {
+    const frequency = midiFrequency(note);
+    const configurations = keysTones(track.sound);
+    this.tones.forEach((tone, index) => {
+      const configuration = configurations[index];
+      if (!configuration) return;
+      tone.oscillator.type = configuration.type;
+      tone.oscillator.detune.setValueAtTime(configuration.detune, time);
+      tone.gain.gain.setTargetAtTime(configuration.level, time, 0.01);
+      tone.oscillator.frequency.cancelAndHoldAtTime(time);
+      if (incomingSlide)
+        tone.oscillator.frequency.exponentialRampToValueAtTime(
+          frequency * configuration.multiplier,
+          time + Math.min(0.08, duration * 0.65),
+        );
+      else
+        tone.oscillator.frequency.setValueAtTime(
+          frequency * configuration.multiplier,
+          time,
+        );
+    });
+    const attack =
+      Math.min(
+        track.decay * 0.2,
+        track.sound === 1 ? 0.003 : track.sound === 2 ? 0.022 : 0.012,
+      ) * (accent ? 0.7 : 1);
+    const amplitude = Math.max(
+      MIN_GAIN,
+      track.volume * (track.sound === 1 ? 0.34 : 0.38) * (accent ? 1.28 : 1),
+    );
+    const cutoff = Math.min(
+      15000,
+      Math.max(
+        frequency * 2,
+        (750 + track.tone ** 1.4 * 10000) * (accent ? 1.18 : 1),
+      ),
+    );
+    const envelope = this.envelope.gain;
+    envelope.cancelAndHoldAtTime(time);
+    if (!incomingSlide) {
+      envelope.setValueAtTime(0, time);
+      envelope.linearRampToValueAtTime(amplitude, time + attack);
+    } else
+      envelope.linearRampToValueAtTime(
+        amplitude * (accent ? 1 : 0.85),
+        time + 0.025,
+      );
+    if (outgoingSlide)
+      envelope.exponentialRampToValueAtTime(
+        Math.max(MIN_GAIN, amplitude * 0.75),
+        time + duration,
+      );
+    else {
+      envelope.exponentialRampToValueAtTime(
+        Math.max(MIN_GAIN, amplitude * (track.sound === 1 ? 0.18 : 0.38)),
+        time + track.decay * 0.55,
+      );
+      envelope.exponentialRampToValueAtTime(MIN_GAIN, time + track.decay);
+      envelope.linearRampToValueAtTime(0, time + track.decay + 0.01);
+    }
+    this.filter.frequency.cancelAndHoldAtTime(time);
+    if (incomingSlide)
+      this.filter.frequency.exponentialRampToValueAtTime(cutoff, time + 0.025);
+    else this.filter.frequency.setValueAtTime(cutoff, time);
+    this.filter.frequency.exponentialRampToValueAtTime(
+      Math.max(frequency * 1.4, 500 + track.tone * 4200),
+      time + track.decay,
+    );
+    const beat = 60 / this.graph.bpm;
+    this.echoes.forEach((echo, index) => {
+      echo.delay.delayTime.setValueAtTime(beat * (index + 1) * 0.5, time);
+      echo.damping.frequency.setValueAtTime(1200 + track.tone * 3000, time);
+      echo.gain.gain.setValueAtTime(
+        track.space * (index === 0 ? 0.2 : index === 1 ? 0.12 : 0.07),
+        time,
+      );
+    });
+    this.echoTail = Math.max(
+      this.echoTail,
+      keysEchoTail(track, this.graph.bpm),
+    );
+    this.scheduleStop(
+      time +
+        (outgoingSlide ? duration : 0) +
+        track.decay +
+        this.echoTail +
+        0.05,
+    );
+  }
+
+  release(time: number, decay: number): void {
+    if (this.finished) return;
+    this.envelope.gain.cancelAndHoldAtTime(time);
+    this.envelope.gain.exponentialRampToValueAtTime(MIN_GAIN, time + decay);
+    this.envelope.gain.linearRampToValueAtTime(0, time + decay + 0.01);
+    this.scheduleStop(time + decay + this.echoTail + 0.05);
+  }
+
+  private scheduleStop(time: number): void {
+    for (const tone of this.tones) tone.oscillator.stop(time);
+  }
+}
+
+class KeysSequencer {
+  private tiedVoice: KeysVoice | null = null;
+  constructor(private readonly graph: AudioGraph) {}
+
+  schedule(
+    track: KeysTrack,
+    stepIndex: number,
+    time: number,
+    duration: number,
+  ): void {
+    const step = track.steps[stepIndex];
+    if (!step?.on || track.muted || track.volume === 0) {
+      this.tiedVoice?.release(time, 0.015);
+      this.tiedVoice = null;
+      return;
+    }
+    const incomingSlide = this.tiedVoice !== null && !this.tiedVoice.finished;
+    const voice =
+      incomingSlide && this.tiedVoice
+        ? this.tiedVoice
+        : new KeysVoice(this.graph, track, time);
+    const outgoingSlide = tiesNextStep(track.steps, stepIndex);
+    voice.schedule(
+      track,
+      step.note,
+      step.accent,
+      time,
+      duration,
+      incomingSlide,
+      outgoingSlide,
+    );
+    this.tiedVoice = outgoingSlide ? voice : null;
+  }
+
+  release(time: number, decay: number): void {
+    this.tiedVoice?.release(time, decay);
+    this.tiedVoice = null;
   }
 }
 
@@ -404,6 +737,7 @@ export class AudioEngine {
   private context: AudioContext | null = null;
   private graph: AudioGraph | null = null;
   private bass: BassVoice | null = null;
+  private keys: KeysSequencer | null = null;
   private project: Project | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private visualTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -434,6 +768,7 @@ export class AudioEngine {
     if (generation !== this.generation) return;
     this.project = project;
     this.bass = new BassVoice(graph);
+    this.keys = new KeysSequencer(graph);
     this.step = 0;
     this.nextStepTime = graph.context.currentTime + 0.035;
     this.playing = true;
@@ -456,6 +791,7 @@ export class AudioEngine {
         if (!drum.muted && drum.steps[step]) drumVoice(graph, drum, time);
       }
       this.bass?.schedule(project.bass, step, time, duration);
+      this.keys?.schedule(project.keys, step, time, duration);
       const timer = setTimeout(
         () => {
           this.visualTimers.delete(timer);
@@ -485,6 +821,7 @@ export class AudioEngine {
       for (const source of graph.sources) source.stop(time + 0.015);
     }
     this.bass = null;
+    this.keys = null;
     this.onStep(-1);
   }
 
@@ -500,13 +837,57 @@ export class AudioEngine {
     drumVoice(graph, track, graph.context.currentTime + 0.005);
   }
 
+  async auditionBass(
+    track: BassTrack,
+    note: number,
+    accent = false,
+  ): Promise<void> {
+    if (!this.project)
+      throw new Error("Set the project before auditioning bass.");
+    if (!Number.isInteger(note) || note < 24 || note > 60)
+      throw new Error("Choose a bass note between C1 and C4.");
+    const graph = await this.prepare(this.project);
+    const voice = new BassVoice(graph);
+    const preview: BassTrack = {
+      ...track,
+      muted: false,
+      steps: track.steps.map((step, index) => ({
+        ...step,
+        note,
+        on: index === 0,
+        accent,
+        slide: false,
+      })),
+    };
+    const time = graph.context.currentTime + 0.005;
+    const duration = Math.max(0.14, Math.min(0.4, track.decay + 0.06));
+    voice.schedule(preview, 0, time, duration);
+    voice.stop(time + duration);
+  }
+
+  async auditionKeys(
+    track: KeysTrack,
+    note: number,
+    accent = false,
+  ): Promise<void> {
+    if (!this.project)
+      throw new Error("Set the project before auditioning keys.");
+    if (!Number.isInteger(note) || note < 48 || note > 84)
+      throw new Error("Choose a keys note between C3 and C6.");
+    const graph = await this.prepare(this.project);
+    if (track.volume === 0) return;
+    const time = graph.context.currentTime + 0.005;
+    const voice = new KeysVoice(graph, track, time);
+    voice.schedule(track, note, accent, time, track.decay, false, false);
+  }
+
   getAnalyser(): AnalyserNode | null {
     return this.graph?.analyser ?? null;
   }
 
   async exportWav(project: Project): Promise<Blob> {
     const loopDuration = (60 / project.bpm) * 8;
-    const tailDuration = 1.6;
+    const tailDuration = exportTailDuration(project);
     const context = new OfflineAudioContext(
       2,
       Math.ceil((loopDuration + tailDuration) * WAV_SAMPLE_RATE),
@@ -514,6 +895,7 @@ export class AudioEngine {
     );
     const graph = createGraph(context, project);
     const bass = new BassVoice(graph);
+    const keys = new KeysSequencer(graph);
     let time = 0;
     for (let index = 0; index < STEP_COUNT * 2; index += 1) {
       const step = index % STEP_COUNT;
@@ -522,9 +904,11 @@ export class AudioEngine {
         if (!drum.muted && drum.steps[step]) drumVoice(graph, drum, time);
       }
       bass.schedule(project.bass, step, time, duration);
+      keys.schedule(project.keys, step, time, duration);
       time += duration;
     }
     bass.stop(loopDuration);
+    keys.release(loopDuration, project.keys.decay);
     const rendered = await context.startRendering();
     const channels: Float32Array[] = [];
     for (let index = 0; index < rendered.numberOfChannels; index += 1)
