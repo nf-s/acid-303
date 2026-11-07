@@ -248,11 +248,36 @@ Workers-subdomain change is needed.
 The public launcher continues to point to the app's existing Pages URL. The
 backend API is not a separate launcher application.
 
-## Production release evidence
+## Protocol v2 release evidence
 
-The evidence below records the original protocol-v1 deployment. The protocol-v2
-source and cost changes above await the coordinated Phase 2 deployment; they
-are not yet claimed as production verification.
+Released 7 November 2026 at 11:29:25 UTC from commit `5d79ac2`, using the
+verified frozen production module and authenticated Cloudflare API. The Worker
+version is `cd4f6600-ca6f-41c4-a502-2b0b0340f8b7`, deployed at 100% in deployment
+`db34bce2-b450-4010-9ba8-519f3dbf6236`. The existing SQLite namespace remains
+`ffe237d4fde14ba99780aa4f28eb4bec`. Export reconciliation created, changed and
+deleted no namespaces. Origin, rate bindings, observability and route settings
+remain unchanged.
+
+The downloaded production module matched the frozen local bundle: 412,359
+bytes, SHA-256
+`440e3a32897ff79782e6955f71d035f341f0d979853834cd230c33cc7bd5c539`.
+Before release, 14 workerd tests, strict typechecking, the production build and
+deployment dry-run passed, including maximum-length snapshots and v2 project
+migration. The coordinated frontend checkpoint passed 126 unit tests and 46
+browser tests. Independent Chrome and WebKit audio checks each passed 11
+render cases and live stop, stopped-control update and restart checks.
+
+A canonical-origin backend smoke created one room at 11:30:39.005 UTC and ended
+and revoked it at 11:30:42.327 UTC. It verified v2 host/guest roles, ordered
+concurrent edits, a 240-cell bass pattern, sparse edits to Pad automation cells
+478–479, transport requests and fractional tick clocks. Guest clock/end requests,
+invalid tokens and disallowed origins were denied. A v1 host upgrade received
+`reload-required` and close 4010 while the current v2 host retained its role and
+state. Host replacement used close 4009. End revocation was confirmed by a failed
+reconnect; all test sockets closed. The Pages release proceeds only after this
+backend verification and separately tests frontend host-only audio.
+
+## Original production release evidence
 
 Released 7 November 2026 at 08:01:57 UTC from commit `1ccce3c`, using the
 authenticated Cloudflare API and the frozen cf production build. The script's
