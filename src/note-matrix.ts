@@ -135,6 +135,40 @@ export class NoteMatrix {
   cancelStroke(): void {
     this.cancelPointers();
   }
+  rebaseIncoming(
+    steps: ReadonlyArray<BassStep>,
+    values?: ReadonlyArray<number> | null,
+  ): void {
+    for (const stroke of this.pointers.values()) {
+      stroke.original.forEach((original, index) => {
+        const current = this.steps[index],
+          next = steps[index];
+        if (!current || !next) return;
+        if (current.note !== next.note) original.note = next.note;
+        if (current.on !== next.on) original.on = next.on;
+        if (current.accent !== next.accent) original.accent = next.accent;
+        if (current.slide !== next.slide) original.slide = next.slide;
+      });
+      if (stroke.automation && this.automation && values !== undefined) {
+        const baseline = Array.from(
+          { length: STEP_COUNT },
+          (_, index) =>
+            stroke.automation?.values?.[index] ?? this.automation?.base ?? 0,
+        );
+        let changed = false;
+        for (let index = 0; index < STEP_COUNT; index++) {
+          const current =
+            this.automation.values?.[index] ?? this.automation.base;
+          const next = values?.[index] ?? this.automation.base;
+          if (current !== next) {
+            baseline[index] = next;
+            changed = true;
+          }
+        }
+        if (changed) stroke.automation.values = baseline;
+      }
+    }
+  }
   setStep(step: number): void {
     this.current = step;
     this.draw();
@@ -441,7 +475,7 @@ export class NoteMatrix {
     ctx.setTransform(this.ratio, 0, 0, this.ratio, 0, 0);
     ctx.fillStyle = "#131415";
     ctx.fillRect(0, 0, this.width, this.height);
-    ctx.font = '9px "Courier New", monospace';
+    ctx.font = '9px "IBM Plex Mono", monospace';
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (let index = 0; index < STEP_COUNT; index++) {
@@ -472,11 +506,21 @@ export class NoteMatrix {
       ctx.moveTo(LEFT, y);
       ctx.lineTo(this.width - RIGHT, y);
       ctx.stroke();
-      if (row % 3 === 0 || row === this.notes.length - 1) {
-        ctx.fillStyle = this.automation ? "#697077" : "#9da2a7";
+      if (
+        !this.automation &&
+        (row % 3 === 0 || row === this.notes.length - 1)
+      ) {
+        ctx.fillStyle = "#9da2a7";
         ctx.fillText(noteName(note), LEFT / 2, y);
       }
     });
+    if (this.automation) {
+      for (const value of [1, 0.5, 0]) {
+        const y = TOP + (1 - value) * this.plotHeight;
+        ctx.fillStyle = "#aab0b6";
+        ctx.fillText(this.automation.format(value), LEFT / 2, y, LEFT - 6);
+      }
+    }
     if (!this.automation && this.parameter !== "pitch") {
       const middle = TOP + this.plotHeight / 2;
       ctx.strokeStyle = "#757b81";
@@ -497,7 +541,7 @@ export class NoteMatrix {
     this.steps.forEach((step, index) => {
       const center = LEFT + (index + 0.5) * this.cellWidth;
       ctx.fillStyle = step.on ? "#aab0b6" : "#697077";
-      ctx.font = `${this.cellWidth < 28 ? 7 : 9}px "Courier New", monospace`;
+      ctx.font = `${this.cellWidth < 28 ? 7 : 9}px "IBM Plex Mono", monospace`;
       ctx.fillText(noteName(step.note), center, this.height - 8);
     });
     ctx.globalAlpha = this.muted ? 0.5 : 1;

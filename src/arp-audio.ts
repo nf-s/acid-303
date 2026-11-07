@@ -1,5 +1,10 @@
 import { midiFrequency, saturationSample } from "./audio";
-import { arpEvents, arpInterval } from "./arp-model";
+import {
+  arpEvents,
+  arpInterval,
+  automatedArp,
+  arpValueFromNormalized,
+} from "./arp-model";
 import type { ArpEvent, ArpTrack } from "./arp-model";
 import type { MusicalScale } from "./model";
 
@@ -102,19 +107,33 @@ function profileFor(sound: number): ArpProfile {
 }
 
 export function arpTailDuration(track: ArpTrack, bpm: number): number {
+  const volume = Math.max(track.volume, ...(track.automation.volume ?? []));
   if (
     track.muted ||
-    track.volume === 0 ||
+    volume === 0 ||
     track.notes.length === 0 ||
     !track.steps.some(Boolean)
   )
     return 0;
   const beat = 60 / bpm;
+  const gate = Math.max(
+    track.gate,
+    ...(track.automation.gate ?? []).map((value) =>
+      arpValueFromNormalized("gate", value),
+    ),
+  );
+  const decay = Math.max(
+    track.decay,
+    ...(track.automation.decay ?? []).map((value) =>
+      arpValueFromNormalized("decay", value),
+    ),
+  );
+  const space = Math.max(track.space, ...(track.automation.space ?? []));
   return (
-    (arpInterval(track.rate) * beat * track.gate) / 4 +
+    (arpInterval(track.rate) * beat * gate) / 4 +
     0.018 +
-    track.decay * profileFor(track.sound).release +
-    (track.space > 0 ? beat * 1.5 : 0) +
+    decay * profileFor(track.sound).release +
+    (space > 0 ? beat * 1.5 : 0) +
     0.05
   );
 }
@@ -142,6 +161,7 @@ export class ArpInstrument {
     duration: number,
     bpm: number,
   ): void {
+    track = automatedArp(track, absoluteStep);
     this.level.gain.cancelAndHoldAtTime(time);
     const level = track.muted ? 0 : track.volume;
     if (this.firstStep) this.level.gain.setValueAtTime(level, time);

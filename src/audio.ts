@@ -1847,6 +1847,7 @@ export class AudioEngine {
   private absoluteStep = 0;
   private playing = false;
   private generation = 0;
+  private silent = false;
 
   constructor(private onStep: (step: number, absoluteStep: number) => void) {}
 
@@ -1854,11 +1855,27 @@ export class AudioEngine {
     return this.playing;
   }
 
+  get isReady(): boolean {
+    return !this.silent && this.context?.state === "running";
+  }
+
+  setSilent(silent: boolean): void {
+    if (this.silent === silent) return;
+    this.silent = silent;
+    if (silent) this.stop();
+  }
+
+  async unlock(project: Project): Promise<void> {
+    await this.prepare(project);
+  }
+
   private async prepare(project: Project): Promise<AudioGraph> {
+    if (this.silent) throw new Error("Audio plays on the session host.");
     if (!this.context)
       this.context = new AudioContext({ latencyHint: "interactive" });
     if (!this.graph) this.graph = createGraph(this.context, project);
     if (this.context.state !== "running") await this.context.resume();
+    if (this.silent) throw new Error("Audio plays on the session host.");
     updateGraph(this.graph, project);
     return this.graph;
   }

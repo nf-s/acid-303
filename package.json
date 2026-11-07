@@ -13,8 +13,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@fontsource-variable/dm-sans": "^5.3.0",
-    "@fontsource-variable/space-grotesk": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
     "lucide": "^0.468.0",
     "zod": "^4.0.0"
   },

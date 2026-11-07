@@ -3,8 +3,9 @@
 Production: https://acid-303.pages.dev/
 
 The `acid-303` Pages project uses direct uploads to its `main` production branch.
-Only the generated `dist/` directory is uploaded. This is a static application:
-it has no Pages Functions, API, database, or server-side pattern storage.
+Only the generated `dist/` directory is uploaded to Pages. Shared sessions use
+the separate `grain-sessions` Worker and SQLite Durable Objects. Follow
+[the session release and metered-usage review](sessions.md) for that backend.
 
 ## Access
 
@@ -14,7 +15,9 @@ public. The temporary ACID 303 Access application was removed before release;
 other applications and account identity providers were left unchanged.
 
 Account identifiers remain in Cloudflare configuration; credentials are never
-part of the build or source repository. Patterns stay in each visitor's browser.
+part of the build or source repository. Solo patterns stay in each visitor's
+browser; creating or joining a session synchronizes its musical state through
+the session Worker. Audio stays on the host device.
 
 ## Release procedure
 
@@ -36,7 +39,9 @@ part of the build or source repository. Patterns stay in each visitor's browser.
 
 The initial release uses the existing authenticated Wrangler 4.152.0 install
 for Pages Direct Upload, without adding a CLI dependency to this application.
-Audio and visualization run on the visitor's device. There is no metered
-database or application API work to review.
+Audio and visualization run on visitors' devices. Shared sessions add metered
+Worker requests, Durable Object messages and SQLite snapshot writes; review
+[session costs and measured queries](sessions.md#metered-usage-review) before
+changing or publishing those paths.
 
 Reference: [Pages Direct Upload](https://developers.cloudflare.com/pages/get-started/direct-upload/).

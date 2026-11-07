@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { scaleNotes, SCALE_MODES } from "./model";
 import {
   PAD_PROGRESSIONS,
+  automatedPad,
+  normalizedPadValue,
   applyPadProgression,
   createPad,
   padChordAtStep,
@@ -11,6 +13,7 @@ import {
   padSchema,
   retunePad,
 } from "./pad-model";
+import type { PadParameter } from "./pad-model";
 import { padTailDuration } from "./pad-audio";
 
 describe("chord progression model", () => {
@@ -37,6 +40,69 @@ describe("chord progression model", () => {
       }).success,
     ).toBe(false);
     expect(padSchema.safeParse({ ...pad, volume: NaN }).success).toBe(false);
+  });
+
+  it("upgrades eight automation lanes and interpolates them over the complete progression", () => {
+    const parameters: PadParameter[] = [
+      "attack",
+      "release",
+      "tone",
+      "motion",
+      "spread",
+      "space",
+      "shape",
+      "volume",
+    ];
+    for (const bars of [2, 4, 8, 16]) {
+      const pad = padSchema.parse({ bars });
+      expect(Object.values(pad.automation)).toEqual(
+        Array.from({ length: 8 }, () => null),
+      );
+      for (const parameter of parameters) {
+        expect(normalizedPadValue(pad, parameter)).toBe(pad[parameter]);
+        pad.automation[parameter] = Array.from(
+          { length: 16 },
+          (_, index) => index / 15,
+        );
+      }
+      const before = structuredClone(pad);
+      for (const parameter of parameters) {
+        expect(automatedPad(pad, bars * 5)[parameter]).toBeCloseTo(5 / 15);
+        expect(automatedPad(pad, bars * 5 + bars / 2)[parameter]).toBeCloseTo(
+          5.5 / 15,
+        );
+        expect(automatedPad(pad, bars * 15 + bars / 2)[parameter]).toBeCloseTo(
+          0.5,
+        );
+        expect(automatedPad(pad, bars * 16)[parameter]).toBe(0);
+      }
+      expect(pad).toEqual(before);
+      expect(automatedPad(pad, -1)).toEqual(pad);
+    }
+    expect(createPad().automation.tone).toBeNull();
+    for (const invalid of [
+      [],
+      [0],
+      Array(16).fill(-1),
+      Array(16).fill(Infinity),
+    ])
+      expect(
+        padSchema.safeParse({ automation: { tone: invalid } }).success,
+      ).toBe(false);
+  });
+
+  it("reserves automated releases and echoes even when base level is silent", () => {
+    const pad = createPad();
+    pad.muted = false;
+    pad.volume = 0;
+    expect(padTailDuration(pad, 60)).toBe(0);
+    for (const parameter of [
+      "release",
+      "space",
+      "volume",
+    ] satisfies PadParameter[])
+      pad.automation[parameter] = Array(16).fill(1);
+    expect(padTailDuration(pad, 60)).toBeGreaterThanOrEqual(4.4);
   });
 
   it("holds each chord for its share of every supported progression length", () => {

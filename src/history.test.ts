@@ -4,6 +4,18 @@ import { createProject } from "./model";
 import { createPreset } from "./presets";
 
 describe("project edit history", () => {
+  it("starts fresh when joining a different track", () => {
+    const history = new EditHistory({ value: 0 });
+    history.record({ value: 1 }, 1);
+    history.undo();
+    const session = { value: 12 };
+    history.reset(session);
+    session.value = 20;
+    expect(history.canUndo).toBe(false);
+    expect(history.canRedo).toBe(false);
+    history.record({ value: 13 }, 2);
+    expect(history.undo()).toEqual({ value: 12 });
+  });
   it("undoes one whole gesture, then a preset, and redoes both", () => {
     const project = createProject();
     const history = new EditHistory(project);

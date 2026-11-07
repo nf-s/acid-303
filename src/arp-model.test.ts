@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   arpEvents,
+  automatedArp,
+  normalizedArpValue,
+  arpValueFromNormalized,
   arpNotePool,
   arpSchema,
   createArp,
   retuneArp,
 } from "./arp-model";
-import type { ArpTrack } from "./arp-model";
+import type { ArpParameter, ArpTrack } from "./arp-model";
 import { SCALE_MODES, scaleNotes } from "./model";
 import { arpTailDuration } from "./arp-audio";
 
@@ -49,6 +52,69 @@ describe("arpeggiator model", () => {
       { steps: [] },
     ])
       expect(arpSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it("upgrades eight independent automation lanes and resolves one-bar curves without mutation", () => {
+    const track = activeTrack();
+    const parameters: ArpParameter[] = [
+      "gate",
+      "decay",
+      "tone",
+      "resonance",
+      "shape",
+      "space",
+      "width",
+      "volume",
+    ];
+    expect(Object.values(track.automation)).toEqual(
+      Array.from({ length: 8 }, () => null),
+    );
+    for (const parameter of parameters) {
+      expect(
+        arpValueFromNormalized(parameter, normalizedArpValue(track, parameter)),
+      ).toBeCloseTo(track[parameter]);
+      track.automation[parameter] = Array.from(
+        { length: 16 },
+        (_, index) => index / 15,
+      );
+    }
+    const before = structuredClone(track);
+    for (const parameter of parameters) {
+      expect(automatedArp(track, 0)[parameter]).toBeCloseTo(
+        arpValueFromNormalized(parameter, 0),
+      );
+      expect(automatedArp(track, 15)[parameter]).toBeCloseTo(
+        arpValueFromNormalized(parameter, 1),
+      );
+      expect(automatedArp(track, 18)[parameter]).toBeCloseTo(
+        arpValueFromNormalized(parameter, 2 / 15),
+      );
+    }
+    expect(track).toEqual(before);
+    expect(createArp().automation.tone).toBeNull();
+    for (const invalid of [[], [0], Array(16).fill(2), Array(16).fill(NaN)])
+      expect(
+        arpSchema.safeParse({ automation: { tone: invalid } }).success,
+      ).toBe(false);
+    expect(arpSchema.parse({ automation: { tone: null } }).automation).toEqual(
+      createArp().automation,
+    );
+  });
+
+  it("includes automated release, gate, space and level in export tail bounds", () => {
+    const track = activeTrack();
+    track.sound = 2;
+    track.rate = "1/8";
+    track.volume = 0;
+    expect(arpTailDuration(track, 60)).toBe(0);
+    for (const parameter of [
+      "gate",
+      "decay",
+      "space",
+      "volume",
+    ] satisfies ArpParameter[])
+      track.automation[parameter] = Array(16).fill(1);
+    expect(arpTailDuration(track, 60)).toBeGreaterThan(3.3);
   });
 
   it("keeps play order separate from ascending and descending order", () => {

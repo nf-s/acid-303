@@ -1,12 +1,15 @@
-@import "@fontsource-variable/dm-sans";
-@import "@fontsource-variable/space-grotesk";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
+@import "@fontsource/ibm-plex-mono/latin-700.css";
+@import "@fontsource/ibm-plex-mono/latin-700-italic.css";
 :root {
-  font-family: Tahoma, "DM Sans Variable", sans-serif;
+  font-family: var(--mono);
   color: #ededed;
   background: #090909;
   font-synthesis: none;
   font-size: 13px;
-  --mono: "Space Grotesk Variable", monospace;
+  --mono: "IBM Plex Mono", monospace;
   color-scheme: dark;
 }
 * {
@@ -562,6 +565,7 @@ h2 {
   opacity: 0;
   min-width: 0;
   border: 0;
+  padding: 0;
 }
 .beat-keyboard .step-pad:focus-visible {
   opacity: 1;
@@ -1036,6 +1040,9 @@ kbd {
     margin: 9px 10px 0;
     height: 264px;
   }
+  .beat-keyboard .step-pad:focus-visible {
+    font-size: 7px;
+  }
   .section-footer {
     margin: 8px 10px 0;
     padding: 8px 0;
@@ -1372,7 +1379,7 @@ kbd {
     min-width: 0;
     padding: 5px 7px;
     font-size: 9px;
-    flex: 1;
+    flex: 1 1 auto;
   }
   .preset-options button {
     padding: 7px 6px;

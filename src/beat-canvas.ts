@@ -227,7 +227,7 @@ export class BeatCanvas {
     context.clearRect(0, 0, this.width, this.height);
     context.fillStyle = "#141414";
     context.fillRect(0, 0, this.width, this.height);
-    context.font = '9px "Courier New", monospace';
+    context.font = '9px "IBM Plex Mono", monospace';
     context.textAlign = "center";
     context.textBaseline = "middle";
     context.fillStyle = "#969696";
@@ -251,7 +251,7 @@ export class BeatCanvas {
       context.fillRect(0, y, LABEL_WIDTH - 5, this.rowHeight - gap);
       context.fillStyle = selected ? "#f1f1f1" : "#858585";
       if (selected) context.fillRect(0, y + 4, 2, this.rowHeight - gap - 8);
-      context.font = `${selected ? "bold " : ""}9px "Courier New", monospace`;
+      context.font = `${selected ? "bold " : ""}9px "IBM Plex Mono", monospace`;
       context.fillText(
         LABELS[drum],
         LABEL_WIDTH / 2 - 2,

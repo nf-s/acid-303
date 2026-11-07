@@ -42,6 +42,12 @@ import { EditHistory } from "./history";
 import { encodeTrack, decodeTrack } from "./share";
 import { createArpPanel } from "./arp-panel";
 import { createPadPanel } from "./pad-panel";
+import { SessionClient } from "./session-client";
+import type { SessionStatus } from "./session-client";
+import { createSessionPanel } from "./session-panel";
+import { diffProject } from "./session-protocol";
+import "./session.css";
+import "./instrument-automation.css";
 import { AudioEngine } from "./audio";
 import { FluidVisualizer } from "./visualizer";
 import { BeatCanvas } from "./beat-canvas";
@@ -49,7 +55,7 @@ import { installGestures } from "./gestures";
 import { MotionControls } from "./motion-controls";
 import { NoteMatrix } from "./note-matrix";
 import type { MatrixChange, MatrixParameter } from "./note-matrix";
-import { PRESETS, createPreset } from "./presets";
+import { PRESETS, createPreset, findPresetByName } from "./presets";
 import "./style.css";
 
 type AutomationTarget =
@@ -162,6 +168,17 @@ const selectedAutomation: Record<NoteTrack, string | null> = {
 const automationSweeps = new Map<string, { base: number; values: number[] }>();
 const storageKey = "acid-303-project-v1";
 let importedHash: string | null = null;
+let sessionClient: SessionClient | null = null;
+let sessionStatus: SessionStatus = {
+  phase: "idle",
+  role: null,
+  participants: 0,
+  hostConnected: false,
+  inviteLink: null,
+  message: "",
+};
+let remotePlaying = false;
+let deferredSessionRefresh = false;
 let project = createProject();
 let storageAvailable = true;
 try {
@@ -190,10 +207,15 @@ for (const event of ["pointerup", "pointercancel"])
     (event) => {
       if (event instanceof PointerEvent)
         historyPointers.delete(event.pointerId);
+      if (!historyPointers.size && deferredSessionRefresh)
+        queueMicrotask(refreshSessionProject);
     },
     true,
   );
-window.addEventListener("blur", () => historyPointers.clear());
+window.addEventListener("blur", () => {
+  historyPointers.clear();
+  if (deferredSessionRefresh) queueMicrotask(refreshSessionProject);
+});
 document.addEventListener(
   "keydown",
   (event) => {
@@ -221,9 +243,10 @@ const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Application container is missing.");
 app.innerHTML = `
     <section id="visualizer-panel" class="visualizer-panel" aria-label="Drum pattern visualizer"><canvas id="fluid-canvas" aria-label="Drum-reactive fluid shapes"></canvas></section>
-  <header class="app-header"><a class="brand" href="/" aria-label="Grain home"><span class="brand-icon">${icon("audio-lines")}</span><span>GRAIN</span><span class="brand-divider"></span><span class="brand-detail">BEAT MACHINE</span></a><div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="global-undo" aria-label="Undo last edit" disabled>Undo</button><button class="button secondary" id="global-redo" aria-label="Redo last edit" disabled>Redo</button><button class="button secondary" id="share-track">Share</button><button class="button secondary" id="phone-motion" aria-label="Enable phone motion control" aria-pressed="false" title="Hold a knob and tilt or move your phone">Motion</button><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div></header>
+  <header class="app-header"><a class="brand" href="/" aria-label="Grain home"><span class="brand-icon">${icon("audio-lines")}</span><span>GRAIN</span><span class="brand-divider"></span><span class="brand-detail">BEAT MACHINE</span></a><div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="global-undo" aria-label="Undo last edit" disabled>Undo</button><button class="button secondary" id="global-redo" aria-label="Redo last edit" disabled>Redo</button><button class="button secondary" id="share-track">Share</button><button class="button secondary" id="session-toggle" aria-expanded="false" aria-controls="session-panel">Session</button><button class="button secondary" id="phone-motion" aria-label="Enable phone motion control" aria-pressed="false" title="Hold a knob and tilt or move your phone">Motion</button><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div></header>
   <div class="motion-options" id="phone-motion-options" hidden><span>Hold a knob</span><div role="group" aria-label="Phone motion axis"><button data-phone-mode="tilt" aria-pressed="true">Tilt</button><button data-phone-mode="move" aria-pressed="false">Move</button><button data-phone-mode="twist" aria-pressed="false">Twist</button></div><span id="phone-motion-help">Tilt forwards / back or sideways</span></div>
   <div class="share-panel" id="share-panel" hidden><label for="share-url">Track link</label><input id="share-url" readonly><button id="copy-share">Copy</button><button id="close-share" aria-label="Close share link">×</button></div>
+  <section id="session-panel" hidden></section>
   <main class="workspace">
     <section class="transport panel" aria-label="Playback controls">
       <div class="playback"><button class="play-button" id="play" aria-label="Play pattern">${icon("play")}<span>Play</span></button><button class="icon-button restart" id="restart" aria-label="Restart pattern" title="Restart pattern">${icon("rotate-ccw")}</button></div>
@@ -234,10 +257,12 @@ app.innerHTML = `
       <div class="position"><span id="position">01</span><span>/ 16</span><span id="bar-position" class="bar-position">Bar 1 / 2</span><span class="beat-lights"><b></b><b></b><b></b><b></b></span></div>
     </section>
     <section class="scale-panel panel" aria-label="Musical scale"><div class="scale-row"><span>ROOT</span><div class="scale-roots" role="group" aria-label="Root note">${Array.from({ length: 12 }, (_, root) => `<button data-root="${root}" aria-label="Root ${noteName(root + 60).slice(0, -1)}" aria-pressed="${project.scale.root === root}">${noteName(root + 60).slice(0, -1)}</button>`).join("")}</div></div><div class="scale-row"><span>SCALE</span><div class="scale-modes" role="group" aria-label="Scale type">${SCALE_MODES.map((scale) => `<button data-scale="${scale.id}" aria-pressed="${project.scale.mode === scale.id}">${scale.name}</button>`).join("")}</div></div></section>
+    <section class="preset-section panel" aria-label="Examples">
+        <div class="preset-bar"><div class="preset-options" role="group" aria-label="Genre examples">${PRESETS.map((preset) => `<button data-preset="${preset.id}" aria-label="${preset.name} — ${preset.genre}"><strong>${preset.name}</strong><span>${preset.genre}</span></button>`).join("")}</div><div class="preset-actions"><button id="remix" class="remix-button">${icon("shuffle")} Remix</button><button id="undo-remix" class="text-button undo-remix" disabled>Undo</button></div></div>
+    </section>
     <div class="studio-grid"><div class="sequencers">
       <section class="panel drums-panel" aria-labelledby="drums-title">
         <div class="section-header"><div class="section-title"><span class="section-number">01</span><h1 id="drums-title">Drum sequencer</h1><span class="small-tag">16 STEPS</span></div><button id="reset" class="text-button" title="Restore the selected preset">${icon("rotate-ccw")} Reset</button></div>
-        <div class="preset-bar"><div class="preset-options" role="group" aria-label="Genre examples">${PRESETS.map((preset) => `<button data-preset="${preset.id}" aria-label="${preset.name} — ${preset.genre}"><strong>${preset.name}</strong><span>${preset.genre}</span></button>`).join("")}</div><div class="preset-actions"><button id="remix" class="remix-button">${icon("shuffle")} Remix</button><button id="undo-remix" class="text-button undo-remix" disabled>Undo</button></div></div>
         <div id="drum-editors"></div>
         <div class="beat-surface"><canvas id="beat-canvas" aria-label="Paint drum beats" aria-describedby="paint-help"></canvas><div id="drum-grid" class="beat-keyboard" role="grid" aria-label="Drum steps"></div></div>
         <div class="section-footer"><span><span class="legend-pad"></span><span id="paint-help">Drag to paint · Drag a filled step to erase</span></span><span>Drag controls up / down</span></div>
@@ -346,16 +371,19 @@ function matrixMarkup(track: NoteTrack, label: string): string {
       "",
     )}</div><div class="matrix-tools" role="group" aria-label="${label} drawing tool"><button data-matrix-track="${track}" data-matrix-tool="draw" aria-pressed="true">Draw</button><button data-matrix-track="${track}" data-matrix-tool="line" aria-pressed="false">Line</button><button data-matrix-undo="${track}" aria-label="Undo ${label} drawing" disabled>Undo</button></div></div><div class="automation-strip" id="${track}-automation" hidden><span id="${track}-automation-label"></span><button data-automation-clear="${track}" aria-label="Clear ${label} automation">Clear curve</button><button data-automation-close="${track}" aria-label="Return to ${label} notes">Notes</button></div><div class="note-matrix" id="${track}-matrix"><canvas id="${track}-matrix-canvas" aria-label="Draw ${label} pitch" aria-describedby="${track}-matrix-help"></canvas><div class="matrix-access" id="${track}-matrix-access"></div></div><div class="matrix-legend" aria-hidden="true"><span class="motif-pitch">━ Pitch</span><span class="motif-gate">▌ Gate</span><span class="motif-accent">◆ Accent</span><span class="motif-glide">⌒ Glide</span></div><div class="section-footer note-help" id="${track}-matrix-help"><span>Draw pitch in scale · Tap a knob to automate</span><span>↑↓ Edit · ←→ Step · Enter Gate</span></div>`;
 }
-function automationValues(target: AutomationTarget): number[] | null {
+function automationValues(
+  target: AutomationTarget,
+  source = project,
+): number[] | null {
   if (target.track === "drums")
     return (
-      project.drums.find((track) => track.id === target.id)?.automation[
+      source.drums.find((track) => track.id === target.id)?.automation[
         target.parameter
       ] ?? null
     );
   return target.track === "bass"
-    ? project.bass.automation[target.parameter]
-    : project.keys.automation[target.parameter];
+    ? source.bass.automation[target.parameter]
+    : source.keys.automation[target.parameter];
 }
 function setAutomationValues(
   target: AutomationTarget,
@@ -603,6 +631,7 @@ function refreshScaleControls(): void {
     );
 }
 async function previewNote(track: NoteTrack, step: BassStep): Promise<void> {
+  if (sessionStatus.role === "guest") return;
   try {
     if (track === "bass")
       await engine.auditionBass(project.bass, step.note, step.accent);
@@ -640,6 +669,7 @@ function renderKeys(): void {
   refreshAutomation("keys");
 }
 async function previewKeys(note: number): Promise<void> {
+  if (sessionStatus.role === "guest") return;
   try {
     await engine.auditionKeys(project.keys, note);
   } catch {
@@ -668,17 +698,16 @@ function clearRemixUndo(): void {
   if (undo instanceof HTMLButtonElement) undo.disabled = true;
 }
 function updatePresetLabels(): void {
+  const selected = findPresetByName(project.name);
   document
     .querySelectorAll<HTMLButtonElement>("[data-preset]")
     .forEach((button) => {
-      const active =
-        PRESETS.find((preset) => preset.id === button.dataset.preset)?.name ===
-        project.name;
+      const active = button.dataset.preset === selected?.id;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
   const label = document.querySelector("#project-name");
-  if (label) label.textContent = project.name;
+  if (label) label.textContent = selected?.name ?? project.name;
 }
 function refreshProject(): void {
   automationSweeps.clear();
@@ -747,7 +776,7 @@ function updateBarPosition(absoluteStep = currentAbsoluteStep): void {
     .getElementById("export")
     ?.setAttribute("title", `Export ${bars} bars and release tails`);
 }
-const engine = new AudioEngine((step, absoluteStep) => {
+function showStep(step: number, absoluteStep: number): void {
   beatCanvas.setStep(step);
   matrices.bass.setStep(step);
   matrices.keys.setStep(step);
@@ -771,6 +800,10 @@ const engine = new AudioEngine((step, absoluteStep) => {
   if (position) position.textContent = String(step + 1).padStart(2, "0");
   arpPanel.setStep(absoluteStep);
   padPanel.setStep(absoluteStep);
+}
+const engine = new AudioEngine((step, absoluteStep) => {
+  showStep(step, absoluteStep);
+  sessionClient?.clock(step >= 0, absoluteStep);
 });
 const canvas = document.querySelector("#fluid-canvas");
 if (!(canvas instanceof HTMLCanvasElement))
@@ -874,7 +907,14 @@ const gestures = installGestures(
   app,
   (control, value) => updateControl(control.id, value),
   {
-    activate: (control) => selectAutomation(control.id),
+    activate: (control) => {
+      if (
+        arpPanel.activateControl(control.id) ||
+        padPanel.activateControl(control.id)
+      )
+        return;
+      selectAutomation(control.id);
+    },
     begin: (element) => {
       const control = automationControls.find(
         (control) => control.id === element.id,
@@ -918,10 +958,13 @@ app.addEventListener("pointercancel", applyPendingInstrument);
 function updateHistoryButtons(): void {
   const undo = document.getElementById("global-undo"),
     redo = document.getElementById("global-redo");
-  if (undo instanceof HTMLButtonElement) undo.disabled = !editHistory.canUndo;
-  if (redo instanceof HTMLButtonElement) redo.disabled = !editHistory.canRedo;
+  if (undo instanceof HTMLButtonElement)
+    undo.disabled = sessionEditingBlocked() || !editHistory.canUndo;
+  if (redo instanceof HTMLButtonElement)
+    redo.disabled = sessionEditingBlocked() || !editHistory.canRedo;
 }
 function travelHistory(redo: boolean): void {
+  if (sessionEditingBlocked()) return;
   const next = redo ? editHistory.redo() : editHistory.undo();
   if (!next) return;
   project = next;
@@ -929,10 +972,11 @@ function travelHistory(redo: boolean): void {
   refreshProject();
   persist(false);
 }
-function persist(record = true): void {
+function persist(record = true, broadcast = true): void {
   if (record) editHistory.record(project, historyGroup);
   updateHistoryButtons();
   engine.update(project);
+  if (broadcast) sessionClient?.edit(project);
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     const status = document.querySelector("#save-state");
@@ -965,20 +1009,24 @@ function toast(message: string): void {
   }, 4000);
 }
 function updatePlayback(): void {
+  const playing =
+    sessionStatus.role === "guest" ? remotePlaying : engine.isPlaying;
   const play = document.querySelector("#play");
   if (play) {
-    play.innerHTML = `${icon(engine.isPlaying ? "square" : "play")}<span>${engine.isPlaying ? "Stop" : "Play"}</span>`;
-    play.setAttribute(
-      "aria-label",
-      engine.isPlaying ? "Stop pattern" : "Play pattern",
-    );
-    play.classList.toggle("playing", engine.isPlaying);
+    play.innerHTML = `${icon(playing ? "square" : "play")}<span>${playing ? "Stop" : "Play"}</span>`;
+    play.setAttribute("aria-label", playing ? "Stop pattern" : "Play pattern");
+    play.classList.toggle("playing", playing);
   }
-  visualizer.setPlaying(engine.isPlaying);
+  visualizer.setPlaying(playing);
   const status = document.querySelector("#audio-status");
   if (status)
-    status.textContent = engine.isPlaying ? "AUDIO LIVE" : "AUDIO IDLE";
-  if (!engine.isPlaying) {
+    status.textContent =
+      sessionStatus.role === "guest"
+        ? "AUDIO ON HOST"
+        : playing
+          ? "AUDIO LIVE"
+          : "AUDIO IDLE";
+  if (!playing) {
     document
       .querySelectorAll(".current, .beat-lights .active")
       .forEach((element) => {
@@ -991,6 +1039,11 @@ function updatePlayback(): void {
   refreshIcons();
 }
 async function togglePlayback(): Promise<void> {
+  if (sessionEditingBlocked()) return;
+  if (sessionStatus.role === "guest") {
+    sessionClient?.transport(remotePlaying ? "stop" : "play");
+    return;
+  }
   if (starting) return;
   starting = true;
   try {
@@ -1004,6 +1057,7 @@ async function togglePlayback(): Promise<void> {
   }
 }
 async function audition(id: DrumId = selectedDrum): Promise<void> {
+  if (sessionStatus.role === "guest") return;
   const track = project.drums.find((item) => item.id === id);
   if (!track) return;
   try {
@@ -1017,6 +1071,7 @@ document.addEventListener("click", async (event) => {
   const button = event.target.closest("button");
   if (!button) return;
   const { dataset, id } = button;
+  if (id === "session-toggle") setSessionOpen(!sessionPanel.isOpen());
   if (id === "global-undo") travelHistory(false);
   if (id === "global-redo") travelHistory(true);
   if (id === "close-share") {
@@ -1087,6 +1142,10 @@ document.addEventListener("click", async (event) => {
   }
   if (id === "play") await togglePlayback();
   if (id === "restart") {
+    if (sessionStatus.role === "guest") {
+      sessionClient?.transport("restart");
+      return;
+    }
     const playing = engine.isPlaying;
     engine.stop();
     if (playing) {
@@ -1152,7 +1211,7 @@ document.addEventListener("click", async (event) => {
   }
   if (id === "reset") {
     clearRemixUndo();
-    const preset = PRESETS.find((preset) => preset.name === project.name);
+    const preset = findPresetByName(project.name);
     project = withScale(
       preset ? createPreset(preset.id) : createProject(),
       project.scale,
@@ -1247,7 +1306,8 @@ document.addEventListener("click", async (event) => {
     persist();
     const undo = document.querySelector("#undo-remix");
     if (undo instanceof HTMLButtonElement) undo.disabled = false;
-    if (!engine.isPlaying) await togglePlayback();
+    if (!(sessionStatus.role === "guest" ? remotePlaying : engine.isPlaying))
+      await togglePlayback();
   }
   if (id === "undo-remix" && beforeRemix) {
     project = beforeRemix;
@@ -1585,11 +1645,15 @@ document.addEventListener("keydown", (event) => {
   }
 });
 window.addEventListener("pageshow", (event) => {
-  if (event.persisted) updatePlayback();
+  if (event.persisted) {
+    sessionClient?.reconnect();
+    updatePlayback();
+  }
 });
 window.addEventListener("pagehide", () => {
   phoneMotion.disable();
   engine.stop();
+  sessionClient?.suspend();
   visualizer.setPlaying(false);
   try {
     localStorage.setItem(storageKey, JSON.stringify(project));
@@ -1598,6 +1662,12 @@ window.addEventListener("pagehide", () => {
   }
 });
 refreshProject();
+void document.fonts.ready.then(() => {
+  beatCanvas.update(project);
+  matrices.bass.update(project.bass.steps, project.scale, project.bass.muted);
+  matrices.keys.update(project.keys.steps, project.scale, project.keys.muted);
+  drumEditor.refresh();
+});
 
 async function loadSharedTrack(): Promise<void> {
   const hash = location.hash;
@@ -1616,5 +1686,207 @@ async function loadSharedTrack(): Promise<void> {
   persist();
   toast("Shared track loaded.");
 }
-void loadSharedTrack();
-window.addEventListener("hashchange", () => void loadSharedTrack());
+function sessionEditingBlocked(): boolean {
+  if (sessionStatus.role === null && sessionStatus.phase === "error")
+    return false;
+  return (
+    sessionStatus.phase !== "idle" &&
+    (sessionStatus.phase !== "connected" ||
+      (sessionStatus.role === "guest" && !sessionStatus.hostConnected))
+  );
+}
+function refreshSessionProject(): void {
+  if (historyPointers.size) {
+    deferredSessionRefresh = true;
+    return;
+  }
+  deferredSessionRefresh = false;
+  const focused =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement.id
+      : "";
+  refreshProject();
+  if (focused) document.getElementById(focused)?.focus({ preventScroll: true });
+}
+function setSessionOpen(open: boolean): void {
+  sessionPanel.setOpen(open);
+  document
+    .getElementById("session-toggle")
+    ?.setAttribute("aria-expanded", String(open));
+}
+function leaveSession(): void {
+  engine.stop();
+  sessionClient?.leave();
+  remotePlaying = false;
+  updatePlayback();
+  showStep(-1, -1);
+  editHistory.reset(project);
+  clearRemixUndo();
+  clearMatrixUndo();
+  updateHistoryButtons();
+  const url = new URL(location.href);
+  if (new URLSearchParams(url.hash.slice(1)).has("session")) {
+    url.hash = "";
+    window.history.replaceState(null, "", url);
+  }
+}
+async function hostTransport(
+  action: "play" | "stop" | "restart",
+): Promise<void> {
+  if (sessionStatus.role !== "host") return;
+  if (action !== "stop" && !engine.isReady) {
+    toast("Press Play on the host to enable audio.");
+    sessionClient?.clock(false, 0);
+    return;
+  }
+  try {
+    if (action === "stop" || action === "restart") engine.stop();
+    if (action !== "stop") await engine.play(project);
+    updatePlayback();
+    sessionClient?.clock(engine.isPlaying, currentAbsoluteStep);
+  } catch {
+    toast("Audio could not start. Press Play on the host.");
+  }
+}
+const sessionContainer = document.getElementById("session-panel");
+if (!sessionContainer) throw new Error("Session panel is missing.");
+const sessionPanel = createSessionPanel(sessionContainer, {
+  onCreate: () => {
+    if (sessionStatus.phase === "ended") leaveSession();
+    if (sessionClient?.role) {
+      sessionClient.reconnect();
+      return;
+    }
+    void (async () => {
+      try {
+        await engine.unlock(project);
+      } catch {
+        toast("Press Play on the host to enable audio.");
+      }
+      await sessionClient?.create(structuredClone(project));
+    })();
+  },
+  onJoin: (link) => {
+    sessionClient?.join(link);
+  },
+  onLeave: leaveSession,
+  onEnd: () => {
+    if (sessionClient?.connected) sessionClient.end();
+    else leaveSession();
+  },
+  onCopy: () => {
+    const link = sessionClient?.inviteLink;
+    if (!link) return;
+    void navigator.clipboard.writeText(link).then(
+      () => toast("Session invite copied."),
+      () => {
+        const field = document.getElementById("session-invite-link");
+        if (field instanceof HTMLInputElement) {
+          field.focus();
+          field.select();
+        }
+        toast("Copy the session invite above.");
+      },
+    );
+  },
+});
+const sessionApi =
+  import.meta.env.VITE_SESSION_API ||
+  (["localhost", "127.0.0.1"].includes(location.hostname)
+    ? "http://127.0.0.1:8787"
+    : "https://grain-sessions.nf-s.workers.dev");
+sessionClient = new SessionClient(sessionApi, {
+  onState: (state) => {
+    sessionStatus = state;
+    engine.setSilent(state.role === "guest");
+    sessionPanel.render(state);
+    if (state.phase !== "idle") setSessionOpen(true);
+    const workspace = document.querySelector(".workspace");
+    if (workspace instanceof HTMLElement)
+      workspace.inert = sessionEditingBlocked();
+    document
+      .getElementById("session-toggle")
+      ?.setAttribute("aria-pressed", String(state.role !== null));
+    updateHistoryButtons();
+    updatePlayback();
+  },
+  onProject: (next, initial) => {
+    const changed = diffProject(project, next).length > 0;
+    if (!changed && !initial) return;
+    const noteTracks: NoteTrack[] = ["bass", "keys"];
+    for (const track of noteTracks) {
+      const control = automationControls.find(
+        (control) => control.id === selectedAutomation[track],
+      );
+      matrices[track].rebaseIncoming(
+        next[track].steps,
+        control ? automationValues(control.target, next) : undefined,
+      );
+    }
+    drumEditor.rebaseIncoming(next);
+    arpPanel.rebaseIncoming(next.arp);
+    padPanel.rebaseIncoming(next.pad);
+    const bassSteps = project.bass.steps,
+      keysSteps = project.keys.steps;
+    next.bass.steps.forEach((step, index) => {
+      const current = bassSteps[index];
+      if (current) Object.assign(current, step);
+    });
+    next.keys.steps.forEach((step, index) => {
+      const current = keysSteps[index];
+      if (current) Object.assign(current, step);
+    });
+    Object.assign(project, next);
+    project.bass.steps = bassSteps;
+    project.keys.steps = keysSteps;
+    if (initial) {
+      editHistory.reset(project);
+      clearRemixUndo();
+      clearMatrixUndo();
+    } else editHistory.record(project, -1);
+    refreshSessionProject();
+    persist(false, false);
+  },
+  onClock: (playing, absoluteStep) => {
+    if (sessionStatus.role !== "guest") return;
+    const changed = remotePlaying !== playing;
+    remotePlaying = playing;
+    if (changed) updatePlayback();
+    showStep(playing ? absoluteStep % 16 : -1, playing ? absoluteStep : -1);
+  },
+  onTransport: (action) => void hostTransport(action),
+  onReady: () => {
+    if (sessionStatus.role === "host")
+      sessionClient?.clock(engine.isPlaying, currentAbsoluteStep);
+    const url = new URL(location.href);
+    const parameters = new URLSearchParams(url.hash.slice(1));
+    if (parameters.has("session")) {
+      parameters.delete("session");
+      url.hash = parameters.toString();
+      window.history.replaceState(null, "", url);
+    }
+  },
+  onEnded: () => {
+    engine.stop();
+    remotePlaying = false;
+    showStep(-1, -1);
+    updatePlayback();
+  },
+});
+function loadLink(): void {
+  const parameters = new URLSearchParams(location.hash.slice(1));
+  if (parameters.has("session")) {
+    sessionClient?.join(location.href);
+    setSessionOpen(true);
+  } else if (parameters.has("track")) {
+    if (sessionClient?.role) leaveSession();
+    void loadSharedTrack();
+  }
+}
+if (
+  new URLSearchParams(location.hash.slice(1)).has("session") ||
+  new URLSearchParams(location.hash.slice(1)).has("track")
+)
+  loadLink();
+else sessionClient.resume();
+window.addEventListener("hashchange", loadLink);

@@ -3,7 +3,7 @@ import { arpSchema, createArp, retuneArp } from "./arp-model";
 import { padSchema, createPad, retunePad } from "./pad-model";
 
 export const STEP_COUNT = 16;
-const automationLaneSchema = z
+export const automationLaneSchema = z
   .array(z.number().min(0).max(1))
   .length(STEP_COUNT)
   .nullable()

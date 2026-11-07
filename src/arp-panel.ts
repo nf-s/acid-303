@@ -1,4 +1,6 @@
 import { noteName } from "./model";
+import { createInstrumentAutomation } from "./instrument-automation";
+import type { InstrumentControl } from "./instrument-automation";
 import type { MusicalScale } from "./model";
 import {
   ARP_DIRECTIONS,
@@ -6,6 +8,7 @@ import {
   ARP_SOUNDS,
   arpEvents,
   arpNoteChoices,
+  normalizedArpValue,
   retuneArp,
 } from "./arp-model";
 import type { ArpParameter, ArpTrack } from "./arp-model";
@@ -31,16 +34,11 @@ export interface ArpPanel {
   render: () => void;
   setStep: (absoluteStep: number) => void;
   updateControl: (id: string, value: number) => boolean;
+  activateControl: (id: string) => boolean;
+  rebaseIncoming: (next: ArpTrack) => void;
   destroy: () => void;
 }
-interface Control {
-  parameter: ArpParameter;
-  label: string;
-  min: number;
-  max: number;
-  multiplier: number;
-  step: string;
-}
+type Control = InstrumentControl<ArpParameter>;
 const CONTROLS: Control[] = [
   {
     parameter: "gate",
@@ -147,7 +145,7 @@ export function createArpPanel(
         ? playing.map(noteName).join(" · ")
         : "—";
   };
-  const render = (): void => {
+  const initialRender = (): void => {
     const track = options.getTrack();
     const scale = options.getScale();
     const notes = retuneArp(track, scale).notes;
@@ -178,6 +176,101 @@ export function createArpPanel(
         .join("")}</div>
       <div class="arp-rhythm"><span>Steps</span><div class="arp-step-row" role="group" aria-label="Arpeggiator steps">${track.steps.map((on, index) => `<button data-arp-step="${index}" aria-label="Arpeggiator step ${index + 1}" aria-pressed="${on}">${String(index + 1).padStart(2, "0")}</button>`).join("")}</div><span>Accent</span><div class="arp-step-row" role="group" aria-label="Arpeggiator accents">${track.accents.map((on, index) => `<button data-arp-accent="${index}" aria-label="Arpeggiator accent ${index + 1}" aria-pressed="${on}">${on ? "◆" : "◇"}</button>`).join("")}</div></div>
       <div class="section-footer"><span>${notes.length ? "Tap notes to add or remove · Numbers show played order" : "Select notes to hear the arpeggiator"}</span><span>${track.muted ? "Muted" : `${notes.length} notes`}</span></div>`;
+    updatePlayback();
+  };
+
+  initialRender();
+  const automationContainer = document.createElement("div");
+  container.querySelector(".arp-controls")?.after(automationContainer);
+  const automation = createInstrumentAutomation(automationContainer, {
+    prefix: "arp",
+    label: "Arpeggiator",
+    root: container,
+    minNote: 48,
+    maxNote: 108,
+    controls: CONTROLS,
+    getLane: (parameter) => options.getTrack().automation[parameter],
+    setLane: (parameter, values) => {
+      options.getTrack().automation[parameter] = values;
+    },
+    getBase: (parameter) => normalizedArpValue(options.getTrack(), parameter),
+    getScale: options.getScale,
+    getMuted: () => options.getTrack().muted,
+    getBars: () => 1,
+    getSteps: () => {
+      const track = options.getTrack();
+      return track.steps.map((on, index) => ({
+        on,
+        note:
+          arpEvents({ ...track, muted: false }, options.getScale(), index)[0]
+            ?.note ??
+          track.notes[0] ??
+          60,
+        accent: false,
+        slide: false,
+      }));
+    },
+    onChange: options.onChange,
+  });
+  const displayControl = (control: Control): void => {
+    const id = `arp-${control.parameter}`;
+    const value = options.getTrack()[control.parameter] * control.multiplier;
+    const element = container.querySelector<HTMLElement>(`#${id}`);
+    const display = displayValue(control, value);
+    element?.setAttribute("aria-valuenow", String(value));
+    element?.setAttribute("aria-valuetext", display);
+    element?.style.setProperty(
+      "--knob-angle",
+      `${-135 + ((value - control.min) / (control.max - control.min)) * 270}deg`,
+    );
+    const output = container.querySelector(`#${id}-value`);
+    if (output) output.textContent = display;
+  };
+  const render = (): void => {
+    const track = options.getTrack();
+    container
+      .querySelector("#arp-mute")
+      ?.setAttribute("aria-pressed", String(track.muted));
+    for (const button of container.querySelectorAll<HTMLElement>(
+      "[data-arp-sound],[data-arp-direction],[data-arp-rate],[data-arp-octaves]",
+    )) {
+      const active =
+        button.dataset.arpSound !== undefined
+          ? Number(button.dataset.arpSound) === track.sound
+          : button.dataset.arpDirection !== undefined
+            ? button.dataset.arpDirection === track.direction
+            : button.dataset.arpRate !== undefined
+              ? button.dataset.arpRate === track.rate
+              : Number(button.dataset.arpOctaves) === track.octaves;
+      button.setAttribute("aria-pressed", String(active));
+      button.classList.toggle("active", active);
+    }
+    const notes = retuneArp(track, options.getScale()).notes;
+    const noteOptions = container.querySelector(".arp-note-options");
+    if (noteOptions)
+      noteOptions.innerHTML = arpNoteChoices(options.getScale())
+        .map((note) => {
+          const selected = notes.indexOf(note);
+          return `<button data-arp-note="${note}" aria-label="Arpeggiator note ${noteName(note)}" aria-pressed="${selected >= 0}"><span>${noteName(note)}</span><small>${selected >= 0 ? selected + 1 : ""}</small></button>`;
+        })
+        .join("");
+    for (const button of container.querySelectorAll<HTMLElement>(
+      "[data-arp-step],[data-arp-accent]",
+    )) {
+      const index = Number(button.dataset.arpStep ?? button.dataset.arpAccent);
+      const active =
+        (button.dataset.arpStep !== undefined ? track.steps : track.accents)[
+          index
+        ] ?? false;
+      button.setAttribute("aria-pressed", String(active));
+      if (button.dataset.arpAccent !== undefined)
+        button.textContent = active ? "◆" : "◇";
+    }
+    const footer = container.querySelector(".section-footer");
+    if (footer)
+      footer.innerHTML = `<span>${notes.length ? "Tap notes to add or remove · Numbers show played order" : "Select notes to hear the arpeggiator"}</span><span>${track.muted ? "Muted" : `${notes.length} notes`}</span>`;
+    CONTROLS.forEach(displayControl);
+    automation.refresh(true);
     updatePlayback();
   };
 
@@ -265,18 +358,16 @@ export function createArpPanel(
     );
     if (!control) return false;
     if (!Number.isFinite(value)) return true;
+    const track = options.getTrack();
+    const before = normalizedArpValue(track, control.parameter);
     const bounded = Math.max(control.min, Math.min(control.max, value));
-    options.getTrack()[control.parameter] = bounded / control.multiplier;
-    const element = container.querySelector<HTMLElement>(`#${id}`);
-    const display = displayValue(control, bounded);
-    element?.setAttribute("aria-valuenow", String(bounded));
-    element?.setAttribute("aria-valuetext", display);
-    element?.style.setProperty(
-      "--knob-angle",
-      `${-135 + ((bounded - control.min) / (control.max - control.min)) * 270}deg`,
+    track[control.parameter] = bounded / control.multiplier;
+    displayControl(control);
+    automation.shiftControl(
+      id,
+      before,
+      normalizedArpValue(track, control.parameter),
     );
-    const output = container.querySelector(`#${id}-value`);
-    if (output) output.textContent = display;
     options.onChange();
     return true;
   };
@@ -287,8 +378,15 @@ export function createArpPanel(
     setStep: (absoluteStep) => {
       current = absoluteStep;
       updatePlayback();
+      automation.setStep(absoluteStep);
     },
     updateControl,
-    destroy: () => container.removeEventListener("click", click),
+    activateControl: automation.activateControl,
+    rebaseIncoming: (next) =>
+      automation.rebaseIncoming((parameter) => next.automation[parameter]),
+    destroy: () => {
+      automation.destroy();
+      container.removeEventListener("click", click);
+    },
   };
 }

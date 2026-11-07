@@ -1,0 +1,134 @@
+.session-panel {
+  max-width: 1040px;
+  min-width: 0;
+  margin: auto;
+  padding: 12px;
+  border: 2px solid #777;
+  border-top: 0;
+  background: #202225;
+  color: #ededed;
+  font: 11px var(--mono, "IBM Plex Mono", monospace);
+}
+.session-panel[hidden],
+.session-panel [hidden] {
+  display: none !important;
+}
+.session-panel .session-heading,
+.session-panel .session-summary,
+.session-panel .session-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.session-panel .session-heading {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.session-panel h2 {
+  margin: 0;
+  font: 600 12px var(--mono, "IBM Plex Mono", monospace);
+}
+.session-panel .session-summary {
+  gap: 6px 12px;
+  font-size: 10px;
+}
+.session-panel #session-status {
+  padding: 3px 6px;
+  border: 1px solid #72767c;
+  background: #32363b;
+}
+.session-panel .session-start,
+.session-panel .session-active {
+  display: grid;
+  gap: 12px;
+}
+.session-panel button {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid #92969b;
+  border-right-color: #3a3d42;
+  border-bottom-color: #3a3d42;
+  background: #353a40;
+  color: #eee;
+  font: inherit;
+  justify-self: start;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.session-panel .session-primary {
+  background: linear-gradient(#f2f2f2, #b9b9b9);
+  color: #151515;
+  border-top-color: #fff;
+  border-left-color: #fff;
+  font-weight: 600;
+}
+.session-panel button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.session-panel .session-link-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+}
+.session-panel input {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid #777d85;
+  border-top-color: #070809;
+  border-left-color: #070809;
+  border-radius: 0;
+  background: #111316;
+  color: #f2f2f2;
+  font: inherit;
+}
+.session-panel input:focus-visible,
+.session-panel button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.session-panel .session-help,
+.session-panel .session-message {
+  margin: 0;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.session-panel .session-help {
+  color: #bdc3ca;
+  font-size: 10px;
+}
+.session-panel .session-message {
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  border-left: 2px solid #c9cdd3;
+  background: #31353a;
+}
+@media (max-width: 650px) {
+  .session-panel {
+    padding: 10px 8px;
+  }
+  .session-panel .session-heading {
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .session-panel .session-link-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+  .session-panel .session-link-row label {
+    grid-column: 1 / -1;
+  }
+  .session-panel input,
+  .session-panel button {
+    min-height: 40px;
+  }
+  .session-panel input {
+    font-size: 16px;
+  }
+}

@@ -1,10 +1,10 @@
 # Grain
 
-A local-first drum machine, 303-inspired bass sequencer, percussion Texture instrument, arpeggiator and sustained chord pads. Audio is synthesized in the browser using Web Audio. Patterns are saved in this browser; no audio or patterns are sent to a server.
+A local-first drum machine, 303-inspired bass sequencer, percussion Texture instrument, arpeggiator and sustained chord pads. Audio is synthesized in the browser using Web Audio. Solo projects are saved in this browser. Shared sessions synchronize musical state through Cloudflare; audio stays on the host device and is never streamed.
 
 ## Development
 
-Run `npm install`, then `npm run dev`. `npm run build` checks TypeScript and creates the static `dist/` output. Run `npm test` for unit checks, `npm run test:e2e` for desktop and touch browser checks (requires Chrome), and `npm run format` before committing. Node 22.12 or later is required.
+Run `npm install`, then `npm run dev`. `npm run build` checks TypeScript and creates the static `dist/` output. Run `npm test` for unit checks, `npm run test:e2e` for desktop and touch browser checks (requires Chrome), and `npm run format` before committing. Node 22.12 or later is required. For shared-session browser tests, also run `npm ci` and `npm run dev` inside `workers/sessions`; its isolated tools use Node 24 and serve port 8787. See [session architecture, costs and release steps](docs/sessions.md).
 
 ## Structure
 
@@ -20,9 +20,14 @@ Run `npm install`, then `npm run dev`. `npm run build` checks TypeScript and cre
 - `src/pad-model.ts`, `src/pad-audio.ts`, `src/pad-panel.ts`: multi-bar chord progressions, sustained pad synthesis and controls.
 - `src/gestures.ts`: vertical drag, keyboard and double-tap controls.
 - `src/motion-controls.ts`: phone sensor permission and Tilt, Move and Twist controls.
+- `src/session-client.ts`, `src/session-sync.ts` and `src/session-protocol.ts`: authenticated live rooms, ordered field updates and reconnect recovery.
+- `src/instrument-automation.ts`: shared Arp and Pad drawing controls.
+- `workers/sessions`: Cloudflare Worker and SQLite Durable Objects for shared sessions.
 - `src/main.ts` and `src/style.css`: interface and interaction.
 
 Use strict TypeScript without type assertions or non-null assertions. Validate persisted data at its boundary using the shared schema. Keep rendering, audio and visualizer responsibilities separate. The design follows the operator’s monochrome retro direction: bevelled chrome, black/white surfaces and full-page reactive inversion. Keep sound controls beside the beat canvas. Use direct sound buttons and vertical gestures rather than dropdowns. Do not add slogans or decorative copy.
+
+Interface and canvas labels use locally bundled IBM Plex Mono, including control values and headings.
 
 ## Controls
 
@@ -40,7 +45,7 @@ Bass and Texture each have a taller 16-step matrix. Choose Pitch, Gate, Accent o
 
 All note attributes remain visible together: pitch contours, gate bars, accent diamonds and curved glide ties. The selected attribute is brighter and thicker. The fluid visualizer passes over every interface element, including transport, labels, knobs, matrices and the visualizer controls.
 
-Tap a drum, Bass or Texture knob, or focus it and press Enter/Space, to draw its automation in that instrument’s matrix. Every drum, Bass and Texture has eight knobs and eight independent 16-step curves (56 lanes in total). Draw and Line work without changing notes or gates. Clear curve returns to the knob’s base value; Undo restores the previous curve, including an empty lane. Dragging an automated knob shifts the whole curve, bounded by its range. Automated knobs have a small marker. Curves are saved with the pattern and used during playback and WAV export. Drum pitch curves follow the selected scale. Bass Pulse changes its articulation; Texture Width and Attack control stereo spread and transient softness. Drum Pan, Attack and Space add positioning, transient shaping and echoes.
+Tap any instrument knob, or focus it and press Enter/Space, to draw its automation in that instrument’s matrix. All five drums, Bass, Texture, Arpeggiator and Chord pads have eight controls and eight independent curves (72 lanes in total). Draw and Line work without changing notes or gates. Clear curve returns to the knob’s base value; Undo restores the previous curve, including an empty lane. Dragging an automated knob shifts the whole curve, bounded by its range. Automated knobs have a small marker. Curves are saved with the pattern and used during playback and WAV export. Drum pitch curves follow the selected scale. Bass Pulse changes its articulation; Texture Width and Attack control stereo spread and transient softness. Drum Pan, Attack and Space add positioning, transient shaping and echoes.
 
 The entire matrix fits on a phone. Multiple fingers can draw independent curves. Drag outside a drawing surface to scroll the page. Keyboard focus moves between matrix steps with Left/Right; Up/Down edits the selected parameter, Home/End chooses its limits, and Enter/Space toggles its gate.
 
@@ -48,24 +53,24 @@ Bass includes Round, Knock, Acid, Drive, Bloom, Fog, Rubber, Reese and Pressure,
 
 The Arpeggiator plays your selected notes in Up, Down, Up/down, Played or deterministic Random order. Note buttons show their Played order. Choose 1/8, 1/16, 1/16 triplets or 1/32, one to three octaves, and per-step gates and accents. Pluck, Pulse, Glass, Acid, Reed and Dust each have eight controls. Clicking a sound or selecting a note enables the arpeggiator; M mutes it. Timing and order follow familiar [Ableton](https://www.ableton.com/en/manual/live-midi-effect-reference/) and [Arturia](https://support.arturia.com/hc/en-us/articles/23309705010716-KeyStep-mk2-Control-Modes) arpeggiator controls.
 
-Chord pads play four sustained chords over 2, 4, 8 or 16 bars. Choose a progression, then select a chord card to edit its scale degree and inversion. The exact notes appear on each card. Velvet, Air, Choir, Glass, Dust and Drone provide six textures with eight controls. Enable pads with On; the transport and chord cards show the current bar and chord. Both new instruments follow the global scale and are included in saving, history and sharing. Upgrading an existing project leaves them muted.
+Chord pads play four sustained chords over 2, 4, 8 or 16 bars. Choose a progression, then select a chord card to edit its scale degree and inversion. The exact notes appear on each card. Velvet, Air, Choir, Glass, Dust and Drone provide six textures with eight controls. Enable pads with On; the transport and chord cards show the current bar and chord. The chord timeline shows each chord’s bar or beat span, with degree and inversion controls beside the selected chord. Progression presets open with Progressions. Arp automation repeats each bar; Pad automation interpolates 16 points across the selected 2–16-bar progression. Both instruments follow the global scale and are included in saving, history and sharing. Upgrading an existing project leaves them muted.
 
-Genre examples now include distinct arp patterns, pad roles, bass filter/pulse curves and drum level/pan movement. Bass House uses a syncopated Rubber bass and a short Pulse arp; atmospheric and melodic examples unfold over longer pad progressions.
+Genre examples sit above the instrument sections. House and Tech house preserve their original musical settings. The other eight use fewer active layers: Techno has short, low-resonance Knock bass; Melodic techno pairs a restrained one-octave arp with sub; atmospheric techno leaves room for Frost and slow pads; Bass house focuses on Pressure bass and drums.
 
 Genre examples:
 
-| Name           | Genre                           |
-| -------------- | ------------------------------- |
-| Sunday Socks   | House                           |
-| Pocket Disco   | Tech house                      |
-| Little Machine | Techno                          |
-| Night Train    | Driving techno                  |
-| Moon Jelly     | Melodic techno                  |
-| Cloud Goblin   | Experimental atmospheric techno |
-| Velvet Steps   | Garage                          |
-| Turbo Biscuit  | Speed garage                    |
-| Jungle Gym     | Jungle                          |
-| Switchback     | Bass house                      |
+| Name         | Genre                           |
+| ------------ | ------------------------------- |
+| Disco Moth   | House                           |
+| Kick Gremlin | Tech house                      |
+| Wire Wraith  | Techno                          |
+| Tunnel Imp   | Driving techno                  |
+| Moon Sprite  | Melodic techno                  |
+| Cloud Goblin | Experimental atmospheric techno |
+| Velvet Imp   | Garage                          |
+| Turbo Rat    | Speed garage                    |
+| Moss Raver   | Jungle                          |
+| Sub Gremlin  | Bass house                      |
 
 The visualizer uses organic fluid motion and fine film grain, driven directly by the programmed drum steps even with master volume at zero. Motion is enabled by default, including when the system requests reduced motion, as explicitly requested for this instrument. Intensity starts at 30% and changes overlay opacity without reducing movement; zero hides it. Pause freezes both fluid and grain. A Canvas fallback works without WebGL.
 
@@ -73,7 +78,9 @@ Global Undo and Redo restore whole projects, including example changes, notes, s
 
 Share creates a compressed, URL-safe track link in the URL fragment. The recipient loads the full musical project, including automation, without an account. Opening a shared track saves an editable copy in this browser. The link contains a snapshot; later edits do not change a link already shared. Incoming links are size-limited, decompressed with a bound and validated through the existing project schema.
 
-Patterns stay on the same device and browser. Old saves upgrade automatically: cowbell becomes rimshot, Texture is added where missing, and saved notes are snapped to the chosen scale. Missing scale settings default to A minor. Valid pitches, patterns, sound selections and expression settings are preserved.
+Use Session → Create session → Copy invite to share live control. A room supports one host and up to seven guests for 24 hours, or until the host ends it. Guests edit the same musical project and control transport while remaining silent. The host must keep the tab open; after a reload, press Play on that device to unlock audio. Connection loss pauses editing, stops host playback and reconnects without promoting a guest. Returning from a disconnect does not restart audio automatically. Invite links grant editing access; snapshot Share links remain independent.
+
+Solo patterns stay on the same device and browser. Old saves upgrade automatically: cowbell becomes rimshot, Texture is added where missing, and saved notes are snapped to the chosen scale. Missing scale settings default to A minor. Valid pitches, patterns, sound selections and expression settings are preserved.
 
 ## Deployment
 

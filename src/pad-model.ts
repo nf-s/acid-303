@@ -1,13 +1,38 @@
 import { z } from "zod";
-import { noteName, scaleNotes } from "./model";
+import { automationLaneSchema, noteName, scaleNotes } from "./model";
 import type { MusicalScale } from "./model";
 
 const unit = z.number().min(0).max(1);
+const padAutomationSchema = z.object({
+  attack: z.lazy(() => automationLaneSchema),
+  release: z.lazy(() => automationLaneSchema),
+  tone: z.lazy(() => automationLaneSchema),
+  motion: z.lazy(() => automationLaneSchema),
+  spread: z.lazy(() => automationLaneSchema),
+  space: z.lazy(() => automationLaneSchema),
+  shape: z.lazy(() => automationLaneSchema),
+  volume: z.lazy(() => automationLaneSchema),
+});
+export type PadAutomation = z.infer<typeof padAutomationSchema>;
+export type PadParameter = keyof PadAutomation;
+export function emptyPadAutomation(): PadAutomation {
+  return {
+    attack: null,
+    release: null,
+    tone: null,
+    motion: null,
+    spread: null,
+    space: null,
+    shape: null,
+    volume: null,
+  };
+}
 export const padChordSchema = z.object({
   degree: z.number().int().min(0).max(6),
   inversion: z.number().int().min(0).max(3).default(0),
 });
 export const padSchema = z.object({
+  automation: padAutomationSchema.default(emptyPadAutomation),
   sound: z.number().int().min(0).max(5).default(0),
   muted: z.boolean().default(true),
   bars: z
@@ -51,6 +76,27 @@ export const PAD_PROGRESSIONS: ReadonlyArray<{
 
 export function createPad(): PadTrack {
   return padSchema.parse({});
+}
+export function normalizedPadValue(
+  track: PadTrack,
+  parameter: PadParameter,
+): number {
+  return track[parameter];
+}
+export function automatedPad(track: PadTrack, absoluteStep: number): PadTrack {
+  const resolved = { ...track };
+  if (!Number.isFinite(absoluteStep) || absoluteStep < 0) return resolved;
+  const position = (absoluteStep / track.bars) % 16;
+  const index = Math.floor(position);
+  const fraction = position - index;
+  for (const parameter of padAutomationSchema.keyof().options) {
+    const lane = track.automation[parameter];
+    const first = lane?.[index];
+    const next = lane?.[(index + 1) % 16];
+    if (first !== undefined && next !== undefined)
+      resolved[parameter] = first + (next - first) * fraction;
+  }
+  return resolved;
 }
 export function padScaleDegrees(scale: MusicalScale): number[] {
   return scaleNotes(scale, 48 + scale.root, 59 + scale.root);

@@ -182,6 +182,22 @@ export class DrumEditor {
   cancel(id: DrumId): void {
     this.views.get(id)?.matrix.cancelStroke();
   }
+  rebaseIncoming(project: Project): void {
+    for (const track of project.drums) {
+      const view = this.views.get(track.id);
+      if (!view) continue;
+      const steps = view.steps.map((step, index) => ({
+        ...step,
+        on: track.steps[index] ?? false,
+        note: automatedDrum(track, index, project.scale).pitch + 48,
+      }));
+      const parameter = this.selected.get(track.id);
+      view.matrix.rebaseIncoming(
+        steps,
+        parameter ? track.automation[parameter] : undefined,
+      );
+    }
+  }
   refresh(id?: DrumId): void {
     const project = this.options.getProject();
     for (const track of project.drums) {

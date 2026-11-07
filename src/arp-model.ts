@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { scaleNotes, snapNote } from "./model";
+import { automationLaneSchema, scaleNotes, snapNote } from "./model";
 import type { MusicalScale } from "./model";
 
 export const ARP_SOUNDS = ["Pluck", "Pulse", "Glass", "Acid", "Reed", "Dust"];
@@ -19,7 +19,32 @@ export const ARP_RATES: ReadonlyArray<ArpTrack["rate"]> = [
   "1/16T",
   "1/32",
 ];
+const arpAutomationSchema = z.object({
+  gate: z.lazy(() => automationLaneSchema),
+  decay: z.lazy(() => automationLaneSchema),
+  tone: z.lazy(() => automationLaneSchema),
+  resonance: z.lazy(() => automationLaneSchema),
+  shape: z.lazy(() => automationLaneSchema),
+  space: z.lazy(() => automationLaneSchema),
+  width: z.lazy(() => automationLaneSchema),
+  volume: z.lazy(() => automationLaneSchema),
+});
+export type ArpAutomation = z.infer<typeof arpAutomationSchema>;
+export type ArpParameter = keyof ArpAutomation;
+export function emptyArpAutomation(): ArpAutomation {
+  return {
+    gate: null,
+    decay: null,
+    tone: null,
+    resonance: null,
+    shape: null,
+    space: null,
+    width: null,
+    volume: null,
+  };
+}
 export const arpSchema = z.object({
+  automation: arpAutomationSchema.default(emptyArpAutomation),
   sound: z.number().int().min(0).max(5).default(0),
   muted: z.boolean().default(true),
   notes: z
@@ -49,15 +74,6 @@ export const arpSchema = z.object({
   volume: z.number().min(0).max(1).default(0.28),
 });
 export type ArpTrack = z.infer<typeof arpSchema>;
-export type ArpParameter =
-  | "gate"
-  | "decay"
-  | "tone"
-  | "resonance"
-  | "shape"
-  | "space"
-  | "width"
-  | "volume";
 export interface ArpEvent {
   note: number;
   /** Position within this sixteenth note, in sixteenth-note units. */
@@ -70,6 +86,37 @@ export interface ArpEvent {
 
 export function createArp(): ArpTrack {
   return arpSchema.parse({});
+}
+
+export function normalizedArpValue(
+  track: ArpTrack,
+  parameter: ArpParameter,
+): number {
+  if (parameter === "gate") return (track.gate - 0.05) / 0.95;
+  if (parameter === "decay") return (track.decay - 0.03) / 1.47;
+  return track[parameter];
+}
+
+export function arpValueFromNormalized(
+  parameter: ArpParameter,
+  value: number,
+): number {
+  const bounded = Math.max(0, Math.min(1, value));
+  if (parameter === "gate") return 0.05 + bounded * 0.95;
+  if (parameter === "decay") return 0.03 + bounded * 1.47;
+  return bounded;
+}
+
+export function automatedArp(track: ArpTrack, absoluteStep: number): ArpTrack {
+  const resolved = { ...track };
+  if (!Number.isFinite(absoluteStep) || absoluteStep < 0) return resolved;
+  const index = Math.floor(absoluteStep) % 16;
+  for (const parameter of arpAutomationSchema.keyof().options) {
+    const value = track.automation[parameter]?.[index];
+    if (value !== undefined)
+      resolved[parameter] = arpValueFromNormalized(parameter, value);
+  }
+  return resolved;
 }
 
 export function retuneArp(track: ArpTrack, scale: MusicalScale): ArpTrack {

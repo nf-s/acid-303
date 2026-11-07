@@ -17,6 +17,12 @@ export class EditHistory<T> {
   get canRedo(): boolean {
     return this.future.length > 0;
   }
+  reset(value: T): void {
+    this.past = [];
+    this.future = [];
+    this.current = structuredClone(value);
+    this.group = null;
+  }
   record(value: T, group: number): void {
     if (JSON.stringify(value) === JSON.stringify(this.current)) return;
     if (this.group !== group) {

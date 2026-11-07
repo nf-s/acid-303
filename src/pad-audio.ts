@@ -1,6 +1,6 @@
 import { midiFrequency } from "./audio";
 import type { MusicalScale } from "./model";
-import { padChordAtStep, padChordNotes } from "./pad-model";
+import { automatedPad, padChordAtStep, padChordNotes } from "./pad-model";
 import type { PadTrack } from "./pad-model";
 
 interface PadProfile {
@@ -89,10 +89,13 @@ export function padReleaseSeconds(track: PadTrack): number {
   return 0.08 + track.release * track.release * 2.8;
 }
 export function padTailDuration(track: PadTrack, bpm: number): number {
-  if (track.muted || track.volume === 0) return 0;
+  const volume = Math.max(track.volume, ...(track.automation.volume ?? []));
+  if (track.muted || volume === 0) return 0;
+  const release = Math.max(track.release, ...(track.automation.release ?? []));
+  const space = Math.max(track.space, ...(track.automation.space ?? []));
   return (
-    padReleaseSeconds(track) +
-    (track.space > 0 ? Math.max(0.75, (60 / bpm) * 1.5) : 0) +
+    padReleaseSeconds({ ...track, release }) +
+    (space > 0 ? Math.max(0.75, (60 / bpm) * 1.5) : 0) +
     0.05
   );
 }
@@ -410,6 +413,7 @@ export class PadInstrument {
       bpm <= 0
     )
       return;
+    track = automatedPad(track, absoluteStep);
     const slot = padChordAtStep(track, absoluteStep);
     const notes = padChordNotes(track, scale, slot);
     const signature = `${slot}:${track.bars}:${track.sound}:${notes.join(",")}`;

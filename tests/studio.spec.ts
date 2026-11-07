@@ -1193,6 +1193,13 @@ test("share link loads the full track into a fresh browser context", async ({
   await expect
     .poll(async () => (await savedProject(page)).pad.muted)
     .toBe(false);
+  await page.locator("#arp-tone").press("Enter");
+  await matrixStroke(page, "arp", 0, 15, 0.7, 0.3);
+  await page.locator("#pad-tone").press("Enter");
+  await matrixStroke(page, "pad", 0, 15, 0.8, 0.2);
+  await expect
+    .poll(async () => (await savedProject(page)).pad.automation.tone?.[15])
+    .toBeCloseTo(0.8, 1);
   const original = await savedProject(page);
   await page.getByRole("button", { name: "Share", exact: true }).click();
   const field = page.locator("#share-url");
@@ -1313,6 +1320,7 @@ test("pad progression length, chord edits and play position work across bars", a
     .getByRole("button", { name: "Enable chord pads", exact: true })
     .click();
   await page.getByRole("button", { name: "2 bars", exact: true }).click();
+  await page.locator("[data-pad-presets]").click();
   await page.locator("[data-pad-progression=descent]").click();
   await page.locator('[data-pad-slot="1"]').click();
   await page.locator('[data-pad-degree="3"]').click();
@@ -1373,4 +1381,59 @@ test("WAV export includes all eight progression bars and release tails", async (
   for (let index = wav.length - 4410 * 4; index < wav.length; index += 2)
     tail = Math.max(tail, Math.abs(wav.readInt16LE(index)));
   expect(tail).toBeLessThan(10);
+});
+
+test("every Arp and Pad knob opens drawable automation with clear and undo", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator(".drums-panel .preset-bar")).toHaveCount(0);
+  await expect(
+    page.getByRole("region", { name: "Examples", exact: true }),
+  ).toBeVisible();
+  const targets: Array<"arp" | "pad"> = ["arp", "pad"];
+  for (const track of targets) {
+    const knobs = page.locator(`#${track}-panel .gesture-control`);
+    await expect(knobs).toHaveCount(8);
+    for (let index = 0; index < 8; index++) {
+      const knob = knobs.nth(index);
+      await knob.press("Enter");
+      await matrixStroke(page, track, 0, 15, 0.7, 0.3);
+      await expect(knob).toHaveAttribute("data-automated", "true");
+      await expect
+        .poll(
+          async () =>
+            Object.values((await savedProject(page))[track].automation).filter(
+              (lane) => lane !== null,
+            ).length,
+        )
+        .toBe(index + 1);
+    }
+    await page.locator(`#${track}-tone`).press("Enter");
+    const curve = (await savedProject(page))[track].automation.tone;
+    await page.locator(`#${track}-automation-clear`).click();
+    await expect
+      .poll(async () => (await savedProject(page))[track].automation.tone)
+      .toBeNull();
+    await page.locator(`#${track}-automation-undo`).click();
+    await expect
+      .poll(async () => (await savedProject(page))[track].automation.tone)
+      .toEqual(curve);
+  }
+  await page.getByRole("button", { name: "16 bars", exact: true }).click();
+  await expect(page.locator("#pad-lane-duration")).toHaveText(
+    "16 bars · 16 points",
+  );
+  await page.reload();
+  await expect(page.locator("#arp-tone")).toHaveAttribute(
+    "data-automated",
+    "true",
+  );
+  await expect(page.locator("#pad-tone")).toHaveAttribute(
+    "data-automated",
+    "true",
+  );
+  await expect(page.locator("#pad-lane-duration")).toHaveText(
+    "16 bars · 16 points",
+  );
 });
