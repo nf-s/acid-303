@@ -1,0 +1,76 @@
+Grain title cuts 21–30
+
+These are modified title subsets derived from professional typefaces, not wholly original type designs. All source font software and these derivatives remain under the SIL Open Font License 1.1. Original copyright notices and complete licenses are included in licenses/. Reserved Font Names are not used as the modified families’ primary names.
+
+Modifications: static weight selection where applicable; title alphabet subset; normalized 740-unit cap height; modest width adjustments; custom spacing; new Grain Title XX family names. Professional source outlines and curve construction are retained. Supported characters are GRAINgrain, space, period and hyphen. Lowercase maps to the uppercase title forms.
+
+21 — Orbitron
+Designer: Matt McInerney
+Primary source: https://github.com/google/fonts/tree/main/ofl/orbitron
+Source file: Orbitron[wght].ttf
+SHA-256: f42db2dd16e642258e35782916eceb1dcdbea06fb958d77ad71dc5963587e8fd
+License: ./licenses/orbitron-OFL.txt
+
+22 — Chakra Petch
+Designer: Cadson Demak
+Primary source: https://github.com/google/fonts/tree/main/ofl/chakrapetch
+Source file: ChakraPetch-Bold.ttf
+SHA-256: 65fbf76d95651697275e19db4d717c0e95a789ddd3476478b05292104db278a0
+License: ./licenses/chakrapetch-OFL.txt
+
+23 — Saira Stencil One
+Designer: Hector Gatti, Omnibus-Type
+Primary source: https://github.com/google/fonts/tree/main/ofl/sairastencilone
+Source file: SairaStencilOne-Regular.ttf
+SHA-256: 781496fdaf8e04cf6741b31025f6b4ba84f66021b097a8e0d85cbea2180cf223
+License: ./licenses/sairastencilone-OFL.txt
+
+24 — Doto
+Designer: Óliver Lalan
+Primary source: https://github.com/google/fonts/tree/main/ofl/doto
+Source file: Doto[ROND,wght].ttf
+SHA-256: 6f4fe7d37853b91df3698daa84cde2dbe1c9695d88c986e6510134910337d426
+License: ./licenses/doto-OFL.txt
+
+25 — Michroma
+Designer: Vernon Adams
+Primary source: https://github.com/google/fonts/tree/main/ofl/michroma
+Source file: Michroma-Regular.ttf
+SHA-256: b62301163788bc5b7f8fcac0b74b184e34e1827e577b499ecb724da065098f87
+License: ./licenses/michroma-OFL.txt
+
+26 — Bruno Ace SC
+Designer: Astigmatic
+Primary source: https://github.com/google/fonts/tree/main/ofl/brunoacesc
+Source file: BrunoAceSC-Regular.ttf
+SHA-256: 97fc6885b4c0345793ddf13bedd7864bc0f45ed47ad05628e42cafc5d8e795d5
+License: ./licenses/brunoacesc-OFL.txt
+
+27 — Audiowide
+Designer: Astigmatic
+Primary source: https://github.com/google/fonts/tree/main/ofl/audiowide
+Source file: Audiowide-Regular.ttf
+SHA-256: c7c0f2b0f6fad8c623e31772ce79f94a4edb9321ffce9fce978ea892d20ae730
+License: ./licenses/audiowide-OFL.txt
+
+28 — Oxanium
+Designer: Severin Meyer
+Primary source: https://github.com/google/fonts/tree/main/ofl/oxanium
+Source file: Oxanium[wght].ttf
+SHA-256: 2ce01d946e1e1ffc8d7eecfffbda8623bedd63eaf811a20488c4b69af45babb0
+License: ./licenses/oxanium-OFL.txt
+
+29 — Russo One
+Designer: Jovanny Lemonad
+Primary source: https://github.com/google/fonts/tree/main/ofl/russoone
+Source file: RussoOne-Regular.ttf
+SHA-256: bc0abcc660bd8b7ad3000ecb2898a27c58a29a50f7ec81652fa12e75148d09df
+License: ./licenses/russoone-OFL.txt
+
+30 — Stalinist One
+Designer: Alexey Maslov, Jovanny Lemonad
+Primary source: https://github.com/google/fonts/tree/main/ofl/stalinistone
+Source file: StalinistOne-Regular.ttf
+SHA-256: 73cc48eefa01543b09fd3df9bab6af2a302e52e292b8625f4b62c868bc152eeb
+License: ./licenses/stalinistone-OFL.txt
+

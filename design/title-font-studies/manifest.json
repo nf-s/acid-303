@@ -1,0 +1,242 @@
+[
+  {
+    "id": "01",
+    "label": "Extended rails",
+    "family": "Grain Title 01",
+    "woff2": "/title-fonts/fonts/grain-01.woff2",
+    "ttf": "/title-fonts/fonts/grain-01.ttf",
+    "grainAdvanceEm": 4.4
+  },
+  {
+    "id": "02",
+    "label": "Compressed towers",
+    "family": "Grain Title 02",
+    "woff2": "/title-fonts/fonts/grain-02.woff2",
+    "ttf": "/title-fonts/fonts/grain-02.ttf",
+    "grainAdvanceEm": 1.945
+  },
+  {
+    "id": "03",
+    "label": "Stencil plates",
+    "family": "Grain Title 03",
+    "woff2": "/title-fonts/fonts/grain-03.woff2",
+    "ttf": "/title-fonts/fonts/grain-03.ttf",
+    "grainAdvanceEm": 3.15
+  },
+  {
+    "id": "04",
+    "label": "Angular inflation",
+    "family": "Grain Title 04",
+    "woff2": "/title-fonts/fonts/grain-04.woff2",
+    "ttf": "/title-fonts/fonts/grain-04.ttf",
+    "grainAdvanceEm": 3.413
+  },
+  {
+    "id": "05",
+    "label": "Folded ribbons",
+    "family": "Grain Title 05",
+    "woff2": "/title-fonts/fonts/grain-05.woff2",
+    "ttf": "/title-fonts/fonts/grain-05.ttf",
+    "grainAdvanceEm": 3.315
+  },
+  {
+    "id": "06",
+    "label": "Circuit traces",
+    "family": "Grain Title 06",
+    "woff2": "/title-fonts/fonts/grain-06.woff2",
+    "ttf": "/title-fonts/fonts/grain-06.ttf",
+    "grainAdvanceEm": 3.155
+  },
+  {
+    "id": "07",
+    "label": "Bevelled segments",
+    "family": "Grain Title 07",
+    "woff2": "/title-fonts/fonts/grain-07.woff2",
+    "ttf": "/title-fonts/fonts/grain-07.ttf",
+    "grainAdvanceEm": 2.696
+  },
+  {
+    "id": "08",
+    "label": "Razor contrast",
+    "family": "Grain Title 08",
+    "woff2": "/title-fonts/fonts/grain-08.woff2",
+    "ttf": "/title-fonts/fonts/grain-08.ttf",
+    "grainAdvanceEm": 3.45
+  },
+  {
+    "id": "09",
+    "label": "Stepped blocks",
+    "family": "Grain Title 09",
+    "woff2": "/title-fonts/fonts/grain-09.woff2",
+    "ttf": "/title-fonts/fonts/grain-09.ttf",
+    "grainAdvanceEm": 3.22
+  },
+  {
+    "id": "10",
+    "label": "Faceted lowercase",
+    "family": "Grain Title 10",
+    "woff2": "/title-fonts/fonts/grain-10.woff2",
+    "ttf": "/title-fonts/fonts/grain-10.ttf",
+    "grainAdvanceEm": 2.84
+  },
+  {
+    "id": "11",
+    "label": "Clustered dust",
+    "family": "Grain Title 11",
+    "woff2": "/title-fonts/fonts/grain-11.woff2",
+    "ttf": "/title-fonts/fonts/grain-11.ttf",
+    "grainAdvanceEm": 2.927
+  },
+  {
+    "id": "12",
+    "label": "Broken flow contours",
+    "family": "Grain Title 12",
+    "woff2": "/title-fonts/fonts/grain-12.woff2",
+    "ttf": "/title-fonts/fonts/grain-12.ttf",
+    "grainAdvanceEm": 3.342
+  },
+  {
+    "id": "13",
+    "label": "Dithered bloom",
+    "family": "Grain Title 13",
+    "woff2": "/title-fonts/fonts/grain-13.woff2",
+    "ttf": "/title-fonts/fonts/grain-13.ttf",
+    "grainAdvanceEm": 3.175
+  },
+  {
+    "id": "14",
+    "label": "Satellite knots",
+    "family": "Grain Title 14",
+    "woff2": "/title-fonts/fonts/grain-14.woff2",
+    "ttf": "/title-fonts/fonts/grain-14.ttf",
+    "grainAdvanceEm": 2.856
+  },
+  {
+    "id": "15",
+    "label": "Interference weave",
+    "family": "Grain Title 15",
+    "woff2": "/title-fonts/fonts/grain-15.woff2",
+    "ttf": "/title-fonts/fonts/grain-15.ttf",
+    "grainAdvanceEm": 3.336
+  },
+  {
+    "id": "16",
+    "label": "Eroded ink",
+    "family": "Grain Title 16",
+    "woff2": "/title-fonts/fonts/grain-16.woff2",
+    "ttf": "/title-fonts/fonts/grain-16.ttf",
+    "grainAdvanceEm": 2.875
+  },
+  {
+    "id": "17",
+    "label": "Braided spray",
+    "family": "Grain Title 17",
+    "woff2": "/title-fonts/fonts/grain-17.woff2",
+    "ttf": "/title-fonts/fonts/grain-17.ttf",
+    "grainAdvanceEm": 2.675
+  },
+  {
+    "id": "18",
+    "label": "Tidal scatter",
+    "family": "Grain Title 18",
+    "woff2": "/title-fonts/fonts/grain-18.woff2",
+    "ttf": "/title-fonts/fonts/grain-18.ttf",
+    "grainAdvanceEm": 2.553
+  },
+  {
+    "id": "19",
+    "label": "Falling grains",
+    "family": "Grain Title 19",
+    "woff2": "/title-fonts/fonts/grain-19.woff2",
+    "ttf": "/title-fonts/fonts/grain-19.ttf",
+    "grainAdvanceEm": 1.889
+  },
+  {
+    "id": "20",
+    "label": "Liquid lowercase",
+    "family": "Grain Title 20",
+    "woff2": "/title-fonts/fonts/grain-20.woff2",
+    "ttf": "/title-fonts/fonts/grain-20.ttf",
+    "grainAdvanceEm": 2.499
+  },
+  {
+    "id": "21",
+    "label": "Wide modular",
+    "family": "Grain Title 21",
+    "woff2": "/title-fonts/fonts/grain-21.woff2",
+    "ttf": "/title-fonts/fonts/grain-21.ttf",
+    "grainAdvanceEm": 3.408
+  },
+  {
+    "id": "22",
+    "label": "Compressed instrument",
+    "family": "Grain Title 22",
+    "woff2": "/title-fonts/fonts/grain-22.woff2",
+    "ttf": "/title-fonts/fonts/grain-22.ttf",
+    "grainAdvanceEm": 2.416
+  },
+  {
+    "id": "23",
+    "label": "Industrial stencil",
+    "family": "Grain Title 23",
+    "woff2": "/title-fonts/fonts/grain-23.woff2",
+    "ttf": "/title-fonts/fonts/grain-23.ttf",
+    "grainAdvanceEm": 3.027
+  },
+  {
+    "id": "24",
+    "label": "Precision raster",
+    "family": "Grain Title 24",
+    "woff2": "/title-fonts/fonts/grain-24.woff2",
+    "ttf": "/title-fonts/fonts/grain-24.ttf",
+    "grainAdvanceEm": 2.643
+  },
+  {
+    "id": "25",
+    "label": "Oscilloscope",
+    "family": "Grain Title 25",
+    "woff2": "/title-fonts/fonts/grain-25.woff2",
+    "ttf": "/title-fonts/fonts/grain-25.ttf",
+    "grainAdvanceEm": 4.278
+  },
+  {
+    "id": "26",
+    "label": "Segmented radar",
+    "family": "Grain Title 26",
+    "woff2": "/title-fonts/fonts/grain-26.woff2",
+    "ttf": "/title-fonts/fonts/grain-26.ttf",
+    "grainAdvanceEm": 3.747
+  },
+  {
+    "id": "27",
+    "label": "Continuous routing",
+    "family": "Grain Title 27",
+    "woff2": "/title-fonts/fonts/grain-27.woff2",
+    "ttf": "/title-fonts/fonts/grain-27.ttf",
+    "grainAdvanceEm": 3.352
+  },
+  {
+    "id": "28",
+    "label": "Angular aerospace",
+    "family": "Grain Title 28",
+    "woff2": "/title-fonts/fonts/grain-28.woff2",
+    "ttf": "/title-fonts/fonts/grain-28.ttf",
+    "grainAdvanceEm": 2.97
+  },
+  {
+    "id": "29",
+    "label": "Technical slab",
+    "family": "Grain Title 29",
+    "woff2": "/title-fonts/fonts/grain-29.woff2",
+    "ttf": "/title-fonts/fonts/grain-29.ttf",
+    "grainAdvanceEm": 3.473
+  },
+  {
+    "id": "30",
+    "label": "Constructivist",
+    "family": "Grain Title 30",
+    "woff2": "/title-fonts/fonts/grain-30.woff2",
+    "ttf": "/title-fonts/fonts/grain-30.ttf",
+    "grainAdvanceEm": 5.287
+  }
+]

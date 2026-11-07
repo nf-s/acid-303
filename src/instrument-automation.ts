@@ -58,7 +58,7 @@ export function createInstrumentAutomation<Parameter extends string>(
   const steps: BassStep[] = [];
   const id = (parameter: Parameter): string => `${options.prefix}-${parameter}`;
   container.classList.add("instrument-automation");
-  container.innerHTML = `${options.pagerContainer ? "" : `<div id="${options.prefix}-pattern-controls" class="instrument-pattern-controls"></div>`}<div class="matrix-toolbar"><div class="instrument-lane-title"><span id="${options.prefix}-lane-label"></span><span id="${options.prefix}-lane-duration"></span></div><div class="matrix-tools"><button data-automation-tool="draw" aria-pressed="true">Draw</button><button data-automation-tool="line" aria-pressed="false">Line</button><button id="${options.prefix}-automation-undo" disabled>Undo</button><button id="${options.prefix}-automation-clear">Clear curve</button></div></div><div class="note-matrix instrument-automation-matrix"><canvas id="${options.prefix}-matrix-canvas" aria-label="Draw ${options.label} automation"></canvas><div class="matrix-access" id="${options.prefix}-matrix-access"></div></div>`;
+  container.innerHTML = `${options.pagerContainer ? "" : `<div id="${options.prefix}-pattern-controls" class="instrument-pattern-controls"></div>`}<div class="matrix-toolbar"><div class="instrument-lane-title"><span id="${options.prefix}-lane-label"></span><span id="${options.prefix}-lane-duration"></span></div><div class="automation-view" role="group" aria-label="${options.label} automation view"><button data-automation-view="page" aria-pressed="true">Page</button><button data-automation-view="loop" aria-pressed="false">Whole loop</button></div><div class="matrix-tools"><button data-automation-tool="draw" aria-pressed="true">Draw</button><button data-automation-tool="line" aria-pressed="false">Line</button><button id="${options.prefix}-automation-undo" disabled>Undo</button><button id="${options.prefix}-automation-clear">Clear curve</button></div></div><div class="note-matrix instrument-automation-matrix"><canvas id="${options.prefix}-matrix-canvas" aria-label="Draw ${options.label} automation"></canvas><div class="matrix-access" id="${options.prefix}-matrix-access"></div></div>`;
   const canvas = container.querySelector("canvas");
   const access = container.querySelector<HTMLElement>(".matrix-access");
   if (!(canvas instanceof HTMLCanvasElement) || !access)
@@ -173,6 +173,15 @@ export function createInstrumentAutomation<Parameter extends string>(
         return `${Math.round(actual)}${selected.parameter === "decay" ? " ms" : "%"}`;
       },
     });
+    matrix.setAutomationView(matrix.automationView, timing.bars);
+    container
+      .querySelectorAll<HTMLElement>("[data-automation-view]")
+      .forEach((button) =>
+        button.setAttribute(
+          "aria-pressed",
+          String(button.dataset.automationView === matrix.automationView),
+        ),
+      );
     const label = container.querySelector(`#${options.prefix}-lane-label`);
     if (label) label.textContent = `${selected.label} automation`;
     const duration = container.querySelector(
@@ -235,6 +244,12 @@ export function createInstrumentAutomation<Parameter extends string>(
     if (!(event.target instanceof Element)) return;
     const button = event.target.closest("button");
     if (!button || !container.contains(button)) return;
+    const view = button.dataset.automationView;
+    if (view === "page" || view === "loop") {
+      pager.freezeFollow();
+      matrix.setAutomationView(view, options.getTiming().bars);
+      refresh();
+    }
     const nextTool = button.dataset.automationTool;
     if (nextTool === "draw" || nextTool === "line") {
       tool = nextTool;

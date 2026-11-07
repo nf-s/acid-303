@@ -34,6 +34,15 @@ async function countAudioContexts(page: Page): Promise<void> {
     };
   });
 }
+async function openControls(page: Page): Promise<void> {
+  const button = page.getByRole("button", {
+    name: "Track controls",
+    exact: true,
+  });
+  if ((await button.getAttribute("aria-expanded")) !== "true")
+    await button.click();
+}
+
 async function hostSession(page: Page): Promise<string> {
   await page.goto("/");
   await page
@@ -145,6 +154,7 @@ test("friends edit together while transport and all audio remain on the host", a
   await page.getByRole("button", { name: "End session", exact: true }).click();
   await expect(guest.locator("#session-status")).toHaveText("Session ended");
   await expect(guest.locator("#session-host-status")).toBeHidden();
+  await openControls(guest);
   await guest.getByRole("button", { name: "Leave", exact: true }).click();
   await expect(guest.locator(".workspace")).not.toHaveAttribute("inert");
   await expect(guest.locator("html")).not.toHaveAttribute(
@@ -213,6 +223,7 @@ test("reload resumes the room and an extra host tab cannot play alongside the ho
   await expect(guest.locator("html")).not.toHaveAttribute(
     "data-audio-contexts",
   );
+  await openControls(replacement);
   await replacement
     .getByRole("button", { name: "End session", exact: true })
     .click();
@@ -322,6 +333,7 @@ test("long triplet patterns, mixer edits and automation clocks stay shared witho
   expect(shared.keys.sound).toBe(KEYS_SOUNDS.length - 1);
   expect(shared.arp.sound).toBe(ARP_SOUNDS.length - 1);
   expect(shared.pad.sound).toBe(PAD_SOUNDS.length - 1);
+  await guest.locator('#bass-pattern [data-pattern-action="open"]').click();
   await guest.locator('#bass-pattern [data-pattern-page="5"]').click();
   const lastCell = guest.getByRole("slider", {
     name: "Bass note step 60",
@@ -375,6 +387,32 @@ test("long triplet patterns, mixer edits and automation clocks stay shared witho
   await expect(guest.locator("html")).not.toHaveAttribute(
     "data-audio-contexts",
   );
+  await page.getByRole("button", { name: "End session", exact: true }).click();
+  await context.close();
+});
+
+test("session details stay inside settings and remain usable when disconnected", async ({
+  page,
+  browser,
+}) => {
+  const invite = await hostSession(page);
+  await page.locator("#studio-tools").click();
+  await expect(page.locator("#session-panel")).toBeHidden();
+  await page.locator("#studio-tools").click();
+  await expect(
+    page.locator("#studio-tools-panel #session-panel"),
+  ).toBeVisible();
+  const context = await browser.newContext();
+  const guest = await context.newPage();
+  await guest.goto(invite);
+  await expect(guest.locator("#session-status")).toHaveText("Connected");
+  await expect(guest.locator("#session-panel")).toBeHidden();
+  await context.setOffline(true);
+  await expect(guest.locator(".studio-grid")).toHaveAttribute("inert");
+  await openControls(guest);
+  await expect(guest.locator("#session-panel")).toBeVisible();
+  await guest.getByRole("button", { name: "Leave", exact: true }).click();
+  await expect(guest.locator(".studio-grid")).not.toHaveAttribute("inert");
   await page.getByRole("button", { name: "End session", exact: true }).click();
   await context.close();
 });

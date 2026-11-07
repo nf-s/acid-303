@@ -260,6 +260,34 @@ releases after 1 December 2026, when the published pricing changes. Inspect DO
 request/duration, SQLite rows, stored bytes and sampled errors after launch.
 See [Workers Logs pricing](https://developers.cloudflare.com/workers/observability/logs/workers-logs/#pricing).
 
+## Session recovery production release evidence
+
+On 7 November 2026 at 12:25 UTC, checkpoint `b9b4815` was deployed through the
+authenticated Cloudflare API. Worker version
+`050ccabe-6e63-4fe3-a89b-a1104b633673` is at 100% in deployment
+`2261beb1-daf2-41a3-9d2c-2022928a218d`. The downloaded 412,882-byte module has
+SHA-256 `449811a3096d6b3933e7a87324103bf452ff06e7242f8c4e6531a2ef8b901b38`, matching
+the checked production artifact. Protocol v3, the existing namespace
+`ffe237d4fde14ba99780aa4f28eb4bec`, origins, rate bindings and observability remain
+unchanged; namespace reconciliation created, updated and deleted nothing.
+
+One disposable host/guest room was created at 12:25:13 UTC before the update.
+Both sockets stayed connected through deployment; its project, revision and
+sequence acknowledgement survived. The production probe verified edit
+throttling while clock, snapshot and Stop remained usable, retryable packet
+close `1013`, preserved state after reconnect, duplicate-edit acknowledgement,
+guest transport routing, and rejection of guest clocks and End. A reconnecting
+host remained stopped. The test room was explicitly ended at 12:25:56 UTC; no
+user room was touched. Health returned 200, and missing/untrusted origins 403.
+
+Before release, 17 workerd tests, 18 focused client/sync/protocol tests, all six
+existing session browser tests, generated types, strict typechecks, build and
+prebuilt dry-run passed. The 43-edit interruption regression also passed in
+Chrome and mobile WebKit, retaining every queued edit without a flood. Root
+verified the complete 145-test unit suite before checkpointing. The matching
+Pages client update follows separately; existing protocol-v3 clients remain
+compatible with this Worker.
+
 ## Release
 
 Production publication is a coordinated release, not part of `npm run build`.

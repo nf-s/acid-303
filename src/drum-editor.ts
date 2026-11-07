@@ -14,7 +14,7 @@ import type {
   Project,
 } from "./model";
 import { NoteMatrix } from "./note-matrix";
-import type { MatrixChange } from "./note-matrix";
+import type { MatrixAutomationView, MatrixChange } from "./note-matrix";
 import { PatternControls } from "./pattern-controls";
 import type { PatternViewport } from "./pattern-controls";
 import { sequenceTimingSchema, trackPosition } from "./timing";
@@ -61,6 +61,7 @@ export class DrumEditor {
   private advanced = false;
   private readonly views = new Map<DrumId, DrumView>();
   private readonly selected = new Map<DrumId, DrumAutomationParameter | null>();
+  private readonly automationViews = new Map<DrumId, MatrixAutomationView>();
   private readonly pagers = new Map<
     DrumId,
     { element: HTMLDivElement; controls: PatternControls }
@@ -171,7 +172,7 @@ export class DrumEditor {
         ? project.drums
             .map(
               (track) =>
-                `<section class="drum-detail" aria-label="${DRUM_META[track.id].name} automation"><div class="drum-detail-header"><h3>${DRUM_META[track.id].name}</h3>${this.sounds(track)}</div>${this.controls(track)}<div class="matrix-toolbar"><div class="matrix-parameters"><button data-drum-gates="${track.id}" aria-pressed="false">Gates</button><span id="${track.id}-lane-label">Pitch automation</span></div><div class="matrix-tools"><button data-drum-tool="draw" data-drum-target="${track.id}" aria-pressed="true">Draw</button><button data-drum-tool="line" data-drum-target="${track.id}" aria-pressed="false">Line</button><button data-drum-clear="${track.id}">Clear curve</button></div></div><div class="note-matrix drum-matrix"><canvas id="${track.id}-matrix-canvas" aria-label="Draw ${DRUM_META[track.id].name} automation"></canvas><div class="matrix-access" id="${track.id}-matrix-access"></div></div></section>`,
+                `<section class="drum-detail" aria-label="${DRUM_META[track.id].name} automation"><div class="drum-detail-header"><h3>${DRUM_META[track.id].name}</h3>${this.sounds(track)}</div>${this.controls(track)}<div class="matrix-toolbar"><div class="matrix-parameters"><button data-drum-gates="${track.id}" aria-pressed="false">Gates</button><span id="${track.id}-lane-label">Pitch automation</span></div><div class="automation-view" role="group" aria-label="${DRUM_META[track.id].name} automation view"><button data-drum-view="page" data-drum-target="${track.id}" aria-pressed="true">Page</button><button data-drum-view="loop" data-drum-target="${track.id}" aria-pressed="false">Whole loop</button></div><div class="matrix-tools"><button data-drum-tool="draw" data-drum-target="${track.id}" aria-pressed="true">Draw</button><button data-drum-tool="line" data-drum-target="${track.id}" aria-pressed="false">Line</button><button data-drum-clear="${track.id}">Clear curve</button></div></div><div class="note-matrix drum-matrix"><canvas id="${track.id}-matrix-canvas" aria-label="Draw ${DRUM_META[track.id].name} automation"></canvas><div class="matrix-access" id="${track.id}-matrix-access"></div></div></section>`,
             )
             .join("")
         : `<div class="instrument-tabs" role="group" aria-label="Drum instrument">${project.drums.map((track) => `<button data-drum="${track.id}" aria-label="Select and preview ${DRUM_META[track.id].name}" aria-pressed="${track.id === selected}">${DRUM_META[track.id].name}</button>`).join("")}</div><div id="instrument-controls" class="instrument-controls">${project.drums
@@ -308,6 +309,20 @@ export class DrumEditor {
         { root: 0, mode: project.scale.mode },
         track.muted,
       );
+      const automationView = this.automationViews.get(track.id) ?? "page";
+      view.matrix.setAutomationView(automationView, track.timing.bars);
+      this.container
+        .querySelectorAll<HTMLElement>(
+          `[data-drum-view][data-drum-target="${track.id}"]`,
+        )
+        .forEach((button) => {
+          button.setAttribute(
+            "aria-pressed",
+            String(button.dataset.drumView === automationView),
+          );
+          const group = button.closest(".automation-view");
+          if (group instanceof HTMLElement) group.hidden = !parameter;
+        });
       const label = document.getElementById(`${track.id}-lane-label`);
       const gates = this.container.querySelector(
         `[data-drum-gates="${track.id}"]`,
@@ -421,11 +436,19 @@ export class DrumEditor {
       view?.matrix.setParameter("gate");
       this.refresh(id);
     }
+    const automationView = button.dataset.drumView;
+    if (automationView === "page" || automationView === "loop") {
+      this.freezeFollow(id);
+      this.automationViews.set(id, automationView);
+      this.refresh(id);
+    }
     const tool = button.dataset.drumTool;
     if (tool === "draw" || tool === "line") {
       view?.matrix.setTool(tool);
       this.container
-        .querySelectorAll<HTMLElement>(`[data-drum-target="${id}"]`)
+        .querySelectorAll<HTMLElement>(
+          `[data-drum-tool][data-drum-target="${id}"]`,
+        )
         .forEach((item) =>
           item.setAttribute(
             "aria-pressed",

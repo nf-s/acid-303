@@ -1,0 +1,129 @@
+[
+  {
+    "id": "21",
+    "sourceFamily": "Orbitron",
+    "designer": "Matt McInerney",
+    "sourceUrl": "https://github.com/google/fonts/tree/main/ofl/orbitron",
+    "sourceFile": "Orbitron[wght].ttf",
+    "sourceSha256": "f42db2dd16e642258e35782916eceb1dcdbea06fb958d77ad71dc5963587e8fd",
+    "axes": {
+      "wght": 900
+    },
+    "widthFactor": 1.02,
+    "license": "./licenses/orbitron-OFL.txt",
+    "modifications": "Title alphabet subset; static weight; cap-height normalization; width and title-spacing adjustments; renamed family. Original glyph outlines retained."
+  },
+  {
+    "id": "22",
+    "sourceFamily": "Chakra Petch",
+    "designer": "Cadson Demak",
+    "sourceUrl": "https://github.com/google/fonts/tree/main/ofl/chakrapetch",
+    "sourceFile": "ChakraPetch-Bold.ttf",
+    "sourceSha256": "65fbf76d95651697275e19db4d717c0e95a789ddd3476478b05292104db278a0",
+    "axes": {},
+    "widthFactor": 0.84,
+    "license": "./licenses/chakrapetch-OFL.txt",
+    "modifications": "Title alphabet subset; static weight; cap-height normalization; width and title-spacing adjustments; renamed family. Original glyph outlines retained."
+  },
+  {
+    "id": "23",
+    "sourceFamily": "Saira Stencil One",
+    "designer": "Hector Gatti, Omnibus-Type",
+    "sourceUrl": "https://github.com/google/fonts/tree/main/ofl/sairastencilone",
+    "sourceFile": "SairaStencilOne-Regular.ttf",
+    "sourceSha256": "781496fdaf8e04cf6741b31025f6b4ba84f66021b097a8e0d85cbea2180cf223",
+    "axes": {},
+    "widthFactor": 1.0,
+    "license": "./licenses/sairastencilone-OFL.txt",
+    "modifications": "Title alphabet subset; static weight; cap-height normalization; width and title-spacing adjustments; renamed family. Original glyph outlines retained."
+  },
+  {
+    "id": "24",
+    "sourceFamily": "Doto",
+    "designer": "\u00d3liver Lalan",
+    "sourceUrl": "https://github.com/google/fonts/tree/main/ofl/doto",
+    "sourceFile": "Doto[ROND,wght].ttf",
+    "sourceSha256": "6f4fe7d37853b91df3698daa84cde2dbe1c9695d88c986e6510134910337d426",
+    "axes": {
+      "wght": 900,
+      "ROND": 0
+    },
+    "widthFactor": 1.0,
+    "license": "./licenses/doto-OFL.txt",
+    "modifications": "Title alphabet subset; static weight; cap-height normalization; width and title-spacing adjustments; renamed family. Original glyph outlines retained."
+  },
+  {
+    "id": "25",
+    "sourceFamily": "Michroma",
+    "designer": "Vernon Adams",
+    "sourceUrl": "https://github.com/google/fonts/tree/main/ofl/michroma",
+    "sourceFile": "Michroma-Regular.ttf",
+    "sourceSha256": "b62301163788bc5b7f8fcac0b74b184e34e1827e577b499ecb724da065098f87",
+    "axes": {},
+    "widthFactor": 1.08,
+    "license": "./licenses/michroma-OFL.txt",
+    "modifications": "Title alphabet subset; static weight; cap-height normalization; width and title-spacing adjustments; renamed family. Original glyph outlines retained."
+  },
+  {
+    "id": "26",
+    "sourceFamily": "Bruno Ace SC",
+    "designer": "Astigmatic",
+    "sourceUrl": "https://github.com/google/fonts/tree/main/ofl/brunoacesc",
+    "sourceFile": "BrunoAceSC-Regular.ttf",
+    "sourceSha256": "97fc6885b4c0345793ddf13bedd7864bc0f45ed47ad05628e42cafc5d8e795d5",
+    "axes": {},
+    "widthFactor": 1.02,
+    "license": "./licenses/brunoacesc-OFL.txt",
+    "modifications": "Title alphabet subset; static weight; cap-height normalization; width and title-spacing adjustments; renamed family. Original glyph outlines retained."
+  },
+  {
+    "id": "27",
+    "sourceFamily": "Audiowide",
+    "designer": "Astigmatic",
+    "sourceUrl": "https://github.com/google/fonts/tree/main/ofl/audiowide",
+    "sourceFile": "Audiowide-Regular.ttf",
+    "sourceSha256": "c7c0f2b0f6fad8c623e31772ce79f94a4edb9321ffce9fce978ea892d20ae730",
+    "axes": {},
+    "widthFactor": 1.0,
+    "license": "./licenses/audiowide-OFL.txt",
+    "modifications": "Title alphabet subset; static weight; cap-height normalization; width and title-spacing adjustments; renamed family. Original glyph outlines retained."
+  },
+  {
+    "id": "28",
+    "sourceFamily": "Oxanium",
+    "designer": "Severin Meyer",
+    "sourceUrl": "https://github.com/google/fonts/tree/main/ofl/oxanium",
+    "sourceFile": "Oxanium[wght].ttf",
+    "sourceSha256": "2ce01d946e1e1ffc8d7eecfffbda8623bedd63eaf811a20488c4b69af45babb0",
+    "axes": {
+      "wght": 800
+    },
+    "widthFactor": 1.02,
+    "license": "./licenses/oxanium-OFL.txt",
+    "modifications": "Title alphabet subset; static weight; cap-height normalization; width and title-spacing adjustments; renamed family. Original glyph outlines retained."
+  },
+  {
+    "id": "29",
+    "sourceFamily": "Russo One",
+    "designer": "Jovanny Lemonad",
+    "sourceUrl": "https://github.com/google/fonts/tree/main/ofl/russoone",
+    "sourceFile": "RussoOne-Regular.ttf",
+    "sourceSha256": "bc0abcc660bd8b7ad3000ecb2898a27c58a29a50f7ec81652fa12e75148d09df",
+    "axes": {},
+    "widthFactor": 1.04,
+    "license": "./licenses/russoone-OFL.txt",
+    "modifications": "Title alphabet subset; static weight; cap-height normalization; width and title-spacing adjustments; renamed family. Original glyph outlines retained."
+  },
+  {
+    "id": "30",
+    "sourceFamily": "Stalinist One",
+    "designer": "Alexey Maslov, Jovanny Lemonad",
+    "sourceUrl": "https://github.com/google/fonts/tree/main/ofl/stalinistone",
+    "sourceFile": "StalinistOne-Regular.ttf",
+    "sourceSha256": "73cc48eefa01543b09fd3df9bab6af2a302e52e292b8625f4b62c868bc152eeb",
+    "axes": {},
+    "widthFactor": 0.96,
+    "license": "./licenses/stalinistone-OFL.txt",
+    "modifications": "Title alphabet subset; static weight; cap-height normalization; width and title-spacing adjustments; renamed family. Original glyph outlines retained."
+  }
+]

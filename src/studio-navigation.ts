@@ -5,11 +5,17 @@ export function installStudioNavigation(root: HTMLElement): void {
   const viewButton = root.querySelector<HTMLButtonElement>("#studio-view");
   const transport = root.querySelector<HTMLElement>(".transport");
   if (!tools || !toolsButton || !view || !viewButton || !transport) return;
-  const setView = (open: boolean): void => {
-    view.hidden = !open;
-    viewButton.setAttribute("aria-expanded", String(open));
-  };
-  setView(matchMedia("(min-width: 651px)").matches);
+  const header = root.querySelector<HTMLElement>(".app-header");
+  if (header) {
+    const slot = document.createElement("div");
+    slot.id = "header-visuals";
+    slot.append(view);
+    const brandIcon = header.querySelector(".brand-icon");
+    if (brandIcon) header.append(brandIcon);
+    header.append(slot);
+  }
+  view.hidden = false;
+  viewButton.removeAttribute("aria-expanded");
   const resize = new ResizeObserver(() => {
     document.documentElement.style.setProperty(
       "--transport-height",
@@ -24,8 +30,11 @@ export function installStudioNavigation(root: HTMLElement): void {
     if (button === toolsButton) {
       tools.hidden = !tools.hidden;
       toolsButton.setAttribute("aria-expanded", String(!tools.hidden));
-    } else if (button === viewButton) setView(view.hidden);
-    else if (button?.dataset.instrumentJump) {
+    } else if (button === viewButton) {
+      tools.hidden = true;
+      toolsButton.setAttribute("aria-expanded", "false");
+      view.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else if (button?.dataset.instrumentJump) {
       const section = document.getElementById(button.dataset.instrumentJump);
       if (!section) return;
       tools.hidden = true;

@@ -1,3 +1,22 @@
+.automation-view {
+  display: inline-flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  gap: 2px;
+}
+.automation-view[hidden] {
+  display: none;
+}
+.automation-view button {
+  min-height: 32px;
+  padding: 6px 9px;
+  font-size: 10px;
+}
+.automation-view button[aria-pressed="true"] {
+  color: #16191c;
+  background: #d5dbe1;
+  border-color: #e8edf2;
+}
 .instrument-automation {
   min-width: 0;
   padding-bottom: 14px;

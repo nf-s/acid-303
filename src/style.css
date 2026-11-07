@@ -88,7 +88,7 @@ button:active {
 }
 .brand-wordmark {
   display: block;
-  width: clamp(170px, 23vw, 236px);
+  width: min(300px, calc(100vw - 108px));
   color: #ededed;
 }
 .brand-wordmark svg {
@@ -2063,12 +2063,13 @@ kbd {
 }
 .instrument-nav {
   position: fixed;
-  bottom: 8px;
+  bottom: 0;
   left: 50%;
   transform: translateX(-50%);
   z-index: 50;
   display: flex;
-  width: min(600px, calc(100vw - 20px));
+  width: min(600px, 100vw);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background: #202020f5;
   border: 1px solid #999;
   box-shadow: 4px 4px #0008;
@@ -2092,13 +2093,13 @@ kbd {
   scroll-margin-top: calc(var(--transport-height, 110px) + 20px);
 }
 .visualizer-toolbar {
-  bottom: 62px;
+  bottom: calc(54px + env(safe-area-inset-bottom, 0px));
 }
 .visualizer-expanded #app > #visualizer-toolbar {
   visibility: visible;
 }
 .visualizer-expanded .visualizer-toolbar {
-  bottom: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
 }
 .visualizer-expanded .instrument-nav {
   visibility: hidden;
@@ -2161,9 +2162,165 @@ kbd {
     font-size: 9px;
   }
   .visualizer-toolbar {
-    bottom: 62px;
+    bottom: calc(54px + env(safe-area-inset-bottom, 0px));
   }
   body {
     padding-bottom: 124px;
+  }
+}
+
+.app-header {
+  justify-content: center;
+}
+.brand {
+  position: relative;
+  width: 100%;
+  justify-content: center;
+}
+.brand-icon {
+  position: absolute;
+  left: 0;
+}
+.brand-divider,
+.brand-detail {
+  display: none;
+}
+.brand-wordmark {
+  text-align: center;
+}
+.studio-tools {
+  max-height: min(68dvh, 560px);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+.studio-tools .session-panel {
+  margin-top: 12px;
+  border: 1px solid #777;
+}
+
+.app-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  z-index: 60;
+}
+.app-header .brand {
+  grid-column: 2;
+  grid-row: 1;
+}
+.app-header > .brand-icon {
+  position: static;
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+}
+#header-visuals {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  min-width: 0;
+}
+#header-visuals .visualizer-toolbar {
+  position: relative;
+  inset: auto;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  max-width: none;
+  gap: 0;
+}
+#header-visuals .visualizer-top {
+  display: none;
+}
+#header-visuals .visualizer-controls {
+  gap: 8px;
+  width: auto;
+}
+#header-visuals .visualizer-controls .dial-control {
+  flex-direction: column;
+  gap: 2px;
+}
+#header-visuals .visualizer-controls .gesture-control {
+  flex-direction: column;
+  gap: 3px;
+  min-height: 48px;
+}
+#header-visuals .visualizer-controls .knob-face {
+  width: 30px;
+  height: 30px;
+}
+#header-visuals .visualizer-controls .gesture-control output {
+  width: auto;
+}
+#header-visuals .visualizer-palettes {
+  top: calc(100% + 8px);
+  bottom: auto;
+  z-index: 60;
+}
+@media (max-width: 920px) {
+  .app-header {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .app-header .brand {
+    grid-column: 1;
+  }
+  .app-header > .brand-icon {
+    position: absolute;
+    left: 12px;
+    top: 18px;
+  }
+  #header-visuals {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: stretch;
+    border-top: 1px solid #555;
+    padding-top: 8px;
+  }
+  #header-visuals .visualizer-toolbar,
+  #header-visuals .visualizer-bottom,
+  #header-visuals .visualizer-controls {
+    width: 100%;
+  }
+  #header-visuals .visualizer-controls {
+    justify-content: space-evenly;
+  }
+  #header-visuals .visualizer-palettes {
+    right: 0;
+    width: 100%;
+  }
+}
+
+.performance-row .playback {
+  display: grid;
+  grid-template-columns: auto auto;
+}
+.performance-row .restart {
+  grid-column: 1 / -1;
+  justify-self: center;
+}
+.record-button {
+  flex-direction: column;
+  width: 40px;
+  height: 48px;
+  gap: 6px;
+  font: inherit;
+  font-size: 9px;
+}
+.record-dot {
+  display: block;
+  width: 13px;
+  height: 13px;
+  background: currentColor;
+  border-radius: 50%;
+}
+.record-button[aria-pressed="true"] {
+  color: #fff;
+  background: #922f3f;
+  border-color: #d38c98;
+}
+@media (max-width: 380px) {
+  .record-button {
+    width: 32px;
   }
 }

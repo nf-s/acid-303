@@ -453,6 +453,7 @@ export function createPadPanel(
   render();
   return {
     render,
+    refreshAutomation: () => automation.refresh(),
     setStep,
     setPosition,
     updateControl,

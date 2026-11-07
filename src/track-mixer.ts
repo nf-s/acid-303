@@ -30,7 +30,11 @@ export class TrackMixer {
       const track = mixerTrack(project, id);
       const fader = this.container.querySelector<HTMLElement>(`#mixer-${id}`);
       if (!track || !fader) continue;
-      const value = Math.round(track.volume * 100);
+      const held = Number(fader.getAttribute("aria-valuenow"));
+      const value =
+        fader.classList.contains("dragging") && Number.isFinite(held)
+          ? Math.max(0, Math.min(100, held))
+          : Math.round(track.volume * 100);
       fader.setAttribute("aria-valuenow", String(value));
       fader.style.setProperty("--fader-level", `${value}%`);
       const output = this.container.querySelector(`#mixer-${id}-value`);

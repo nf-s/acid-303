@@ -1,0 +1,20 @@
+Grain title alphabets 01–20
+
+Original font outlines created for this Grain project in 2026. These title
+alphabets were constructed from original polygons and paths. No third-party
+font outlines, commercial font files or traced logos were used.
+
+Each font contains G, R, A, I and N, lowercase character mappings to the same
+option-specific forms, space, period and hyphen. These are limited title
+alphabets, not full type families. Options 10 and 20 use lowercase forms for
+both uppercase and lowercase input. Body type remains IBM Plex Mono.
+
+TrueType and WOFF2 versions contain the same outlines. The generator and font
+metadata are included alongside the comparison page for future editing.
+
+IBM Plex Mono is a separate body font, distributed under its included SIL
+Open Font License. It is not the source for any of these title outlines.
+
+Options 11–20 use original irregular particle contours, clustered grains,
+porous ink and fluid stroke paths. Particle placements are deterministic.
+Round 1 remains available at round-1.html.

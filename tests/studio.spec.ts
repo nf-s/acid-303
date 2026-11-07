@@ -1677,15 +1677,27 @@ test("every Arp and Pad knob opens drawable automation with clear and undo", asy
   await expect(page.locator("#pad-lane-duration")).toHaveText("256 points");
 });
 
+async function openTiming(controls: Locator): Promise<void> {
+  if (!(await controls.locator(".pattern-dialog").isVisible()))
+    await controls.locator('[data-pattern-action="open"]').click();
+}
+
+async function choosePatternPage(
+  controls: Locator,
+  page: number,
+): Promise<void> {
+  await openTiming(controls);
+  await controls.locator(`[data-pattern-page="${page}"]`).click();
+  await expect(controls.locator(".pattern-dialog")).toBeHidden();
+}
+
 async function changeTiming(
   controls: Locator,
   bars: number,
   meter: string,
   grid: string,
 ): Promise<void> {
-  const details = controls.locator(".pattern-timing");
-  if (!(await details.locator(".pattern-settings").isVisible()))
-    await details.locator("summary").click();
+  await openTiming(controls);
   for (const [setting, value] of [
     ["bars", String(bars)],
     ["meter", meter],
@@ -1696,7 +1708,7 @@ async function changeTiming(
         `[data-pattern-setting="${setting}"][data-pattern-value="${value}"]`,
       )
       .click();
-  await details.locator("summary").click();
+  await controls.locator('[data-pattern-action="done"]').click();
 }
 
 test("long triplet Arp and Pad patterns edit the final partial page and survive reload", async ({
@@ -1705,7 +1717,7 @@ test("long triplet Arp and Pad patterns edit the final partial page and survive 
   await page.goto("/");
   const arpPages = page.locator("#arp-pattern-controls");
   await changeTiming(arpPages, 8, "5/4", "triplet");
-  await arpPages.locator('[data-pattern-page="23"]').click();
+  await choosePatternPage(arpPages, 23);
   await expect(page.locator("[data-arp-step]")).toHaveCount(6);
   const finalArpGate = page.locator('[data-arp-step="239"]');
   const gateWasOn =
@@ -1729,7 +1741,7 @@ test("long triplet Arp and Pad patterns edit the final partial page and survive 
 
   const padPages = page.locator("#pad-pattern-controls");
   await changeTiming(padPages, 16, "5/4", "triplet");
-  await padPages.locator('[data-pattern-page="47"]').click();
+  await choosePatternPage(padPages, 47);
   await page.locator("#pad-tone").press("Enter");
   await expect(page.locator("#pad-matrix-access [role=slider]")).toHaveCount(6);
   await page
@@ -1751,7 +1763,7 @@ test("long triplet Arp and Pad patterns edit the final partial page and survive 
   await page.reload();
   await expect.poll(async () => (await savedProject(page)).arp).toEqual(arp);
   await expect.poll(async () => (await savedProject(page)).pad).toEqual(pad);
-  await padPages.locator('[data-pattern-page="47"]').click();
+  await choosePatternPage(padPages, 47);
   await page.locator("#pad-tone").press("Enter");
   await expect(
     page.locator('#pad-matrix-access [data-matrix-step="479"]'),
@@ -1764,9 +1776,9 @@ test("drum and bass timing stays independent while later bars remain editable", 
   await page.goto("/");
   const kickPages = page
     .locator("#drum-editors .pattern-controls")
-    .filter({ has: page.locator('summary[aria-label="Kick timing"]') });
+    .filter({ has: page.locator('button[aria-label="Kick timing"]') });
   await changeTiming(kickPages, 2, "3/4", "straight");
-  await kickPages.locator('[data-pattern-page="1"]').click();
+  await choosePatternPage(kickPages, 1);
   const laterKick = page.locator('[data-drum-step="kick"][data-step="23"]');
   await expect(laterKick).toHaveAttribute("aria-pressed", "false");
   await laterKick.press("Enter");
@@ -1779,7 +1791,7 @@ test("drum and bass timing stays independent while later bars remain editable", 
     .toBe(true);
   const bassPages = page.locator("#bass-pattern");
   await changeTiming(bassPages, 4, "7/8", "triplet");
-  await bassPages.locator('[data-pattern-page="7"]').click();
+  await choosePatternPage(bassPages, 7);
   const lastNote = page.locator('#bass-matrix-access [data-matrix-step="83"]');
   await lastNote.press("End");
   await expect
@@ -1903,14 +1915,16 @@ for (const width of [320, 375]) {
     await page.setViewportSize({ width, height: 812 });
     await page.goto("/");
     await expect(page.locator("#studio-tools-panel")).toBeHidden();
-    await expect(page.locator("#visualizer-toolbar")).toBeHidden();
+    await expect(
+      page.locator("#header-visuals #visualizer-toolbar"),
+    ).toBeVisible();
     await page.locator('[data-instrument-jump="pad-panel"]').click();
     await expect(page.locator("#pad-title")).toBeInViewport();
     await expect(page.locator("#play")).toBeInViewport();
     await expect(page.locator("#fx-sweep")).toBeInViewport();
     await page.locator('[data-pad-bars="16"]').click();
     const pages = page.locator("#pad-pattern-controls");
-    await pages.locator('[data-pattern-page="15"]').click();
+    await choosePatternPage(pages, 15);
     await expect(pages.locator('[data-pattern-page="15"]')).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -1920,13 +1934,14 @@ for (const width of [320, 375]) {
       page.locator('#pad-matrix-access [data-matrix-step="255"]'),
     ).toHaveCount(1);
     await page.locator("#studio-view").click();
-    await expect(page.locator("#visualizer-toolbar")).toBeVisible();
+    await expect(
+      page.locator("#header-visuals #visualizer-toolbar"),
+    ).toBeInViewport();
     await page.locator("#intensity").press("Home");
     await expect(page.locator("#visualizer-panel")).toHaveCSS(
       "visibility",
       "hidden",
     );
-    await page.locator("#studio-view").click();
     await openTrackControls(page);
     await expect(page.locator("#share-track")).toBeVisible();
     await page.locator('[data-instrument-jump="drums-panel"]').click();
@@ -1979,4 +1994,250 @@ test("phone progression choices open above their button and close with selection
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     375,
   );
+});
+
+for (const width of [320, 375]) {
+  test(`timing modal keeps all settings and pages accessible in one compact row at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 812 });
+    await page.goto("/");
+    const controls = page.locator("#arp-pattern-controls");
+    const trigger = controls.getByRole("button", {
+      name: "Arpeggiator timing",
+      exact: true,
+    });
+    const dialog = controls.getByRole("dialog", {
+      name: "Arpeggiator timing and pages",
+      exact: true,
+    });
+    await expect(controls.getByRole("button")).toHaveCount(1);
+    const compact = await controls.boundingBox();
+    expect(compact?.height).toBeLessThanOrEqual(40);
+    await trigger.press("Enter");
+    await expect(dialog).toBeVisible();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const close = dialog.getByRole("button", {
+      name: "Close Arpeggiator timing",
+      exact: true,
+    });
+    const done = dialog.getByRole("button", {
+      name: "Done editing Arpeggiator timing",
+      exact: true,
+    });
+    await expect(close).toBeFocused();
+    await close.press("Shift+Tab");
+    await expect(done).toBeFocused();
+    await done.press("Tab");
+    await expect(close).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await changeTiming(controls, 8, "5/4", "triplet");
+    await openTiming(controls);
+    await expect(dialog.locator("[data-pattern-page]")).toHaveCount(24);
+    const bounds = await dialog.boundingBox();
+    if (!bounds) throw new Error("Timing dialog is missing.");
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(812);
+    await dialog.locator('[data-pattern-page="23"]').click();
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await expect(trigger).toContainText("Page 24/24");
+    await expect(page.locator("[data-arp-step]")).toHaveCount(6);
+    await page.locator("#arp-tone").press("Enter");
+    await page
+      .locator('#arp-matrix-access [data-matrix-step="239"]')
+      .press("End");
+    await expect
+      .poll(async () => (await savedProject(page)).arp.automation.tone?.[239])
+      .toBe(1);
+    await openTiming(controls);
+    await page.mouse.click(5, 5);
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toBeFocused();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBe(width);
+  });
+}
+
+test("timing modal pauses page following while open and preserves manual page selection", async ({
+  page,
+}) => {
+  const project = createProject();
+  project.bpm = 180;
+  await page.addInitScript(
+    (saved) => localStorage.setItem("acid-303-project-v1", saved),
+    JSON.stringify(project),
+  );
+  await page.goto("/");
+  const controls = page.locator("#bass-pattern");
+  await changeTiming(controls, 4, "4/4", "straight");
+  await openTiming(controls);
+  await controls.locator('[data-pattern-action="follow"]').click();
+  await page.getByRole("button", { name: "Play pattern", exact: true }).click();
+  await openTiming(controls);
+  const selected = controls.locator('[data-pattern-page][aria-pressed="true"]');
+  const before = await selected.getAttribute("data-pattern-page");
+  await expect
+    .poll(() =>
+      controls
+        .locator('[data-pattern-page][data-playing="true"]')
+        .getAttribute("data-pattern-page"),
+    )
+    .not.toBe(before);
+  await expect(selected).toHaveAttribute("data-pattern-page", before ?? "");
+  await controls.locator('[data-pattern-action="done"]').click();
+  await expect
+    .poll(() => selected.getAttribute("data-pattern-page"))
+    .not.toBe(before);
+  await choosePatternPage(controls, 3);
+  await expect(
+    page.locator('#bass-matrix-access [role="slider"]').first(),
+  ).toHaveAttribute("data-matrix-step", "48");
+  await page.waitForTimeout(1450);
+  await expect(
+    page.locator('#bass-matrix-access [role="slider"]').first(),
+  ).toHaveAttribute("data-matrix-step", "48");
+  await openTiming(controls);
+  await expect(
+    controls.locator('[data-pattern-action="follow"]'),
+  ).toHaveAttribute("aria-pressed", "false");
+  await controls.locator('[data-pattern-action="follow"]').click();
+  await expect(controls.locator(".pattern-dialog")).toBeHidden();
+  await expect
+    .poll(() =>
+      page
+        .locator('#bass-matrix-access [role="slider"]')
+        .first()
+        .getAttribute("data-matrix-step"),
+    )
+    .not.toBe("48");
+  await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
+});
+
+test("touch page selection returns to the selected automation bar", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 375, height: 812 },
+    hasTouch: true,
+    isMobile: true,
+  });
+  const page = await context.newPage();
+  await page.goto("/");
+  const controls = page.locator("#arp-pattern-controls");
+  await controls.locator(".pattern-trigger").tap();
+  await controls
+    .locator('[data-pattern-setting="bars"][data-pattern-value="4"]')
+    .tap();
+  await expect(controls.locator(".pattern-dialog")).toBeVisible();
+  await controls.locator('[data-pattern-page="3"]').tap();
+  await expect(controls.locator(".pattern-dialog")).toBeHidden();
+  await page.locator("#arp-tone").tap();
+  const cell = await matrixPoint(page, "arp", 0, 0.1);
+  await page.touchscreen.tap(cell.x, cell.y);
+  await expect
+    .poll(async () => (await savedProject(page)).arp.automation.tone?.[48])
+    .toBeGreaterThan(0.85);
+  const track = (await savedProject(page)).arp;
+  expect(track.automation.tone?.[0]).toBe(track.tone);
+  expect(track.automation.tone).toHaveLength(64);
+  await context.close();
+});
+
+test("undo and redo keep a drum timing dialog modal and preserve keyboard focus", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const trigger = page.getByRole("button", {
+    name: "Kick timing",
+    exact: true,
+  });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", {
+    name: "Kick timing and pages",
+    exact: true,
+  });
+  const twoBars = dialog.locator(
+    '[data-pattern-setting="bars"][data-pattern-value="2"]',
+  );
+  await twoBars.focus();
+  await twoBars.press("Enter");
+  await expect(twoBars).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Control+z");
+  await expect(dialog).toBeVisible();
+  await expect
+    .poll(() => dialog.evaluate((element) => element.matches(":modal")))
+    .toBe(true);
+  await expect(twoBars).toBeFocused();
+  await expect(twoBars).toHaveAttribute("aria-pressed", "false");
+  await page.keyboard.press("Control+Shift+z");
+  await expect
+    .poll(() => dialog.evaluate((element) => element.matches(":modal")))
+    .toBe(true);
+  await expect(twoBars).toBeFocused();
+  await expect(twoBars).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
+test("live fluid crosses timing controls and follows intensity and pause", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await openTrackControls(page);
+  await page.locator("#volume").press("Home");
+  await page.locator("#studio-tools").click();
+  await openVisualizerControls(page);
+  await page.locator("#visualizer-colour").click();
+  await page.locator('[data-visualizer-palette="rainbow"]').click();
+  await page.locator("#visualizer-colour").click();
+  await page.getByRole("button", { name: "Play pattern", exact: true }).click();
+  const controls = page.locator("#bass-pattern");
+  await openTiming(controls);
+  const mirror = controls.locator(".pattern-fluid-mirror");
+  const frame = () =>
+    mirror.evaluate((canvas) =>
+      canvas instanceof HTMLCanvasElement ? canvas.toDataURL() : "",
+    );
+  await expect(mirror).toHaveCSS("opacity", "0.3");
+  await expect(mirror).toHaveCSS("pointer-events", "none");
+  const moving = await frame();
+  await expect.poll(frame).not.toBe(moving);
+  const meter = controls.locator(
+    '[data-pattern-setting="meter"][data-pattern-value="4/4"]',
+  );
+  const first = await meter.screenshot();
+  await page.waitForTimeout(160);
+  expect(first.equals(await meter.screenshot())).toBe(false);
+  await page.keyboard.press("Escape");
+  const closed = await frame();
+  await page.waitForTimeout(160);
+  expect(await frame()).toBe(closed);
+  await page.locator("#motion").click();
+  await openTiming(controls);
+  await expect(mirror).toHaveCSS("visibility", "visible");
+  const paused = await frame();
+  await page.waitForTimeout(200);
+  expect(await frame()).toBe(paused);
+  const distorted = await meter.screenshot();
+  await page.keyboard.press("Escape");
+  await page.locator("#intensity").press("Home");
+  await openTiming(controls);
+  await expect(mirror).toHaveCSS("opacity", "0");
+  await expect(mirror).toHaveCSS("visibility", "hidden");
+  expect(distorted.equals(await meter.screenshot())).toBe(false);
+  await controls
+    .locator('[data-pattern-setting="bars"][data-pattern-value="2"]')
+    .click();
+  await expect(
+    controls.locator('[data-pattern-setting="bars"][data-pattern-value="2"]'),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
 });

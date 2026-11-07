@@ -42,6 +42,7 @@ export interface ArpPanelOptions {
 }
 export interface ArpPanel {
   render: () => void;
+  refreshAutomation: () => void;
   setStep: (absoluteStep: number) => void;
   setPosition: (absoluteTick: number, swing: number) => void;
   updateControl: (id: string, value: number) => boolean;
@@ -458,6 +459,7 @@ export function createArpPanel(
   render();
   return {
     render,
+    refreshAutomation: () => automation.refresh(),
     setPosition: (absoluteTick, amount) => {
       current = absoluteTick;
       swing = amount;

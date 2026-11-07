@@ -4,6 +4,7 @@ import type { BassStep, MusicalScale } from "./model";
 
 export type MatrixParameter = "pitch" | "gate" | "accent" | "slide";
 export type MatrixTool = "draw" | "line";
+export type MatrixAutomationView = "page" | "loop";
 export interface MatrixAutomation {
   id: string;
   label: string;
@@ -62,6 +63,8 @@ export class NoteMatrix {
   private viewportCount = 16;
   private groupSize = 4;
   private stepCount = 0;
+  private automationViewPreference: MatrixAutomationView = "page";
+  private loopBars = 1;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -127,24 +130,42 @@ export class NoteMatrix {
       groupSize === this.groupSize
     )
       return;
-    this.cancelPointers();
+    if (!this.overview) this.cancelPointers();
     this.viewportStart = start;
     this.viewportCount = count;
     this.groupSize = groupSize;
-    this.selected = start;
+    if (!this.overview) this.selected = start;
     this.draw();
   }
+  get automationView(): MatrixAutomationView {
+    return this.automationViewPreference;
+  }
+  setAutomationView(view: MatrixAutomationView, bars: number): void {
+    const count = Number.isFinite(bars)
+      ? Math.max(1, Math.min(16, Math.round(bars)))
+      : 1;
+    if (view === this.automationViewPreference && count === this.loopBars)
+      return;
+    this.cancelPointers();
+    this.automationViewPreference = view;
+    this.loopBars = count;
+    this.draw();
+  }
+  private get overview(): boolean {
+    return this.automation !== null && this.automationViewPreference === "loop";
+  }
+  private get viewStart(): number {
+    return this.overview ? 0 : this.viewportStart;
+  }
   private get visibleCount(): number {
+    if (this.overview) return this.steps.length;
     return Math.max(
       0,
       Math.min(this.viewportCount, this.steps.length - this.viewportStart),
     );
   }
   private get visibleSteps(): ReadonlyArray<BassStep> {
-    return this.steps.slice(
-      this.viewportStart,
-      this.viewportStart + this.visibleCount,
-    );
+    return this.steps.slice(this.viewStart, this.viewStart + this.visibleCount);
   }
   setParameter(parameter: MatrixParameter): void {
     this.cancelPointers();
@@ -236,7 +257,7 @@ export class NoteMatrix {
   };
   private get cellWidth(): number {
     return Math.max(
-      1,
+      0.001,
       (this.width - LEFT - RIGHT) / Math.max(1, this.visibleCount),
     );
   }
@@ -245,11 +266,10 @@ export class NoteMatrix {
   }
   private point(event: PointerEvent): Point {
     const bounds = this.canvas.getBoundingClientRect();
+    const right = this.width - RIGHT - 0.01;
+    const x = Math.max(LEFT, Math.min(right, event.clientX - bounds.left));
     return {
-      x: Math.max(
-        LEFT,
-        Math.min(this.width - RIGHT - 0.01, event.clientX - bounds.left),
-      ),
+      x: this.overview && x >= right - 1 ? right : x,
       y: Math.max(
         TOP,
         Math.min(this.height - BOTTOM, event.clientY - bounds.top),
@@ -258,7 +278,7 @@ export class NoteMatrix {
   }
   private index(point: Point): number {
     return (
-      this.viewportStart +
+      this.viewStart +
       Math.max(
         0,
         Math.min(
@@ -400,11 +420,27 @@ export class NoteMatrix {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     const step = this.steps[index];
     if (!step) return;
+    if (
+      this.overview &&
+      ["ArrowLeft", "ArrowRight", "PageUp", "PageDown"].includes(event.key)
+    ) {
+      event.preventDefault();
+      const distance = event.key.startsWith("Page")
+        ? Math.max(1, Math.round(this.steps.length / this.loopBars))
+        : 1;
+      const direction =
+        event.key === "ArrowLeft" || event.key === "PageUp" ? -1 : 1;
+      this.selected =
+        (index + distance * direction + this.steps.length) % this.steps.length;
+      this.draw();
+      this.controls[0]?.focus();
+      return;
+    }
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
       this.controls[
         (index -
-          this.viewportStart +
+          this.viewStart +
           (event.key === "ArrowLeft" ? this.visibleCount - 1 : 1)) %
           this.visibleCount
       ]?.focus();
@@ -416,28 +452,30 @@ export class NoteMatrix {
       return;
     event.preventDefault();
     this.onStroke();
-    if (event.key === "Enter" || event.key === " ")
-      this.onPaint({ parameter: "gate", index, value: !step.on });
-    else if (this.automation) {
+    if (this.automation) {
       const current = this.automation.values?.[index] ?? this.automation.base;
       this.onPaint({
         parameter: "automation",
         id: this.automation.id,
         index,
         value:
-          event.key === "Home"
-            ? 0
-            : event.key === "End"
-              ? 1
-              : Math.max(
-                  0,
-                  Math.min(
-                    1,
-                    current + (event.key === "ArrowUp" ? 0.025 : -0.025),
+          event.key === "Enter" || event.key === " "
+            ? Number(current <= 0.5)
+            : event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? 1
+                : Math.max(
+                    0,
+                    Math.min(
+                      1,
+                      current + (event.key === "ArrowUp" ? 0.025 : -0.025),
+                    ),
                   ),
-                ),
       });
-    } else if (this.parameter === "pitch") {
+    } else if (event.key === "Enter" || event.key === " ")
+      this.onPaint({ parameter: "gate", index, value: !step.on });
+    else if (this.parameter === "pitch") {
       const position = this.notes.indexOf(step.note);
       const next =
         event.key === "Home"
@@ -462,36 +500,48 @@ export class NoteMatrix {
       });
     this.draw();
   }
+  private accessIndex(column: number): number {
+    return this.overview ? this.selected : this.viewStart + column;
+  }
   private updateAccess(): void {
-    while (this.controls.length > this.visibleCount)
-      this.controls.pop()?.remove();
-    while (this.controls.length < this.visibleCount) {
+    const count = this.overview
+      ? Math.min(1, this.visibleCount)
+      : this.visibleCount;
+    while (this.controls.length > count) this.controls.pop()?.remove();
+    while (this.controls.length < count) {
       const column = this.controls.length;
       const control = document.createElement("div");
       control.setAttribute("role", "slider");
       control.setAttribute("aria-orientation", "vertical");
       control.setAttribute(
         "aria-keyshortcuts",
-        "ArrowUp ArrowDown ArrowLeft ArrowRight Home End Enter Space",
+        "ArrowUp ArrowDown ArrowLeft ArrowRight PageUp PageDown Home End Enter Space",
       );
       control.addEventListener("focus", () => {
-        this.selected = this.viewportStart + column;
+        this.selected = this.accessIndex(column);
         this.draw();
       });
       control.addEventListener("keydown", (event) =>
-        this.keyDown(event, this.viewportStart + column),
+        this.keyDown(event, this.accessIndex(column)),
       );
       this.access.append(control);
       this.controls.push(control);
     }
-    this.access.style.gridTemplateColumns = `repeat(${Math.max(1, this.visibleCount)}, minmax(0, 1fr))`;
+    this.access.style.gridTemplateColumns = `repeat(${Math.max(1, count)}, minmax(0, 1fr))`;
+    this.canvas.dataset.automationView = this.overview ? "loop" : "page";
+    this.canvas.setAttribute(
+      "aria-description",
+      this.overview
+        ? `${this.loopBars} bars, ${this.steps.length} automation points. Left and right move one point; Page Up and Page Down move one bar.`
+        : "Current pattern page",
+    );
     if (
-      this.selected < this.viewportStart ||
-      this.selected >= this.viewportStart + this.visibleCount
+      this.selected < this.viewStart ||
+      this.selected >= this.viewStart + this.visibleCount
     )
-      this.selected = this.viewportStart;
+      this.selected = this.viewStart;
     this.controls.forEach((control, column) => {
-      const index = this.viewportStart + column;
+      const index = this.accessIndex(column);
       control.dataset.matrixStep = String(index);
       const step = this.steps[index];
       if (!step) return;
@@ -560,27 +610,53 @@ export class NoteMatrix {
     ctx.font = '9px "IBM Plex Mono", monospace';
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    for (let index = 0; index < this.visibleCount; index++) {
-      const x = LEFT + index * this.cellWidth;
-      ctx.fillStyle =
-        this.viewportStart + index === this.current
-          ? "#44484c"
-          : Math.floor(index / this.groupSize) % 2 === 0
-            ? "#1c1e20"
-            : "#161819";
-      ctx.fillRect(x, TOP, this.cellWidth, this.plotHeight);
-      ctx.strokeStyle = index % this.groupSize === 0 ? "#555a60" : "#303438";
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, TOP);
-      ctx.lineTo(x + 0.5, this.height - BOTTOM);
-      ctx.stroke();
-      ctx.fillStyle =
-        this.viewportStart + index === this.current ? "#fff" : "#969a9e";
-      ctx.fillText(
-        String(this.viewportStart + index + 1).padStart(2, "0"),
-        x + this.cellWidth / 2,
-        TOP / 2,
-      );
+    if (this.overview) {
+      const barWidth = (this.width - LEFT - RIGHT) / this.loopBars;
+      for (let bar = 0; bar < this.loopBars; bar++) {
+        const x = LEFT + bar * barWidth;
+        ctx.fillStyle = bar % 2 === 0 ? "#1c1e20" : "#161819";
+        ctx.fillRect(x, TOP, barWidth, this.plotHeight);
+        ctx.strokeStyle = "#555a60";
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, TOP);
+        ctx.lineTo(x + 0.5, this.height - BOTTOM);
+        ctx.stroke();
+        ctx.fillStyle = "#aab0b6";
+        ctx.fillText(
+          String(bar + 1),
+          x + barWidth / 2,
+          TOP / 2,
+          Math.max(1, barWidth - 2),
+        );
+      }
+      if (this.current >= 0) {
+        const x = LEFT + (this.current + 0.5) * this.cellWidth;
+        ctx.fillStyle = "#b9bec8";
+        ctx.fillRect(x - 0.75, TOP, 1.5, this.plotHeight);
+      }
+    } else {
+      for (let index = 0; index < this.visibleCount; index++) {
+        const x = LEFT + index * this.cellWidth;
+        ctx.fillStyle =
+          this.viewStart + index === this.current
+            ? "#44484c"
+            : Math.floor(index / this.groupSize) % 2 === 0
+              ? "#1c1e20"
+              : "#161819";
+        ctx.fillRect(x, TOP, this.cellWidth, this.plotHeight);
+        ctx.strokeStyle = index % this.groupSize === 0 ? "#555a60" : "#303438";
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, TOP);
+        ctx.lineTo(x + 0.5, this.height - BOTTOM);
+        ctx.stroke();
+        ctx.fillStyle =
+          this.viewStart + index === this.current ? "#fff" : "#969a9e";
+        ctx.fillText(
+          String(this.viewStart + index + 1).padStart(2, "0"),
+          x + this.cellWidth / 2,
+          TOP / 2,
+        );
+      }
     }
     this.notes.forEach((note, row) => {
       const y = this.noteY(note);
@@ -615,20 +691,55 @@ export class NoteMatrix {
       ctx.setLineDash([]);
     }
     ctx.globalAlpha = (this.muted ? 0.35 : 1) * (this.automation ? 0.46 : 1);
-    this.drawGates(ctx);
-    this.drawPitch(ctx);
-    if (!this.drums) {
-      this.drawGlides(ctx);
-      this.drawAccents(ctx);
+    if (this.overview) {
+      ctx.strokeStyle = "#727e89";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      this.visibleSteps.forEach((step, index) => {
+        const x = LEFT + (index + 0.5) * this.cellWidth,
+          y = this.noteY(step.note);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+        if (step.on) {
+          ctx.fillStyle = "#8d969e";
+          ctx.fillRect(
+            x,
+            this.height - BOTTOM + 4,
+            Math.max(0.5, this.cellWidth * 0.7),
+            2,
+          );
+        }
+      });
+      ctx.stroke();
+    } else {
+      this.drawGates(ctx);
+      this.drawPitch(ctx);
+      if (!this.drums) {
+        this.drawGlides(ctx);
+        this.drawAccents(ctx);
+      }
+      this.visibleSteps.forEach((step, index) => {
+        const center = LEFT + (index + 0.5) * this.cellWidth;
+        ctx.fillStyle = step.on ? "#aab0b6" : "#697077";
+        ctx.font = `${this.cellWidth < 28 ? 7 : 9}px "IBM Plex Mono", monospace`;
+        ctx.fillText(noteName(step.note), center, this.height - 8);
+      });
     }
-    this.visibleSteps.forEach((step, index) => {
-      const center = LEFT + (index + 0.5) * this.cellWidth;
-      ctx.fillStyle = step.on ? "#aab0b6" : "#697077";
-      ctx.font = `${this.cellWidth < 28 ? 7 : 9}px "IBM Plex Mono", monospace`;
-      ctx.fillText(noteName(step.note), center, this.height - 8);
-    });
     ctx.globalAlpha = this.muted ? 0.5 : 1;
     this.drawAutomation(ctx);
+    if (this.overview && this.automation) {
+      ctx.font = '9px "IBM Plex Mono", monospace';
+      ctx.fillStyle = "#c5ccd3";
+      ctx.textAlign = "left";
+      const value =
+        this.automation.values?.[this.selected] ?? this.automation.base;
+      ctx.fillText(
+        `Step ${this.selected + 1} · ${this.automation.format(value)}`,
+        LEFT,
+        this.height - 8,
+      );
+      ctx.textAlign = "center";
+    }
     ctx.globalAlpha = 1;
     ctx.lineWidth = 1;
   }
@@ -714,11 +825,9 @@ export class NoteMatrix {
       bend = Math.min(24, this.cellWidth * 0.4);
     ctx.strokeStyle = active ? "#fff" : "#84939e";
     ctx.lineWidth = active ? 3.5 : 1.5;
-    const first = this.steps[this.viewportStart];
+    const first = this.steps[this.viewStart];
     const previous =
-      this.steps[
-        (this.viewportStart + this.steps.length - 1) % this.steps.length
-      ];
+      this.steps[(this.viewStart + this.steps.length - 1) % this.steps.length];
     if (first && previous?.slide) {
       const y = this.noteY(first.note) - 4;
       ctx.beginPath();
@@ -732,7 +841,7 @@ export class NoteMatrix {
       ctx.stroke();
     }
     this.visibleSteps.forEach((step, column) => {
-      const index = this.viewportStart + column;
+      const index = this.viewStart + column;
       const next = this.steps[(index + 1) % this.steps.length];
       if (!step.slide || !next) return;
       const x = LEFT + (column + 0.5) * this.cellWidth,
@@ -765,7 +874,7 @@ export class NoteMatrix {
     const yAt = (index: number): number =>
       TOP +
       this.plotHeight *
-        (1 - (lane.values?.[this.viewportStart + index] ?? lane.base));
+        (1 - (lane.values?.[this.viewStart + index] ?? lane.base));
     const firstX = LEFT + this.cellWidth / 2,
       lastX = LEFT + (this.visibleCount - 0.5) * this.cellWidth;
     ctx.fillStyle = "#e0e8f016";
@@ -787,6 +896,8 @@ export class NoteMatrix {
     ctx.stroke();
     ctx.setLineDash([]);
     for (let index = 0; index < this.visibleCount; index++) {
+      if (this.overview && this.cellWidth < 8 && index !== this.selected)
+        continue;
       const x = LEFT + (index + 0.5) * this.cellWidth,
         y = yAt(index);
       ctx.fillStyle = lane.values ? "#fff" : "#161819";
@@ -796,7 +907,7 @@ export class NoteMatrix {
       ctx.arc(
         x,
         y,
-        this.viewportStart + index === this.selected ? 4 : 2.5,
+        this.viewStart + index === this.selected ? 4 : 2.5,
         0,
         Math.PI * 2,
       );
