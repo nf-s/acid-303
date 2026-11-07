@@ -575,6 +575,52 @@ describe("session rooms in the Workers runtime", () => {
     );
     expect(tables).toEqual([]);
   });
+  it("keeps transport and recovery available when only edits are throttled", async () => {
+    const room = await create(),
+      host = await connect(room, room.hostToken);
+    await host.next("welcome");
+    for (let sequence = 1; sequence <= 25; sequence++)
+      host.patch(sequence, ["bass", "cutoff"], 500 + sequence);
+    expect(await host.next("error")).toMatchObject({
+      code: "rate-limit",
+      sequence: 25,
+    });
+    host.send({ type: "clock", playing: true, absoluteTick: 96 });
+    expect(await host.next("clock")).toMatchObject({
+      playing: true,
+      absoluteTick: 96,
+    });
+    host.send({ type: "sync" });
+    expect(await host.next("welcome")).toMatchObject({
+      revision: 24,
+      acknowledgedSequence: 24,
+      project: { bass: { cutoff: 524 } },
+    });
+    host.send({ type: "transport", action: "stop" });
+    expect(await host.next("transport")).toMatchObject({ action: "stop" });
+    host.send({ type: "end" });
+    expect(await host.next("ended")).toMatchObject({ reason: "ended" });
+  });
+  it("keeps a throttled room and its deduplication state available for reconnect", async () => {
+    const room = await create(),
+      host = await connect(room, room.hostToken);
+    await host.next("welcome");
+    host.patch(1, ["bpm"], 139);
+    await host.next("patch");
+    const closed = closeCode(host.socket);
+    for (let index = 0; index < 61; index++) host.socket.send("{");
+    expect(await closed).toBe(1013);
+    const restored = await connect(room, room.hostToken, host.clientId);
+    expect(await restored.next("welcome")).toMatchObject({
+      revision: 1,
+      acknowledgedSequence: 1,
+      role: "host",
+      playing: false,
+      project: { bpm: 139 },
+    });
+    restored.send({ type: "end" });
+    expect(await restored.next("ended")).toMatchObject({ reason: "ended" });
+  });
   it("limits creation and malformed packet floods", async () => {
     const headers = {
       Origin: origin,
@@ -599,7 +645,7 @@ describe("session rooms in the Workers runtime", () => {
     await host.next("welcome");
     const closed = closeCode(host.socket);
     for (let index = 0; index < 61; index++) host.socket.send("{");
-    expect(await closed).toBe(1008);
+    expect(await closed).toBe(1013);
   });
   it("uses indexed point reads and one row write while clocks do not touch persisted state", async () => {
     const room = await create(),

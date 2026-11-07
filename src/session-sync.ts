@@ -54,6 +54,13 @@ export class SessionSync {
     return structuredClone(this.pending);
   }
 
+  nextUnacknowledged(afterSequence: number): PendingEdit | null {
+    const edit = this.pending.find(
+      (pending) => pending.sequence > afterSequence,
+    );
+    return edit ? structuredClone(edit) : null;
+  }
+
   patch(
     revision: number,
     changes: ProjectChange[],

@@ -56,6 +56,28 @@ project and its acknowledged sequence. The browser rebases pending changes on
 that authoritative state. Concurrent changes to different fields survive;
 concurrent changes to the same field follow server order.
 
+Transient disconnects retain the room credentials and queued edits. New edits and
+reconnect replay share a 100 ms sending interval; snapshots are requested once
+per recovery, with a 1.1 second cooldown after edit throttling. A throttled edit
+does not block clocks, Stop, or recovery messages. Packet overload closes with
+retryable code `1013`, leaving room state and acknowledgements intact. The client
+also retries the old server's `1008` message-rate close, and continues reconnecting
+with a capped backoff while its known room is unexpired. Host audio stops on
+connection loss and does not automatically restart; guests remain silent.
+A protocol upgrade (`4010`) explicitly asks the user to reload, preserving the
+room and credentials instead of describing it as unavailable. This resilience
+update retains protocol v3 and needs no namespace, schema or binding migration.
+
+The regression reproduced 43 unacknowledged edits replaying as 43 patches plus
+19 snapshot requests within one second, triggering the old 60-packet limit.
+The corrected Chrome/Worker run recovered all 43 edits, sent nine patches during
+the first second, and stayed connected. Client unit checks cover throttling,
+queued-edit preservation, host loss, replacement, prolonged outages and reload
+instructions. Runtime tests verify that throttling preserves the room and its
+sequence state. Existing two-browser tests verify host-only audio and guest role
+retention. No extra database operation is introduced; replayed acknowledgements
+still avoid writes and steady editing now batches at up to 10 Hz instead of 20 Hz.
+
 The host sends `clock` messages containing `playing` and `absoluteTick`, in
 24 ticks per quarter note. Steady playback clocks are capped at 20 per second;
 Play, Stop and Restart transitions send immediately. Each client resolves its
@@ -101,8 +123,7 @@ The v3 Worker closes both legacy v1 and v2 sockets with `reload-required` and
 4010 after authentication, including restored hibernating sockets. It sends no
 new catalog state to legacy clients and does not let a legacy host replace an
 active v3 host. Current source tests cover highest indices across all nine
-instruments and reconnection after an old socket closes. Deployment evidence
-below records v2 until the coordinated v3 publication is verified.
+instruments and reconnection after an old socket closes. The protocol-v3 production evidence below verifies the coordinated upgrade.
 
 This catalog update adds no endpoint, storage row, binding or message type.
 The 1 MiB payload boundary, 20 Hz clock cap, indexed snapshot queries and the
@@ -200,7 +221,8 @@ The hot query is `SELECT data FROM session_state WHERE id = 1`.
 snapshot reads 1 row and writes 1 row. The disposable probe verifies that
 16 clocks leave the stored row byte-for-byte unchanged. No count or broad scan
 runs on a user action. The cached snapshot saves a read per warm edit; the
-client batches continuous gestures to at most 20 messages/second. Full-project
+client batches continuous gestures and reconnect replay to at most 10 edit
+messages/second. Full-project
 replacement can be a larger message, but remains one bounded snapshot write.
 The maximum-length randomized 72-lane fixture exceeds 380 kB and stays below
 1 MiB. Its indexed lookup and update still measure one row read and one row
@@ -228,8 +250,8 @@ reach the creation limit. Socket handlers permit 60 application packets/second
 and 24 edit batches/second per connection, with maximum eight active clients.
 Twenty-four hours, bounded snapshots, bounded participants and dedupe identities
 cap retained room data. A sustained group drawing continuously is intentionally
-more expensive than the example; eight clients at 20 edits/second would write
-576,000 rows/hour. See the [Rate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
+more expensive than the example; eight updated clients at 10 edits/second would write
+288,000 rows/hour (legacy clients can still send up to their former 20 Hz). See the [Rate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
 
 Logs are sampled at 10% and traces at 1%; application code emits no project or
 token logs. Workers Logs currently includes 200,000 events/day on Free and
@@ -268,6 +290,38 @@ Workers-subdomain change is needed.
 
 The public launcher continues to point to the app's existing Pages URL. The
 backend API is not a separate launcher application.
+
+## Protocol v3 release evidence
+
+Released 7 November 2026 at 11:48:04 UTC from commit `0b3aff6`, using the frozen
+412,890-byte production module. Worker version
+`5bda2f8d-b03c-48f4-834a-0bd67f7114a6` is deployed at 100% in deployment
+`4c09a706-e7e4-40a4-b9e8-0bff86612142`. Downloaded production SHA-256:
+`cf559d3c16ffbaeed2cd65913219054fc2afb123f7aca02a920dd28325e5749d`.
+It exactly matches the validated bundle. SQLite namespace
+`ffe237d4fde14ba99780aa4f28eb4bec`, origin, localhost denial, rate bindings,
+observability and route settings remain unchanged. Export reconciliation
+created, changed and deleted no namespaces. Health returned 200; other,
+localhost and missing origins returned 403.
+
+One canonical-origin test room was created on v2 at 11:47:36.395 UTC, before the
+upload. Its saved BPM, revision, host credential and acknowledged client sequence
+survived the live upgrade. Both old v2 sockets closed with 4010. Reconnected v3
+host and guest successfully applied ordered edits selecting every highest sound
+index: Kick/Snare/Clap/Rim 6, Hat 7, Bass 10, Texture/Arp/Pads 7. Host tick clocks
+worked; guest clocks and invalid tokens were denied. Authenticated v1/v2 upgrade
+attempts received `reload-required` without replacing the v3 host. The room was
+ended at 11:51:59.620 UTC, all sockets closed, and credential revocation was
+verified by a failed reconnect. No test room remains active.
+
+Before release, 15 workerd tests, strict typechecking, generated binding types,
+production build and dry-run passed. The frozen frontend passed 130 unit tests
+and 47 browser tests, including maximum catalog sharing and sessions. Chrome
+and WebKit rendered each new sound at normal and extreme settings, verified all
+eight automation controls, and rendered dense full mixes below the 0.95 output
+ceiling with silent tails. Existing non-hat voices remained within one 16-bit
+PCM unit of the prior release. The separate Pages publication uses the same
+frozen sound commit and verifies host-only audio on the public origin.
 
 ## Protocol v2 release evidence
 

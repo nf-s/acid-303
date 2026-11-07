@@ -331,7 +331,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
     data.packets++;
     socket.serializeAttachment(data);
     if (data.packets > 60) {
-      socket.close(1008, "Message rate exceeded");
+      socket.close(1013, "Message rate exceeded");
       return;
     }
     let decoded: unknown;
@@ -348,13 +348,8 @@ export class SessionRoom extends DurableObject<SessionEnv> {
     }
     if (parsed.data.type === "patch") data.patches++;
     socket.serializeAttachment(data);
-    if (data.patches > 24) {
-      error(
-        socket,
-        "rate-limit",
-        "Edit rate exceeded",
-        parsed.data.type === "patch" ? parsed.data.sequence : undefined,
-      );
+    if (parsed.data.type === "patch" && data.patches > 24) {
+      error(socket, "rate-limit", "Edit rate exceeded", parsed.data.sequence);
       return;
     }
     if (parsed.data.type === "clock") {

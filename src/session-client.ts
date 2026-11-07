@@ -65,6 +65,10 @@ export class SessionClient {
   private sync = new SessionSync();
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
+  private syncTimer: ReturnType<typeof setTimeout> | undefined;
+  private awaitingSync = false;
+  private lastPatchSent = -Infinity;
+  private sentSequence = 0;
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   private lastReceived = 0;
   private lastPing = 0;
@@ -247,6 +251,12 @@ export class SessionClient {
     clearTimeout(this.retryTimer);
     clearTimeout(this.flushTimer);
     clearInterval(this.heartbeatTimer);
+    clearTimeout(this.syncTimer);
+    this.syncTimer = undefined;
+    this.awaitingSync = false;
+    this.hostPlaying = false;
+    this.lastClockSent = -Infinity;
+    this.lastClockTick = -1;
     this.retryTimer = undefined;
     this.flushTimer = undefined;
     this.heartbeatTimer = undefined;
@@ -321,14 +331,23 @@ export class SessionClient {
       clearTimeout(timeout);
       if (generation !== this.generation || !this.credentials) return;
       if (this.role === "host") this.callbacks.onEnded();
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = undefined;
-      this.socket = null;
+      this.disconnect();
       if (event.code === HOST_REPLACED_CODE) {
         this.fail("The host session is open in another tab or device.");
         return;
       }
-      if ([1008, 4001, 4003, 4004, 4010].includes(event.code)) {
+      if (event.code === 4010) {
+        this.fail(
+          "Reload Grain to continue this session. Your room is still available.",
+        );
+        return;
+      }
+      const throttled =
+        event.code === 1008 && event.reason === "Message rate exceeded";
+      if (
+        (!throttled && event.code === 1008) ||
+        [4001, 4003, 4004].includes(event.code)
+      ) {
         this.fail("This session is no longer available.");
         return;
       }
@@ -338,7 +357,15 @@ export class SessionClient {
         message: "Reconnecting…",
       });
       this.callbacks.onClock(false, 0);
-      if (++this.reconnects > 8) {
+      this.reconnects++;
+      if (
+        this.credentials.expiresAt > 0 &&
+        this.credentials.expiresAt <= Date.now()
+      ) {
+        this.fail("Session expired.");
+        return;
+      }
+      if (this.reconnects > 8 && this.credentials.expiresAt === 0) {
         this.fail(
           "Could not reconnect. Try again or leave the session.",
           false,
@@ -384,8 +411,10 @@ export class SessionClient {
       this.publishView(this.initial);
       this.initial = false;
       this.callbacks.onClock(message.playing, message.absoluteTick);
-      for (const edit of this.sync.unacknowledged())
-        this.send({ type: "patch", clientId: credentials.clientId, ...edit });
+      clearTimeout(this.syncTimer);
+      this.syncTimer = undefined;
+      this.awaitingSync = false;
+      this.sentSequence = message.acknowledgedSequence;
       this.scheduleFlush();
       this.callbacks.onReady();
       return;
@@ -401,23 +430,25 @@ export class SessionClient {
             : undefined,
         )
       ) {
-        this.send({ type: "sync" });
+        this.requestSync();
         return;
       }
       this.publishView(false);
       this.scheduleFlush();
     } else if (message.type === "ack") {
-      if (message.revision > this.sync.revision) this.send({ type: "sync" });
+      if (message.revision > this.sync.revision) this.requestSync();
       else if (message.clientId === credentials.clientId) {
         this.sync.acknowledge(message.sequence);
         this.scheduleFlush();
       }
     } else if (message.type === "presence") {
+      const hostReturned = !this.hostConnected && message.hostConnected;
       this.report({
         hostConnected: message.hostConnected,
         participants: message.participants,
       });
       this.callbacks.onClock(message.playing, message.absoluteTick);
+      if (hostReturned) this.requestSync();
     } else if (message.type === "clock") {
       this.callbacks.onClock(message.playing, message.absoluteTick);
     } else if (message.type === "transport") {
@@ -437,9 +468,12 @@ export class SessionClient {
       this.callbacks.onEnded();
     } else if (message.type === "error") {
       this.report({ message: message.message });
-      if (message.sequence !== undefined) {
+      if (message.code === "rate-limit") this.requestSync(1100);
+      else if (message.code === "host-offline") {
+        this.report({ hostConnected: false });
+      } else if (message.sequence !== undefined) {
         this.sync.discardPending();
-        this.send({ type: "sync" });
+        this.requestSync();
       }
     }
   }
@@ -449,7 +483,7 @@ export class SessionClient {
     if (project) this.callbacks.onProject(project, initial);
     else {
       this.sync.discardPending();
-      this.send({ type: "sync" });
+      this.requestSync();
     }
   }
 
@@ -459,19 +493,46 @@ export class SessionClient {
     this.scheduleFlush();
   }
 
+  private requestSync(delay = 0): void {
+    if (this.awaitingSync || !this.connected) return;
+    this.awaitingSync = true;
+    clearTimeout(this.flushTimer);
+    this.flushTimer = undefined;
+    this.syncTimer = setTimeout(() => {
+      this.syncTimer = undefined;
+      this.send({ type: "sync" });
+    }, delay);
+  }
+
   private scheduleFlush(): void {
-    if (this.flushTimer || !this.connected) return;
-    this.flushTimer = setTimeout(() => this.flush(), 50);
+    if (
+      this.flushTimer ||
+      !this.connected ||
+      this.awaitingSync ||
+      !this.hostConnected
+    )
+      return;
+    this.flushTimer = setTimeout(() => this.flush(), 100);
   }
 
   private flush(): void {
     clearTimeout(this.flushTimer);
     this.flushTimer = undefined;
-    if (!this.connected) return;
-    const edit = this.sync.flush(),
-      credentials = this.credentials;
-    if (edit && credentials)
-      this.send({ type: "patch", clientId: credentials.clientId, ...edit });
+    if (!this.connected || this.awaitingSync || !this.hostConnected) return;
+    const remaining = 100 - (performance.now() - this.lastPatchSent);
+    if (remaining > 0) {
+      this.flushTimer = setTimeout(() => this.flush(), remaining);
+      return;
+    }
+    const credentials = this.credentials;
+    if (!credentials) return;
+    const edit =
+      this.sync.nextUnacknowledged(this.sentSequence) ?? this.sync.flush();
+    if (!edit) return;
+    this.sentSequence = edit.sequence;
+    this.lastPatchSent = performance.now();
+    this.send({ type: "patch", clientId: credentials.clientId, ...edit });
+    this.scheduleFlush();
   }
 
   private send(message: ClientMessage): void {
