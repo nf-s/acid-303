@@ -333,7 +333,7 @@ test("long triplet patterns, mixer edits and automation clocks stay shared witho
   expect(shared.keys.sound).toBe(KEYS_SOUNDS.length - 1);
   expect(shared.arp.sound).toBe(ARP_SOUNDS.length - 1);
   expect(shared.pad.sound).toBe(PAD_SOUNDS.length - 1);
-  await guest.locator('#bass-pattern [data-pattern-action="open"]').click();
+  await guest.locator('#bass-pattern [data-pattern-action="pages"]').click();
   await guest.locator('#bass-pattern [data-pattern-page="5"]').click();
   const lastCell = guest.getByRole("slider", {
     name: "Bass note step 60",

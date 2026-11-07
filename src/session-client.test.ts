@@ -60,6 +60,7 @@ function welcome(
     acknowledgedSequence: 0,
     role,
     hostConnected,
+    supportsVocal: true,
     participants: 1,
     playing: false,
     absoluteTick: 0,
@@ -241,6 +242,7 @@ describe("session connection recovery", () => {
     socket.receive({
       type: "presence",
       hostConnected: true,
+      supportsVocal: true,
       participants: 2,
       playing: false,
       absoluteTick: 0,

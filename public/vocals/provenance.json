@@ -1,0 +1,27 @@
+{
+  "publisher": "Kenney",
+  "license": "CC0-1.0",
+  "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "packs": [
+    {
+      "name": "Voiceover Pack",
+      "page": "https://kenney.nl/assets/voiceover-pack",
+      "archiveSha256": "a5194df2f05f7ec439a8d4c1a7c20ba12ffe700d363a0733ae6fa826846af458",
+      "licenseFile": "licenses/kenney-voiceover-CC0.txt",
+      "creditsFile": "licenses/kenney-voiceover-credits.txt"
+    },
+    {
+      "name": "Voiceover Pack (Fighter)",
+      "page": "https://kenney.nl/assets/voiceover-pack-fighter",
+      "archiveSha256": "368ac0711e59521aff965a833e22e2b5218c397cf8b059ce3cb72e8d13219ee2",
+      "licenseFile": "licenses/kenney-fighter-CC0.txt"
+    }
+  ],
+  "modifications": "Selected short words; extracted voiced windows and onset cuts; downmixed to mono; silence trimmed; DC removed; edge fades; peak normalization; PCM16 WAV export.",
+  "pitch": "rootNote 60 is a sampler playback reference only. No fixed root pitch is claimed or baked in.",
+  "performers": {
+    "female": "Giselle",
+    "male": "Jeffrey M. Smith",
+    "fighter": null
+  }
+}

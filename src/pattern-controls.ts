@@ -37,6 +37,10 @@ export class PatternControls {
   private readonly mirror: HTMLCanvasElement;
   private readonly mirrorContext: CanvasRenderingContext2D | null;
   private readonly summary: HTMLButtonElement;
+  private readonly pageTrigger: HTMLButtonElement;
+  private readonly settings: HTMLDivElement;
+  private readonly navigation: HTMLDivElement;
+  private readonly title: HTMLHeadingElement;
   private readonly dialog: HTMLDialogElement;
   private readonly pageLabel: HTMLElement;
   private readonly strip: HTMLDivElement;
@@ -60,16 +64,16 @@ export class PatternControls {
     this.mirror.setAttribute("aria-hidden", "true");
     this.mirrorContext = this.mirror.getContext("2d");
     this.dialog.id = `pattern-dialog-${++nextDialogId}`;
-    this.dialog.setAttribute("aria-label", `${options.label} timing and pages`);
+    this.dialog.setAttribute("aria-label", `${options.label} timing`);
     this.summary.setAttribute("aria-controls", this.dialog.id);
     const header = document.createElement("div");
     header.className = "pattern-dialog-header";
-    const title = document.createElement("h2");
-    title.textContent = `${options.label} timing`;
+    this.title = document.createElement("h2");
+    this.title.textContent = `${options.label} timing`;
     const close = this.button("×", "close", `Close ${options.label} timing`);
-    header.append(title, close);
-    const settings = document.createElement("div");
-    settings.className = "pattern-settings";
+    header.append(this.title, close);
+    this.settings = document.createElement("div");
+    this.settings.className = "pattern-settings";
     const groups: Array<{
       name: string;
       key: string;
@@ -111,18 +115,24 @@ export class PatternControls {
               : String(value);
         row.append(button);
       }
-      settings.append(row);
+      this.settings.append(row);
     }
-    const navigation = document.createElement("div");
-    navigation.className = "pattern-navigation";
+    this.navigation = document.createElement("div");
+    this.navigation.className = "pattern-navigation";
+    this.navigation.hidden = true;
+    this.navigation.id = `pattern-pages-${nextDialogId}`;
     this.pageLabel = document.createElement("p");
     this.pageLabel.className = "pattern-page-label";
     this.previous = this.button(
-      "Prev",
+      "‹",
       "previous",
       `${options.label} previous page`,
     );
-    this.next = this.button("Next", "next", `${options.label} next page`);
+    this.next = this.button("›", "next", `${options.label} next page`);
+    this.pageTrigger = this.button("", "pages", `${options.label} choose page`);
+    this.pageTrigger.className = "pattern-page-trigger";
+    this.pageTrigger.setAttribute("aria-expanded", "false");
+    this.pageTrigger.setAttribute("aria-controls", this.navigation.id);
     this.follow = this.button(
       "Follow",
       "follow",
@@ -132,18 +142,26 @@ export class PatternControls {
     this.strip.className = "pattern-pages";
     this.strip.setAttribute("role", "group");
     this.strip.setAttribute("aria-label", `${options.label} pattern pages`);
-    navigation.append(this.pageLabel, this.strip);
+    this.navigation.append(this.pageLabel, this.strip);
     const actions = document.createElement("div");
     actions.className = "pattern-dialog-actions";
     actions.append(
-      this.previous,
-      this.next,
-      this.follow,
       this.button("Done", "done", `Done editing ${options.label} timing`),
     );
-    this.dialog.append(header, settings, navigation, actions, this.mirror);
-    container.replaceChildren(this.summary, this.dialog);
+    const toolbar = document.createElement("div");
+    toolbar.className = "pattern-toolbar";
+    const navigation = document.createElement("div");
+    navigation.className = "pattern-inline-navigation";
+    navigation.setAttribute("role", "group");
+    navigation.setAttribute("aria-label", `${options.label} page navigation`);
+    navigation.append(this.previous, this.pageTrigger, this.next, this.follow);
+    toolbar.append(this.summary, navigation);
+    this.dialog.append(header, this.settings, actions, this.mirror);
+    container.replaceChildren(toolbar, this.navigation, this.dialog);
     container.addEventListener("click", this.click);
+    this.navigation.addEventListener("keydown", this.pageKeyDown);
+    document.addEventListener("pointerdown", this.outsidePages);
+    document.addEventListener("focusin", this.outsidePages);
     this.dialog.addEventListener("close", this.closed);
     this.dialog.addEventListener("click", this.backdrop);
     this.dialog.addEventListener("keydown", this.trapFocus);
@@ -190,7 +208,12 @@ export class PatternControls {
     const position =
       this.tick < 0 ? null : trackPosition(this.timing, this.tick, this.swing);
     if (this.options.isBusy()) this.freezeFollow();
-    if (position && this.following && !this.dialog.open)
+    if (
+      position &&
+      this.following &&
+      !this.dialog.open &&
+      this.navigation.hidden
+    )
       this.changePage(position.page);
     if (this.playingPage !== (position?.page ?? -1)) {
       this.playingPage = position?.page ?? -1;
@@ -210,6 +233,9 @@ export class PatternControls {
     this.dialog.removeEventListener("focusin", this.rememberFocus);
     if (this.dialog.open) this.dialog.close();
     this.container.removeEventListener("click", this.click);
+    this.navigation.removeEventListener("keydown", this.pageKeyDown);
+    document.removeEventListener("pointerdown", this.outsidePages);
+    document.removeEventListener("focusin", this.outsidePages);
     this.container.replaceChildren();
   }
 
@@ -234,7 +260,7 @@ export class PatternControls {
     this.scrollCurrentPage();
   }
   private scrollCurrentPage(): void {
-    if (!this.dialog.open) return;
+    if (this.navigation.hidden) return;
     const button = this.strip.children[this.page];
     if (!(button instanceof HTMLElement)) return;
     const top = button.offsetTop;
@@ -274,7 +300,12 @@ export class PatternControls {
   }
   private renderState(): void {
     const timing = `${this.timing.bars} ${this.timing.bars === 1 ? "bar" : "bars"} · ${this.timing.meter} · ${this.timing.grid === "triplet" ? "1/16T" : "1/16"}`;
-    this.summary.textContent = `${timing} · Page ${this.page + 1}/${this.pages.length}`;
+    this.summary.textContent = timing;
+    this.pageTrigger.textContent = `Page ${this.page + 1}/${this.pages.length}`;
+    this.pageTrigger.setAttribute(
+      "aria-description",
+      `Page ${this.page + 1} of ${this.pages.length}`,
+    );
     this.summary.setAttribute("aria-description", this.summary.textContent);
     this.pageLabel.textContent = `Page ${this.page + 1} of ${this.pages.length}`;
     this.previous.disabled = this.page === 0;
@@ -304,11 +335,44 @@ export class PatternControls {
   }
   private open(): void {
     if (this.dialog.open || this.options.isBusy()) return;
+    this.closePages();
     this.dialog.showModal();
     this.summary.setAttribute("aria-expanded", "true");
-    this.scrollCurrentPage();
     this.startMirror();
   }
+  private openPages(): void {
+    if (this.options.isBusy()) return;
+    if (!this.navigation.hidden) {
+      this.closePages(true);
+      return;
+    }
+    this.navigation.hidden = false;
+    this.pageTrigger.setAttribute("aria-expanded", "true");
+    const selected = this.strip.children[this.page];
+    if (selected instanceof HTMLElement)
+      selected.focus({ preventScroll: true });
+    this.scrollCurrentPage();
+  }
+  private closePages(restoreFocus = false): void {
+    this.navigation.hidden = true;
+    this.pageTrigger.setAttribute("aria-expanded", "false");
+    if (restoreFocus) this.pageTrigger.focus({ preventScroll: true });
+  }
+  private readonly outsidePages = (event: Event): void => {
+    if (this.navigation.hidden || !(event.target instanceof Node)) return;
+    if (
+      !this.navigation.contains(event.target) &&
+      !this.pageTrigger.contains(event.target)
+    )
+      this.closePages();
+  };
+  private readonly pageKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closePages(true);
+    }
+  };
   private startMirror(): void {
     if (!this.mirrorFrame && this.mirrorContext) this.drawMirror();
   }
@@ -389,17 +453,18 @@ export class PatternControls {
     if (this.dialog.open) return;
     this.stopMirror();
     this.summary.setAttribute("aria-expanded", "false");
+    this.pageTrigger.setAttribute("aria-expanded", "false");
     this.summary.focus({ preventScroll: true });
     if (this.following && this.tick >= 0 && !this.options.isBusy())
       this.changePage(trackPosition(this.timing, this.tick, this.swing).page);
   };
   private readonly trapFocus = (event: KeyboardEvent): void => {
     if (event.key !== "Tab") return;
-    const buttons = this.dialog.querySelectorAll<HTMLButtonElement>(
-      "button:not(:disabled)",
-    );
-    const first = buttons.item(0),
-      last = buttons.item(buttons.length - 1);
+    const buttons = Array.from(
+      this.dialog.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
+    ).filter((button) => button.getClientRects().length > 0);
+    const first = buttons[0],
+      last = buttons.at(-1);
     if (!first || !last) return;
     if (event.shiftKey && document.activeElement === first) {
       event.preventDefault();
@@ -433,6 +498,10 @@ export class PatternControls {
       this.open();
       return;
     }
+    if (action === "pages") {
+      this.openPages();
+      return;
+    }
     if (action === "close" || action === "done") {
       this.dialog.close();
       return;
@@ -443,19 +512,20 @@ export class PatternControls {
       this.renderState();
       if (this.tick >= 0)
         this.changePage(trackPosition(this.timing, this.tick, this.swing).page);
-      this.dialog.close();
+      this.closePages();
     } else if (
       action === "previous" ||
       action === "next" ||
       action === "page"
     ) {
+      if (this.options.isBusy()) return;
       this.freezeFollow();
       const index =
         action === "page"
           ? Number(button.dataset.patternPage)
           : this.page + (action === "next" ? 1 : -1);
       if (Number.isInteger(index)) this.changePage(index);
-      this.dialog.close();
+      this.closePages(action === "page");
     }
     const key = button.dataset.patternSetting;
     if (key !== "bars" && key !== "meter" && key !== "grid") return;

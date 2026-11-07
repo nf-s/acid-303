@@ -78,6 +78,7 @@ test("the expanded sound library is reachable on mobile and survives reload and 
   ).toBe(true);
   await page.locator("#studio-tools").click();
   await page.locator("#share-track").click();
+  await expect(page.locator(".transport #share-panel")).toBeVisible();
   await expect(page.locator("#share-url")).toHaveValue(/#track=v1\./);
   const link = await page.locator("#share-url").inputValue();
   const recipientContext = await browser.newContext();

@@ -8,6 +8,7 @@ import {
 } from "./model";
 import { resizeArpTrack } from "./arp-model";
 import { resizePadTrack } from "./pad-model";
+import { resizeVocalTrack, VOCAL_SOUNDS } from "./vocal-model";
 import {
   sequenceTimingSchema,
   padTimingSchema,
@@ -31,7 +32,7 @@ describe("track links", () => {
     expect(link.length).toBeLessThan(6000);
     expect(await decodeTrack(link)).toEqual(track);
   });
-  it("round-trips the longest patterns with all 72 independent automation lanes", async () => {
+  it("round-trips the longest patterns with all 80 independent automation lanes", async () => {
     const track = createProject();
     const timing = sequenceTimingSchema.parse({
       bars: 8,
@@ -45,6 +46,12 @@ describe("track links", () => {
     track.pad = resizePadTrack(
       track.pad,
       padTimingSchema.parse({ ...timing, bars: 16 }),
+    );
+    track.vocal = resizeVocalTrack(track.vocal, { ...timing, bars: 16 });
+    track.vocal.sound = VOCAL_SOUNDS.length - 1;
+    track.vocal.notes = Array.from(
+      { length: trackStepCount(track.vocal.timing) },
+      (_, start) => ({ start, length: 1, note: 60, accent: start % 2 === 0 }),
     );
     let seed = 918273;
     const fill = (
@@ -63,6 +70,7 @@ describe("track links", () => {
       track.keys,
       track.arp,
       track.pad,
+      track.vocal,
     ])
       fill(instrument.automation, trackStepCount(instrument.timing));
     projectSchema.parse(track);

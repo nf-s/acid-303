@@ -40,9 +40,9 @@ async function dragUp(
   await page.mouse.move(x, y - pixels, { steps: 6 });
   await page.mouse.up();
 }
-async function point(page: Page, row: number, step: number) {
+async function point(page: Page, row: number, step: number, scroll = true) {
   const canvas = page.locator("#beat-canvas");
-  await canvas.scrollIntoViewIfNeeded();
+  if (scroll) await canvas.scrollIntoViewIfNeeded();
   const box = await canvas.boundingBox();
   if (!box) throw new Error("Beat canvas is missing.");
   return {
@@ -188,14 +188,39 @@ test("two fingers paint one lane while changing another instrument pitch", async
   const page = await context.newPage();
   await page.goto("/");
   const session = await context.newCDPSession(page);
-  const first = await point(page, 1, 0);
-  const last = await point(page, 1, 15);
+  await page.locator("#kick-pitch").scrollIntoViewIfNeeded();
+  await page.locator("#kick-pitch").evaluate((knob) => {
+    const transport = document.querySelector(".transport");
+    if (!transport) throw new Error("Transport is missing.");
+    window.scrollBy({
+      top:
+        knob.getBoundingClientRect().top -
+        transport.getBoundingClientRect().bottom -
+        85,
+      behavior: "instant",
+    });
+  });
+  const first = await point(page, 1, 0, false);
+  const last = await point(page, 1, 15, false);
   const knob = await page
     .getByRole("slider", { name: "Kick pitch", exact: true })
     .boundingBox();
   if (!knob) throw new Error("Pitch dial missing.");
   const x = knob.x + knob.width / 2;
   const y = knob.y + knob.height / 2;
+  expect(
+    await page.evaluate(
+      ({ x, y }) =>
+        Boolean(document.elementFromPoint(x, y)?.closest("#kick-pitch")),
+      { x, y },
+    ),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      ({ x, y }) => document.elementFromPoint(x, y)?.id,
+      first,
+    ),
+  ).toBe("beat-canvas");
   await session.send("Input.dispatchTouchEvent", {
     type: "touchStart",
     touchPoints: [{ id: 1, x, y }],
@@ -291,7 +316,7 @@ test("upgrades saved cowbell and slide patterns without losing user steps", asyn
     .poll(() =>
       page.evaluate(() => localStorage.getItem("acid-303-project-v1")),
     )
-    .toContain('"version":3');
+    .toContain('"version":4');
 });
 
 async function savedProject(page: Page) {
@@ -745,7 +770,7 @@ test("examples swipe horizontally and swirl changes visuals without changing the
       .locator(".preset-section")
       .evaluate((element) => element.clientHeight),
   ).toBeLessThan(125);
-  await expect(page.locator("[data-preset]")).toHaveCount(20);
+  await expect(page.locator("[data-preset]")).toHaveCount(PRESETS.length);
   await openTrackControls(page);
   await page
     .getByRole("slider", { name: "Master volume", exact: true })
@@ -1686,9 +1711,9 @@ async function choosePatternPage(
   controls: Locator,
   page: number,
 ): Promise<void> {
-  await openTiming(controls);
+  await controls.locator('[data-pattern-action="pages"]').click();
   await controls.locator(`[data-pattern-page="${page}"]`).click();
-  await expect(controls.locator(".pattern-dialog")).toBeHidden();
+  await expect(controls.locator(".pattern-navigation")).toBeHidden();
 }
 
 async function changeTiming(
@@ -1997,7 +2022,7 @@ test("phone progression choices open above their button and close with selection
 });
 
 for (const width of [320, 375]) {
-  test(`timing modal keeps all settings and pages accessible in one compact row at ${width}px`, async ({
+  test(`inline pages and timing settings stay accessible at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 812 });
@@ -2008,14 +2033,15 @@ for (const width of [320, 375]) {
       exact: true,
     });
     const dialog = controls.getByRole("dialog", {
-      name: "Arpeggiator timing and pages",
+      name: "Arpeggiator timing",
       exact: true,
     });
-    await expect(controls.getByRole("button")).toHaveCount(1);
+    await expect(controls.getByRole("button")).toHaveCount(5);
     const compact = await controls.boundingBox();
-    expect(compact?.height).toBeLessThanOrEqual(40);
+    expect(compact?.height).toBeLessThanOrEqual(80);
     await trigger.press("Enter");
     await expect(dialog).toBeVisible();
+    await expect(dialog.locator("[data-pattern-page]")).toHaveCount(0);
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
     const close = dialog.getByRole("button", {
       name: "Close Arpeggiator timing",
@@ -2034,18 +2060,29 @@ for (const width of [320, 375]) {
     await expect(dialog).toBeHidden();
     await expect(trigger).toBeFocused();
     await changeTiming(controls, 8, "5/4", "triplet");
-    await openTiming(controls);
-    await expect(dialog.locator("[data-pattern-page]")).toHaveCount(24);
-    const bounds = await dialog.boundingBox();
-    if (!bounds) throw new Error("Timing dialog is missing.");
+    const pageTrigger = controls.locator('[data-pattern-action="pages"]');
+    await pageTrigger.click();
+    const picker = controls.locator(".pattern-navigation");
+    await expect(picker).toBeVisible();
+    await expect(dialog).toBeHidden();
+    await expect(picker.locator("[data-pattern-page]")).toHaveCount(24);
+    const bounds = await picker.boundingBox();
+    if (!bounds) throw new Error("Page picker is missing.");
     expect(bounds.x).toBeGreaterThanOrEqual(0);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-    expect(bounds.y).toBeGreaterThanOrEqual(0);
-    expect(bounds.y + bounds.height).toBeLessThanOrEqual(812);
-    await dialog.locator('[data-pattern-page="23"]').click();
+    await picker.locator('[data-pattern-page="23"]').click();
+    await expect(picker).toBeHidden();
+    await expect(pageTrigger).toBeFocused();
+    await expect(pageTrigger).toContainText("Page 24/24");
+    await controls.locator('[data-pattern-action="previous"]').click();
+    await expect(pageTrigger).toContainText("Page 23/24");
+    await controls.locator('[data-pattern-action="next"]').click();
+    await expect(pageTrigger).toContainText("Page 24/24");
     await expect(dialog).toBeHidden();
-    await expect(trigger).toBeFocused();
-    await expect(trigger).toContainText("Page 24/24");
+    await pageTrigger.click();
+    await page.keyboard.press("Escape");
+    await expect(picker).toBeHidden();
+    await expect(pageTrigger).toBeFocused();
     await expect(page.locator("[data-arp-step]")).toHaveCount(6);
     await page.locator("#arp-tone").press("Enter");
     await page
@@ -2076,7 +2113,6 @@ test("timing modal pauses page following while open and preserves manual page se
   await page.goto("/");
   const controls = page.locator("#bass-pattern");
   await changeTiming(controls, 4, "4/4", "straight");
-  await openTiming(controls);
   await controls.locator('[data-pattern-action="follow"]').click();
   await page.getByRole("button", { name: "Play pattern", exact: true }).click();
   await openTiming(controls);
@@ -2102,7 +2138,6 @@ test("timing modal pauses page following while open and preserves manual page se
   await expect(
     page.locator('#bass-matrix-access [role="slider"]').first(),
   ).toHaveAttribute("data-matrix-step", "48");
-  await openTiming(controls);
   await expect(
     controls.locator('[data-pattern-action="follow"]'),
   ).toHaveAttribute("aria-pressed", "false");
@@ -2135,9 +2170,13 @@ test("touch page selection returns to the selected automation bar", async ({
     .locator('[data-pattern-setting="bars"][data-pattern-value="4"]')
     .tap();
   await expect(controls.locator(".pattern-dialog")).toBeVisible();
+  await controls.locator('[data-pattern-action="done"]').tap();
+  await controls.locator('[data-pattern-action="pages"]').tap();
   await controls.locator('[data-pattern-page="3"]').tap();
   await expect(controls.locator(".pattern-dialog")).toBeHidden();
   await page.locator("#arp-tone").tap();
+  await expect(controls.locator(".pattern-dialog")).toBeHidden();
+  await expect(page.locator(".track-mixer")).not.toHaveAttribute("open", "");
   const cell = await matrixPoint(page, "arp", 0, 0.1);
   await page.touchscreen.tap(cell.x, cell.y);
   await expect
@@ -2159,7 +2198,7 @@ test("undo and redo keep a drum timing dialog modal and preserve keyboard focus"
   });
   await trigger.click();
   const dialog = page.getByRole("dialog", {
-    name: "Kick timing and pages",
+    name: "Kick timing",
     exact: true,
   });
   const twoBars = dialog.locator(

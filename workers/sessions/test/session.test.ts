@@ -14,6 +14,7 @@ import {
   resizeKeysTrack,
 } from "../../../src/model";
 import { resizeArpTrack } from "../../../src/arp-model";
+import { resizeVocalTrack } from "../../../src/vocal-model";
 import { resizePadTrack } from "../../../src/pad-model";
 import {
   sequenceTimingSchema,
@@ -144,7 +145,98 @@ function closeCode(socket: WebSocket): Promise<number> {
   );
 }
 
+function nextLegacyMessage(
+  socket: WebSocket,
+  type: string,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    const receive = (event: MessageEvent) => {
+      if (typeof event.data !== "string" || event.data === "pong") return;
+      const message = z
+        .record(z.string(), z.unknown())
+        .parse(JSON.parse(event.data));
+      if (message.type !== type) return;
+      socket.removeEventListener("message", receive);
+      resolve(message);
+    };
+    socket.addEventListener("message", receive);
+  });
+}
+
 describe("session rooms in the Workers runtime", () => {
+  it("keeps active v3 hosts editing beside v4 vocal guests through hibernation", async () => {
+    const room = await create(),
+      id = crypto.randomUUID();
+    const response = await upgrade(
+      room,
+      room.hostToken,
+      id,
+      "grain-session-v3",
+    );
+    expect(response.headers.get("Sec-WebSocket-Protocol")).toBe(
+      "grain-session-v3",
+    );
+    const old = response.webSocket;
+    if (!old) throw new Error("Missing legacy socket");
+    peers.push(old);
+    const initial = nextLegacyMessage(old, "welcome");
+    old.accept();
+    const previous = await initial;
+    expect(previous).not.toHaveProperty("supportsVocal");
+    expect(previous.project).toMatchObject({ version: 3 });
+    expect(previous.project).not.toHaveProperty("vocal");
+    const guest = await connect(room, room.guestToken);
+    expect(await guest.next("welcome")).toMatchObject({
+      role: "guest",
+      supportsVocal: false,
+      hostConnected: true,
+    });
+    const empty = nextLegacyMessage(old, "patch");
+    guest.patch(1, ["vocal", "volume"], 0.71);
+    expect(await guest.next("patch")).toMatchObject({ revision: 1 });
+    expect(await empty).toMatchObject({ revision: 1, changes: [] });
+    const oldEdit = nextLegacyMessage(old, "patch");
+    old.send(
+      JSON.stringify({
+        type: "patch",
+        clientId: id,
+        sequence: 1,
+        changes: [{ path: ["bpm"], value: 137 }],
+      }),
+    );
+    expect(await oldEdit).toMatchObject({
+      revision: 2,
+      changes: [{ path: ["bpm"], value: 137 }],
+    });
+    expect(await guest.next("patch")).toMatchObject({ revision: 2 });
+    await evictDurableObject(env.ROOMS.getByName(room.roomId));
+    const recovered = nextLegacyMessage(old, "welcome");
+    old.send(JSON.stringify({ type: "sync" }));
+    expect(await recovered).toMatchObject({
+      revision: 2,
+      acknowledgedSequence: 1,
+      project: { version: 3, bpm: 137 },
+    });
+    expect(old.readyState).toBe(WebSocket.OPEN);
+    guest.send({ type: "sync" });
+    expect(await guest.next("welcome")).toMatchObject({
+      supportsVocal: false,
+      revision: 2,
+      project: { version: 4, vocal: { volume: 0.71 } },
+    });
+    const closed = closeCode(old);
+    const modernHost = await connect(room, room.hostToken, id);
+    expect(await modernHost.next("welcome")).toMatchObject({
+      supportsVocal: true,
+      playing: false,
+      acknowledgedSequence: 1,
+    });
+    expect(await closed).toBe(4009);
+    guest.send({ type: "sync" });
+    expect(await guest.next("welcome")).toMatchObject({ supportsVocal: true });
+    modernHost.send({ type: "end" });
+    expect(await guest.next("ended")).toMatchObject({ reason: "ended" });
+  });
   it("preserves final arp and pad automation through concurrent edits and recovery", async () => {
     const room = await create();
     const host = await connect(room, room.hostToken);
@@ -243,7 +335,7 @@ describe("session rooms in the Workers runtime", () => {
       role: "host",
       hostConnected: true,
     });
-    expect(restored.project.version).toBe(3);
+    expect(restored.project.version).toBe(4);
     expect(restored.project.pad.timing.bars).toBe(8);
     expect(restored.project.bass.timing).toEqual({
       bars: 1,
@@ -281,6 +373,12 @@ describe("session rooms in the Workers runtime", () => {
       project.pad,
       padTimingSchema.parse({ ...timing, bars: 16 }),
     );
+    project.vocal = resizeVocalTrack(project.vocal, { ...timing, bars: 16 });
+    project.vocal.sound = 23;
+    project.vocal.notes = Array.from(
+      { length: trackStepCount(project.vocal.timing) },
+      (_, start) => ({ start, length: 1, note: 60, accent: start % 3 === 0 }),
+    );
     let seed = 9123;
     for (const track of [
       ...project.drums,
@@ -288,6 +386,7 @@ describe("session rooms in the Workers runtime", () => {
       project.keys,
       project.arp,
       project.pad,
+      project.vocal,
     ]) {
       const automation: Record<string, number[] | null> = track.automation;
       for (const key of Object.keys(automation))
@@ -351,6 +450,11 @@ describe("session rooms in the Workers runtime", () => {
     await evictDurableObject(env.ROOMS.getByName(room.roomId));
     host.send({ type: "sync" });
     const restored = await host.next("welcome");
+    expect(restored.project.vocal.notes).toHaveLength(480);
+    expect(restored.project.vocal.automation.start).toEqual(
+      project.vocal.automation.start,
+    );
+    expect(restored.project.vocal.sound).toBe(23);
     expect(restored.project.pad.automation.tone?.slice(478)).toEqual([
       0.1, 0.9,
     ]);

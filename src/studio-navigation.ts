@@ -10,8 +10,6 @@ export function installStudioNavigation(root: HTMLElement): void {
     const slot = document.createElement("div");
     slot.id = "header-visuals";
     slot.append(view);
-    const brandIcon = header.querySelector(".brand-icon");
-    if (brandIcon) header.append(brandIcon);
     header.append(slot);
   }
   view.hidden = false;

@@ -400,11 +400,12 @@ export class ArpInstrument {
     const beat = 60 / bpm;
     if (track.space > 0) {
       for (let index = 0; index < 3; index++) {
-        const delay = context.createDelay(3);
+        const delayTime = beat * (index + 1) * 0.5;
+        const delay = context.createDelay(delayTime + 0.01);
         const damping = context.createBiquadFilter();
         const echoLevel = context.createGain();
         const pan = context.createStereoPanner();
-        delay.delayTime.value = beat * (index + 1) * 0.5;
+        delay.delayTime.value = delayTime;
         damping.type = "lowpass";
         damping.frequency.value = 2200 + track.tone * 3000;
         echoLevel.gain.value = track.space * 0.24 * 0.55 ** index;

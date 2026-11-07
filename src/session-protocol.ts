@@ -3,7 +3,7 @@ import { projectSchema, readProject } from "./model";
 import type { Project } from "./model";
 import { MAX_PROJECT_BYTES, MAX_TRACK_STEPS } from "./timing";
 
-export const SESSION_PROTOCOL = "grain-session-v3";
+export const SESSION_PROTOCOL = "grain-session-v4";
 export const MAX_SESSION_BYTES = MAX_PROJECT_BYTES;
 export const MAX_PROJECT_CHANGES = 4096;
 export const MAX_SESSION_CLIENTS = 8;
@@ -86,6 +86,7 @@ const clockFields = {
 const presenceFields = {
   ...clockFields,
   hostConnected: z.boolean(),
+  supportsVocal: z.boolean(),
   participants: z.number().int().min(0).max(MAX_SESSION_CLIENTS),
 };
 const actionSchema = z.enum(["play", "stop", "restart"]);
@@ -299,4 +300,45 @@ export function applyProjectChanges(
     }
   }
   return readProject(updated);
+}
+
+export type VersionThreeProject = Omit<Project, "version" | "vocal"> & {
+  version: 3;
+};
+export function versionThreeProject(project: Project): VersionThreeProject {
+  const { vocal: _vocal, version: _version, ...previous } = project;
+  return { ...previous, version: 3 };
+}
+type VersionThreeWelcome = Omit<
+  Extract<ServerMessage, { type: "welcome" }>,
+  "project" | "supportsVocal"
+> & { project: VersionThreeProject };
+type VersionThreePresence = Omit<
+  Extract<ServerMessage, { type: "presence" }>,
+  "supportsVocal"
+>;
+export type CompatibleServerMessage =
+  ServerMessage | VersionThreeWelcome | VersionThreePresence;
+/** Older clients receive every revision, including empty patches for vocal-only edits. */
+export function sessionMessageForProtocol(
+  message: ServerMessage,
+  protocol: number,
+): CompatibleServerMessage {
+  if (protocol !== 3) return message;
+  if (message.type === "welcome") {
+    const { supportsVocal: _supportsVocal, project, ...previous } = message;
+    return { ...previous, project: versionThreeProject(project) };
+  }
+  if (message.type === "presence") {
+    const { supportsVocal: _supportsVocal, ...previous } = message;
+    return previous;
+  }
+  if (message.type === "patch")
+    return {
+      ...message,
+      changes: message.changes.filter(
+        (change) => change.path[0] !== "vocal" && change.path[0] !== "version",
+      ),
+    };
+  return message;
 }

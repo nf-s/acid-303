@@ -1,0 +1,324 @@
+import { z } from "zod";
+import { automationLaneSchema, snapNote } from "./model";
+import type { BassStep, MusicalScale } from "./model";
+import {
+  createTiming,
+  timingSchema,
+  trackStepCount,
+  stepsPerBar,
+  ticksPerStep,
+  resizeAutomationLane,
+} from "./timing";
+import type { Timing } from "./timing";
+
+export const VOCAL_SOUNDS = [
+  "Go",
+  "Ready",
+  "Set",
+  "One",
+  "Two",
+  "Go vowel",
+  "Three vowel",
+  "Set attack",
+  "Go",
+  "Ready",
+  "Hold",
+  "One",
+  "Two",
+  "Go vowel",
+  "Three vowel",
+  "Set attack",
+  "Begin",
+  "Fight",
+  "Time",
+  "Combo",
+  "One",
+  "Two",
+  "Fight vowel",
+  "Fight attack",
+];
+export const VOCAL_BANKS: ReadonlyArray<{
+  id: "female" | "male" | "fighter";
+  label: string;
+  start: number;
+  count: number;
+}> = [
+  { id: "female", label: "Female", start: 0, count: 8 },
+  { id: "male", label: "Male", start: 8, count: 8 },
+  { id: "fighter", label: "Fighter", start: 16, count: 8 },
+];
+const vocalAutomationSchema = z.object({
+  start: z.lazy(() => automationLaneSchema),
+  end: z.lazy(() => automationLaneSchema),
+  attack: z.lazy(() => automationLaneSchema),
+  release: z.lazy(() => automationLaneSchema),
+  tone: z.lazy(() => automationLaneSchema),
+  drive: z.lazy(() => automationLaneSchema),
+  space: z.lazy(() => automationLaneSchema),
+  volume: z.lazy(() => automationLaneSchema),
+});
+export type VocalAutomation = z.infer<typeof vocalAutomationSchema>;
+export type VocalParameter = keyof VocalAutomation;
+export function emptyVocalAutomation(): VocalAutomation {
+  return {
+    start: null,
+    end: null,
+    attack: null,
+    release: null,
+    tone: null,
+    drive: null,
+    space: null,
+    volume: null,
+  };
+}
+export const vocalNoteSchema = z.object({
+  start: z.number().int().min(0).max(479),
+  length: z.number().int().min(1).max(480),
+  note: z.number().int().min(36).max(84),
+  accent: z.boolean().default(false),
+});
+export type VocalNote = z.infer<typeof vocalNoteSchema>;
+export const vocalBaseSchema = z.object({
+  timing: timingSchema.default(createTiming),
+  sound: z
+    .number()
+    .int()
+    .min(0)
+    .max(VOCAL_SOUNDS.length - 1)
+    .default(0),
+  muted: z.boolean().default(true),
+  loop: z.boolean().default(false),
+  notes: z
+    .array(vocalNoteSchema)
+    .max(480)
+    .default(() => [
+      { start: 0, length: 2, note: 60, accent: false },
+      { start: 8, length: 2, note: 60, accent: false },
+    ]),
+  automation: vocalAutomationSchema.default(emptyVocalAutomation),
+  start: z.number().min(0).max(1).default(0),
+  end: z.number().min(0).max(1).default(1),
+  attack: z.number().min(0).max(1).default(0.02),
+  release: z.number().min(0).max(1).default(0.12),
+  tone: z.number().min(0).max(1).default(0.62),
+  drive: z.number().min(0).max(1).default(0),
+  space: z.number().min(0).max(1).default(0.08),
+  volume: z.number().min(0).max(1).default(0.45),
+});
+export const vocalSchema = vocalBaseSchema.superRefine((track, context) => {
+  const count = trackStepCount(track.timing);
+  if (track.end <= track.start)
+    context.addIssue({
+      code: "custom",
+      message: "Vocal trim end must follow its start",
+      path: ["end"],
+    });
+  let end = 0;
+  for (const note of track.notes) {
+    if (note.start < end || note.start + note.length > count)
+      context.addIssue({
+        code: "custom",
+        message:
+          "Vocal notes must be sorted, nonoverlapping and inside the loop",
+        path: ["notes"],
+      });
+    end = note.start + note.length;
+  }
+  if (
+    Object.values(track.automation).some(
+      (lane) => lane !== null && lane.length !== count,
+    )
+  )
+    context.addIssue({
+      code: "custom",
+      message: "Vocal automation must match its timing",
+      path: ["automation"],
+    });
+});
+export type VocalTrack = z.infer<typeof vocalSchema>;
+export function createVocal(): VocalTrack {
+  return vocalSchema.parse({});
+}
+export function normalizedVocalValue(
+  track: VocalTrack,
+  parameter: VocalParameter,
+): number {
+  return track[parameter];
+}
+export function vocalValueFromNormalized(
+  _parameter: VocalParameter,
+  value: number,
+): number {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+}
+export function setVocalValue(
+  track: VocalTrack,
+  parameter: VocalParameter,
+  value: number,
+): VocalTrack {
+  const next = {
+    ...track,
+    [parameter]: vocalValueFromNormalized(parameter, value),
+  };
+  if (parameter === "start")
+    next.start = Math.min(next.start, next.end - 0.005);
+  if (parameter === "end") next.end = Math.max(next.end, next.start + 0.005);
+  return next;
+}
+export function automatedVocal(
+  track: VocalTrack,
+  absoluteStep: number,
+): VocalTrack {
+  const resolved = { ...track };
+  if (!Number.isFinite(absoluteStep) || absoluteStep < 0) return resolved;
+  const index = Math.floor(absoluteStep) % trackStepCount(track.timing);
+  for (const parameter of vocalAutomationSchema.keyof().options) {
+    const value = track.automation[parameter]?.[index];
+    if (value !== undefined) resolved[parameter] = value;
+  }
+  return resolved;
+}
+/** Trim values are normalized; audio offsets are seconds with a bounded click-safe window. */
+export function resolveVocalTrim(
+  track: Pick<VocalTrack, "start" | "end">,
+  duration: number,
+): { start: number; end: number } {
+  const length = Math.max(0, Number.isFinite(duration) ? duration : 0);
+  const minimum = Math.min(length, 0.008);
+  const start = Math.min(
+    Math.max(0, track.start * length),
+    Math.max(0, length - minimum),
+  );
+  const end = Math.min(length, Math.max(start + minimum, track.end * length));
+  return { start, end };
+}
+export function retuneVocal(
+  track: VocalTrack,
+  scale: MusicalScale,
+): VocalTrack {
+  return {
+    ...track,
+    notes: track.notes.map((note) => ({
+      ...note,
+      note: snapNote(note.note, scale, 36, 84),
+    })),
+  };
+}
+export function setVocalNote(
+  track: VocalTrack,
+  incoming: VocalNote,
+  scale: MusicalScale,
+  replaceStart?: number,
+): VocalTrack {
+  if (![incoming.start, incoming.length, incoming.note].every(Number.isFinite))
+    return track;
+  const count = trackStepCount(track.timing);
+  const start = Math.max(0, Math.min(count - 1, Math.round(incoming.start)));
+  const note: VocalNote = {
+    start,
+    length: Math.max(1, Math.min(count - start, Math.round(incoming.length))),
+    note: snapNote(incoming.note, scale, 36, 84),
+    accent: incoming.accent,
+  };
+  const end = start + note.length;
+  const notes: VocalNote[] = [];
+  for (const old of track.notes) {
+    if (old.start === replaceStart) continue;
+    const oldEnd = old.start + old.length;
+    if (oldEnd <= start || old.start >= end) notes.push({ ...old });
+    else {
+      if (old.start < start) notes.push({ ...old, length: start - old.start });
+      if (oldEnd > end)
+        notes.push({ ...old, start: end, length: oldEnd - end });
+    }
+  }
+  notes.push(note);
+  notes.sort((a, b) => a.start - b.start);
+  return { ...track, notes };
+}
+export function removeVocalNote(track: VocalTrack, start: number): VocalTrack {
+  return {
+    ...track,
+    notes: track.notes
+      .filter((note) => note.start !== start)
+      .map((note) => ({ ...note })),
+  };
+}
+export function joinVocalNote(track: VocalTrack, start: number): VocalTrack {
+  const index = track.notes.findIndex((note) => note.start === start);
+  const note = track.notes[index],
+    next = track.notes[index + 1];
+  if (
+    !note ||
+    !next ||
+    note.start + note.length !== next.start ||
+    note.note !== next.note
+  )
+    return track;
+  return {
+    ...track,
+    notes: track.notes.flatMap((value, position) =>
+      position === index
+        ? [{ ...note, length: note.length + next.length }]
+        : position === index + 1
+          ? []
+          : [{ ...value }],
+    ),
+  };
+}
+export function vocalStepNotes(track: VocalTrack): BassStep[] {
+  return Array.from({ length: trackStepCount(track.timing) }, (_, index) => {
+    const note = track.notes.find(
+      (value) => index >= value.start && index < value.start + value.length,
+    );
+    return {
+      note: note?.note ?? 60,
+      on: note !== undefined,
+      accent: note?.accent ?? false,
+      slide: note !== undefined && index + 1 < note.start + note.length,
+    };
+  });
+}
+export function resizeVocalTrack(
+  track: VocalTrack,
+  timing: Timing,
+): VocalTrack {
+  const previousBar = stepsPerBar(track.timing),
+    nextBar = stepsPerBar(timing);
+  const factor = ticksPerStep(track.timing) / ticksPerStep(timing);
+  const count = trackStepCount(timing);
+  const notes: VocalNote[] = [];
+  for (let bar = 0; bar < timing.bars; bar++) {
+    const sourceBar = bar % track.timing.bars;
+    for (const note of track.notes) {
+      if (Math.floor(note.start / previousBar) !== sourceBar) continue;
+      const offset = Math.round((note.start % previousBar) * factor);
+      if (offset >= nextBar) continue;
+      const start = bar * nextBar + offset;
+      const length = Math.max(
+        1,
+        Math.min(count - start, Math.round(note.length * factor)),
+      );
+      notes.push({ ...note, start, length });
+    }
+  }
+  notes.sort((a, b) => a.start - b.start);
+  const clipped = notes
+    .map((note, index) => ({
+      ...note,
+      length: Math.min(
+        note.length,
+        (notes[index + 1]?.start ?? count) - note.start,
+      ),
+    }))
+    .filter((note) => note.length > 0);
+  const automation = { ...track.automation };
+  for (const parameter of vocalAutomationSchema.keyof().options)
+    automation[parameter] = resizeAutomationLane(
+      track.automation[parameter],
+      track.timing,
+      timing,
+      track[parameter],
+    );
+  return { ...track, timing: { ...timing }, notes: clipped, automation };
+}

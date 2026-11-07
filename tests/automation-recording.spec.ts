@@ -3,6 +3,9 @@ import type { Page } from "@playwright/test";
 import { createProject, projectSchema } from "../src/model";
 
 async function saved(page: Page) {
+  await page.waitForFunction(
+    () => localStorage.getItem("acid-303-project-v1") !== null,
+  );
   return projectSchema.parse(
     await page.evaluate(() =>
       JSON.parse(localStorage.getItem("acid-303-project-v1") ?? "null"),
@@ -131,6 +134,7 @@ test("each session participant arms locally and records into the shared host clo
   const context = await browser.newContext();
   const guest = await context.newPage();
   const invite = await page.locator("#session-invite-link").inputValue();
+  let ended = false;
   try {
     await guest.goto(invite);
     await expect(guest.locator("#session-status")).toHaveText("Connected");
@@ -144,6 +148,9 @@ test("each session participant arms locally and records into the shared host clo
       "aria-label",
       "Stop pattern",
     );
+    await page.locator("#keys-width").press("End");
+    await expect.poll(async () => (await saved(guest)).keys.width).toBe(1);
+    expect((await saved(guest)).keys.automation.width).toBeNull();
     await guest.locator("#cutoff").press("End");
     await expect
       .poll(async () => (await saved(page)).bass.automation.cutoff)
@@ -163,11 +170,21 @@ test("each session participant arms locally and records into the shared host clo
     await page
       .getByRole("button", { name: "End session", exact: true })
       .click();
+    ended = true;
     await expect(guest.locator("#record-automation")).toHaveAttribute(
       "aria-pressed",
       "false",
     );
   } finally {
+    if (
+      !ended &&
+      (await page.locator("#session-status").textContent()) === "Hosting"
+    ) {
+      await tools(page);
+      await page
+        .getByRole("button", { name: "End session", exact: true })
+        .click();
+    }
     await context.close();
   }
 });

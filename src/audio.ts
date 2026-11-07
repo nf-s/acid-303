@@ -1,3 +1,8 @@
+import { VocalInstrument, vocalTailDuration } from "./vocal-audio";
+import { loadVocalSample } from "./vocal-samples";
+import type { LoadedVocalSample, VocalSampleStatus } from "./vocal-samples";
+import { resolveVocalTrim } from "./vocal-model";
+import type { VocalTrack } from "./vocal-model";
 import {
   ticksPerStep,
   trackStepCount,
@@ -1615,6 +1620,7 @@ export function exportTailDuration(project: Project): number {
       keysTail,
       arpTailDuration(project.arp, project.bpm),
       padTailDuration(project.pad, project.bpm),
+      vocalTailDuration(project.vocal, project.bpm),
     ) + performanceFxTail(project)
   );
 }
@@ -2026,7 +2032,8 @@ class KeysVoice {
       );
     }
     for (let index = 0; index < 3; index += 1) {
-      const delay = context.createDelay(3);
+      // A held voice can change tempo or switch to Dub; reserve each tap at 60 BPM.
+      const delay = context.createDelay((index + 1) * 0.75 + 0.01);
       const damping = context.createBiquadFilter();
       const gain = context.createGain();
       const pan = context.createStereoPanner();
@@ -2445,6 +2452,7 @@ export function projectEventsAtTick(
   for (const drum of project.drums) add(drum.id, drum.timing);
   add("bass", project.bass.timing);
   add("keys", project.keys.timing);
+  add("vocal", project.vocal.timing);
   add(
     "arp",
     project.arp.timing,
@@ -2465,6 +2473,7 @@ function scheduleProjectTick(
     keys: KeysSequencer;
     arp: ArpInstrument;
     pad: PadInstrument;
+    vocal: VocalInstrument | null;
   },
   logicalTick: number,
   nominalTime: number,
@@ -2486,6 +2495,14 @@ function scheduleProjectTick(
         index,
         time,
         event.duration,
+      );
+    else if (event.instrument === "vocal")
+      voices.vocal?.scheduleTick(
+        project.vocal,
+        logicalTick,
+        time,
+        project.bpm,
+        project.swing,
       );
     else if (event.instrument === "arp")
       voices.arp.scheduleTick(
@@ -2519,6 +2536,18 @@ export class AudioEngine {
   private keys: KeysSequencer | null = null;
   private arp: ArpInstrument | null = null;
   private pad: PadInstrument | null = null;
+  private vocal: VocalInstrument | null = null;
+  private vocalPreview: VocalInstrument | null = null;
+  private vocalRequest: AbortController | null = null;
+  private vocalPreviewRequest: AbortController | null = null;
+  private vocalConfiguration = { sound: -1, muted: true };
+  private vocalStatus: VocalSampleStatus = {
+    sound: 0,
+    phase: "idle",
+    message: "",
+  };
+  private vocalLoadListener: ((status: VocalSampleStatus) => void) | null =
+    null;
   private project: Project | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private visualTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -2555,7 +2584,10 @@ export class AudioEngine {
     await this.prepare(project);
   }
 
-  private async prepare(project: Project): Promise<AudioGraph> {
+  private async prepare(
+    project: Project,
+    generation = this.generation,
+  ): Promise<AudioGraph> {
     if (this.silent) throw new Error("Audio plays on the session host.");
     if (!this.context)
       this.context = new AudioContext({ latencyHint: "interactive" });
@@ -2572,6 +2604,8 @@ export class AudioEngine {
     }
     if (this.context.state !== "running") await this.context.resume();
     if (this.silent) throw new Error("Audio plays on the session host.");
+    if (generation !== this.generation)
+      throw new DOMException("Playback cancelled", "AbortError");
     updateGraph(this.graph, project);
     return this.graph;
   }
@@ -2579,7 +2613,16 @@ export class AudioEngine {
   async play(project: Project): Promise<void> {
     if (this.playing) return;
     const generation = ++this.generation;
-    const graph = await this.prepare(project);
+    this.project = project;
+    this.vocalConfiguration = {
+      sound: project.vocal.sound,
+      muted: project.vocal.muted,
+    };
+    const graph = await this.prepare(project, generation);
+    const loaded = project.vocal.muted
+      ? null
+      : await this.loadPlayingVocal(graph, project.vocal, generation);
+    if (!project.vocal.muted && !loaded) return;
     if (generation !== this.generation) return;
     this.project = project;
     graph.fx.destroy();
@@ -2593,6 +2636,9 @@ export class AudioEngine {
     this.keys = new KeysSequencer(graph);
     this.arp = new ArpInstrument(graph.context, graph.melodicInput);
     this.pad = new PadInstrument(graph.context, graph.melodicInput);
+    this.vocal = loaded
+      ? new VocalInstrument(graph.context, graph.melodicInput, loaded)
+      : null;
     this.absoluteTick = 0;
     this.nextStepTime = graph.context.currentTime + 0.035;
     this.playing = true;
@@ -2615,7 +2661,13 @@ export class AudioEngine {
     while (this.nextStepTime < now + LOOKAHEAD) {
       const tick = this.absoluteTick;
       const time = this.nextStepTime;
-      scheduleProjectTick(graph, project, { bass, keys, arp, pad }, tick, time);
+      scheduleProjectTick(
+        graph,
+        project,
+        { bass, keys, arp, pad, vocal: this.vocal },
+        tick,
+        time,
+      );
       if (tick % 2 === 0) {
         const timer = setTimeout(
           () => {
@@ -2640,6 +2692,19 @@ export class AudioEngine {
 
   stop(): void {
     this.generation += 1;
+    this.vocalRequest?.abort();
+    this.vocalRequest = null;
+    this.vocalPreviewRequest?.abort();
+    this.vocalPreviewRequest = null;
+    this.vocal?.stop();
+    this.vocal = null;
+    this.vocalPreview?.stop();
+    this.vocalPreview = null;
+    this.reportVocal({
+      sound: this.vocalConfiguration.sound,
+      phase: "idle",
+      message: "",
+    });
     this.playing = false;
     this.needsFxReset = true;
     if (this.timer !== null) clearInterval(this.timer);
@@ -2669,8 +2734,182 @@ export class AudioEngine {
   }
 
   update(project: Project): void {
+    const changed =
+      project.vocal.sound !== this.vocalConfiguration.sound ||
+      project.vocal.muted !== this.vocalConfiguration.muted;
     this.project = project;
+    this.vocalConfiguration = {
+      sound: project.vocal.sound,
+      muted: project.vocal.muted,
+    };
+    if (changed) {
+      const pendingPlay = this.vocalRequest !== null && !this.playing;
+      this.vocalRequest?.abort();
+      this.vocalRequest = null;
+      this.vocalPreviewRequest?.abort();
+      this.vocalPreviewRequest = null;
+      this.vocal?.stop();
+      this.vocal = null;
+      this.vocalPreview?.stop();
+      this.vocalPreview = null;
+      if (pendingPlay) this.stop();
+      else
+        this.reportVocal({
+          sound: project.vocal.sound,
+          phase: "idle",
+          message: "",
+        });
+      const graph = this.graph;
+      if (graph && this.playing && !this.silent && !project.vocal.muted) {
+        const generation = this.generation;
+        void this.loadPlayingVocal(graph, project.vocal, generation)
+          .then((loaded) => {
+            if (
+              loaded &&
+              this.playing &&
+              !this.silent &&
+              generation === this.generation
+            )
+              this.vocal = new VocalInstrument(
+                graph.context,
+                graph.melodicInput,
+                loaded,
+              );
+          })
+          .catch(() => undefined);
+      }
+    }
     if (this.graph) updateGraph(this.graph, project, !this.needsFxReset);
+  }
+
+  setVocalLoadListener(listener: (status: VocalSampleStatus) => void): void {
+    this.vocalLoadListener = listener;
+    listener({ ...this.vocalStatus });
+  }
+  private reportVocal(status: VocalSampleStatus): void {
+    this.vocalStatus = status;
+    this.vocalLoadListener?.({ ...status });
+  }
+  private async loadPlayingVocal(
+    graph: AudioGraph,
+    track: VocalTrack,
+    generation: number,
+  ): Promise<LoadedVocalSample | null> {
+    this.vocalRequest?.abort();
+    const request = new AbortController(),
+      sound = track.sound;
+    this.vocalRequest = request;
+    this.reportVocal({ sound, phase: "loading", message: "Loading vocal…" });
+    try {
+      const loaded = await loadVocalSample(
+        graph.context,
+        sound,
+        request.signal,
+      );
+      if (
+        request.signal.aborted ||
+        generation !== this.generation ||
+        this.silent ||
+        this.project?.vocal.sound !== sound ||
+        this.project.vocal.muted
+      )
+        return null;
+      this.reportVocal({ sound, phase: "ready", message: "" });
+      return loaded;
+    } catch (error) {
+      if (
+        request.signal.aborted ||
+        generation !== this.generation ||
+        this.silent
+      )
+        return null;
+      this.reportVocal({
+        sound,
+        phase: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Vocal loading failed. Try again.",
+      });
+      throw error;
+    } finally {
+      if (this.vocalRequest === request) this.vocalRequest = null;
+    }
+  }
+  async auditionVocal(
+    track: VocalTrack,
+    note = 60,
+    accent = false,
+  ): Promise<void> {
+    if (!this.project)
+      throw new Error("Set the project before previewing vocals.");
+    if (!Number.isInteger(note) || note < 36 || note > 84)
+      throw new Error("Choose a vocal note between C2 and C6.");
+    if (this.silent) throw new Error("Audio plays on the session host.");
+    this.vocalPreviewRequest?.abort();
+    this.vocalPreview?.stop();
+    this.vocalPreview = null;
+    const request = new AbortController(),
+      generation = this.generation,
+      sound = track.sound;
+    const snapshot = structuredClone(track);
+    this.vocalPreviewRequest = request;
+    this.reportVocal({ sound, phase: "loading", message: "Loading vocal…" });
+    try {
+      const graph = await this.prepare(this.project, generation);
+      const loaded = await loadVocalSample(
+        graph.context,
+        sound,
+        request.signal,
+      );
+      if (
+        request.signal.aborted ||
+        generation !== this.generation ||
+        this.silent ||
+        this.project.vocal.sound !== sound
+      )
+        return;
+      const preview = new VocalInstrument(
+        graph.context,
+        graph.melodicInput,
+        loaded,
+      );
+      this.vocalPreview = preview;
+      const trim = resolveVocalTrim(snapshot, loaded.buffer.duration);
+      const duration = snapshot.loop
+        ? 0.65
+        : Math.min(
+            2.5,
+            Math.max(0.12, (trim.end - trim.start) / 2 ** ((note - 60) / 12)),
+          );
+      preview.audition(
+        snapshot,
+        note,
+        accent,
+        graph.context.currentTime + 0.005,
+        duration,
+        this.project.bpm,
+      );
+      this.reportVocal({ sound, phase: "ready", message: "" });
+    } catch (error) {
+      if (
+        request.signal.aborted ||
+        generation !== this.generation ||
+        this.silent
+      )
+        return;
+      this.reportVocal({
+        sound,
+        phase: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Vocal preview failed. Try again.",
+      });
+      throw error;
+    } finally {
+      if (this.vocalPreviewRequest === request) this.vocalPreviewRequest = null;
+    }
   }
 
   async audition(track: DrumTrack): Promise<void> {
@@ -2734,6 +2973,8 @@ export class AudioEngine {
   }
 
   async exportWav(project: Project): Promise<Blob> {
+    if (this.silent) throw new Error("Export audio from the session host.");
+    project = structuredClone(project);
     const plan = exportPlan(project);
     const loopDuration = plan.seconds;
     const tailDuration = exportTailDuration(project);
@@ -2742,7 +2983,14 @@ export class AudioEngine {
       Math.ceil((loopDuration + tailDuration) * WAV_SAMPLE_RATE),
       WAV_SAMPLE_RATE,
     );
+    const loaded = project.vocal.muted
+      ? null
+      : await loadVocalSample(context, project.vocal.sound);
+    if (this.silent) throw new Error("Export audio from the session host.");
     const graph = createGraph(context, project);
+    const vocal = loaded
+      ? new VocalInstrument(context, graph.melodicInput, loaded)
+      : null;
     const bass = new BassVoice(graph);
     const keys = new KeysSequencer(graph);
     const arp = new ArpInstrument(context, graph.melodicInput);
@@ -2751,10 +2999,18 @@ export class AudioEngine {
       scheduleProjectTick(
         graph,
         project,
-        { bass, keys, arp, pad },
+        { bass, keys, arp, pad, vocal },
         tick,
         tickSeconds(tick, project.bpm),
       );
+    vocal?.finish(
+      project.vocal,
+      Math.max(
+        0,
+        Math.ceil(plan.ticks / ticksPerStep(project.vocal.timing)) - 1,
+      ),
+      loopDuration,
+    );
     bass.stop(loopDuration);
     keys.release(
       loopDuration,

@@ -4,6 +4,7 @@ import {
   emptyBassAutomation,
   emptyKeysAutomation,
   normalizedBassValue,
+  readProject,
   STEP_COUNT,
   withScale,
 } from "./model";
@@ -11,6 +12,7 @@ import type { BassStep, DrumId, MusicalScale, Project } from "./model";
 import type { ArpTrack } from "./arp-model";
 import { applyPadProgression } from "./pad-model";
 import type { PadTrack } from "./pad-model";
+import { nightshiftSnapshot } from "./preset-data/nightshift";
 
 interface DrumPreset {
   hits: number[];
@@ -1501,7 +1503,10 @@ export const PRESETS: ReadonlyArray<{
   id: string;
   name: string;
   genre: string;
-}> = GENRE_PRESETS.map(({ id, name, genre }) => ({ id, name, genre }));
+}> = [
+  ...GENRE_PRESETS.map(({ id, name, genre }) => ({ id, name, genre })),
+  { id: "nightshift", name: "Nightshift", genre: "House" },
+];
 
 const legacyPresetIds = new Map([
   ["Disco Moth", "house"],
@@ -1553,6 +1558,12 @@ function noteSteps(pattern: NotePattern): BassStep[] {
 }
 
 export function createPreset(id: string): Project {
+  if (id === "nightshift") {
+    const project = readProject(nightshiftSnapshot);
+    if (!project) throw new Error("The bundled Nightshift example is invalid.");
+    project.name = "Nightshift";
+    return project;
+  }
   const preset =
     GENRE_PRESETS.find((candidate) => candidate.id === id) ?? GENRE_PRESETS[0];
   if (!preset) return createProject();

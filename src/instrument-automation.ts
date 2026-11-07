@@ -51,6 +51,11 @@ export function createInstrumentAutomation<Parameter extends string>(
   let undo: LaneSnapshot<Parameter> | null = null;
   let queued = false;
   let destroyed = false;
+  let pendingScroll: number | null = null;
+  const cancelScroll = (): void => {
+    if (pendingScroll !== null) window.clearTimeout(pendingScroll);
+    pendingScroll = null;
+  };
   let absoluteTick = -1;
   let swing = 0;
   let timingSignature = "";
@@ -144,12 +149,14 @@ export function createInstrumentAutomation<Parameter extends string>(
   function refresh(resetHistory = false): void {
     if (destroyed) return;
     if (resetHistory) {
+      cancelScroll();
       undo = null;
       sweeps.clear();
     }
     const timing = options.getTiming();
     const nextSignature = `${timing.bars}:${timing.meter}:${timing.grid}`;
     if (timingSignature !== nextSignature) {
+      cancelScroll();
       matrix.cancelStroke();
       undo = null;
       sweeps.clear();
@@ -350,8 +357,12 @@ export function createInstrumentAutomation<Parameter extends string>(
       if (!control) return false;
       if (selected.parameter !== control.parameter) matrix.cancelStroke();
       selected = control;
+      cancelScroll();
       refresh();
-      container.scrollIntoView({ block: "nearest" });
+      pendingScroll = window.setTimeout(() => {
+        pendingScroll = null;
+        if (!destroyed) container.scrollIntoView({ block: "nearest" });
+      }, 0);
       return true;
     },
     shiftControl(controlId: string, before: number, after: number): void {
@@ -385,6 +396,7 @@ export function createInstrumentAutomation<Parameter extends string>(
     },
     destroy(): void {
       destroyed = true;
+      cancelScroll();
       matrix.destroy();
       pager.destroy();
       container.removeEventListener("click", click);

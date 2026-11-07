@@ -1,6 +1,5 @@
 import {
   createIcons,
-  AudioLines,
   Play,
   Square,
   RotateCcw,
@@ -48,6 +47,9 @@ import { EditHistory } from "./history";
 import { encodeTrack, decodeTrack } from "./share";
 import { createArpPanel } from "./arp-panel";
 import { createPadPanel } from "./pad-panel";
+import { createVocalPanel } from "./vocal-panel";
+import { normalizedVocalValue } from "./vocal-model";
+import type { VocalParameter } from "./vocal-model";
 import { SessionClient } from "./session-client";
 import type { SessionStatus } from "./session-client";
 import { createSessionPanel } from "./session-panel";
@@ -65,6 +67,8 @@ import type { VisualizerPaletteId } from "./visualizer-palettes";
 import { BeatCanvas } from "./beat-canvas";
 import { installGestures } from "./gestures";
 import { installStudioNavigation } from "./studio-navigation";
+import { installInstrumentCollapse } from "./instrument-collapse";
+import { playOpeningAnimation } from "./opening-animation";
 import { TrackMixer, mixerTrack } from "./track-mixer";
 import { AutomationRecorder } from "./automation-recorder";
 import type { RecordingLane } from "./automation-recorder";
@@ -230,6 +234,7 @@ let sessionStatus: SessionStatus = {
   role: null,
   participants: 0,
   hostConnected: false,
+  supportsVocal: false,
   inviteLink: null,
   message: "",
 };
@@ -282,6 +287,7 @@ document.addEventListener(
 let selectedDrum: DrumId = "kick";
 let beforeRemix: ReturnType<typeof createProject> | null = null;
 let starting = false;
+let playbackRequest = 0;
 let pendingDrum: DrumId | null = null;
 let lastPaintPreview = 0;
 let motion = true;
@@ -310,9 +316,8 @@ const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Application container is missing.");
 app.innerHTML = `
     <section id="visualizer-panel" class="visualizer-panel" aria-label="Drum pattern visualizer"><canvas id="fluid-canvas" aria-label="Drum-reactive fluid shapes"></canvas></section>
-  <header class="app-header"><a class="brand" href="/" aria-label="Grain home"><span class="brand-icon">${icon("audio-lines")}</span><span class="brand-wordmark">${grainWordmark}</span><span class="brand-divider"></span><span class="brand-detail">BEAT MACHINE</span></a></header>
+  <header class="app-header"><div class="brand" aria-label="Grain"><span class="brand-wordmark">${grainWordmark}</span></div></header>
   <div class="motion-options" id="phone-motion-options" hidden><span>Hold a knob</span><div role="group" aria-label="Phone motion axis"><button data-phone-mode="tilt" aria-pressed="true">Tilt</button><button data-phone-mode="move" aria-pressed="false">Move</button><button data-phone-mode="twist" aria-pressed="false">Twist</button></div><span id="phone-motion-help">Tilt forwards / back or sideways</span></div>
-  <div class="share-panel" id="share-panel" hidden><label for="share-url">Track link</label><input id="share-url" readonly><button id="copy-share">Copy</button><button id="close-share" aria-label="Close share link">×</button></div>
   <main class="workspace">
     <section class="transport panel" aria-label="Playback controls">
       <div class="performance-row"><div class="playback"><button class="play-button" id="play" aria-label="Play pattern">${icon("play")}<span>Play</span></button><button class="icon-button record-button" id="record-automation" aria-label="Record automation on this device" aria-pressed="false" title="Record instrument knob movements on this device"><span class="record-dot" aria-hidden="true"></span><span>REC</span></button><button class="icon-button restart" id="restart" aria-label="Restart pattern" title="Restart pattern">${icon("rotate-ccw")}</button></div>
@@ -322,6 +327,7 @@ app.innerHTML = `
     <section class="scale-panel panel" aria-label="Musical scale"><div class="scale-row"><span>ROOT</span><div class="scale-roots" role="group" aria-label="Root note">${Array.from({ length: 12 }, (_, root) => `<button data-root="${root}" aria-label="Root ${noteName(root + 60).slice(0, -1)}" aria-pressed="${project.scale.root === root}">${noteName(root + 60).slice(0, -1)}</button>`).join("")}</div></div><div class="scale-row"><span>SCALE</span><div class="scale-modes" role="group" aria-label="Scale type">${SCALE_MODES.map((scale) => `<button data-scale="${scale.id}" aria-pressed="${project.scale.mode === scale.id}">${scale.name}</button>`).join("")}</div></div></section>
 <div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="global-undo" aria-label="Undo last edit" disabled>Undo</button><button class="button secondary" id="global-redo" aria-label="Redo last edit" disabled>Redo</button><button class="button secondary" id="share-track">Share</button><button class="button secondary" id="session-toggle" aria-expanded="false" aria-controls="session-panel">Session</button><button class="button secondary" id="phone-motion" aria-label="Enable phone motion control" aria-pressed="false" title="Hold a knob and tilt or move your phone">Motion</button><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div><section id="session-panel" hidden></section></div>
       <div id="track-mixer"></div>
+  <div class="share-panel" id="share-panel" hidden><label for="share-url">Track link</label><input id="share-url" readonly><button id="copy-share">Copy</button><button id="close-share" aria-label="Close share link">×</button></div>
     </section>
     <section class="preset-section panel" aria-label="Examples">
         <div class="preset-bar"><div class="preset-navigation"><button class="preset-scroll" data-example-scroll="-1" aria-label="Scroll examples left">‹</button><div class="preset-options" role="group" aria-label="Genre examples">${PRESETS.map((preset) => `<button data-preset="${preset.id}" aria-label="${preset.name} — ${preset.genre}"><strong>${preset.name}</strong><span>${preset.genre}</span></button>`).join("")}</div><button class="preset-scroll" data-example-scroll="1" aria-label="Scroll examples right">›</button></div><div class="preset-actions"><button id="remix" class="remix-button">${icon("shuffle")} Remix</button><button id="undo-remix" class="text-button undo-remix" disabled>Undo</button></div></div>
@@ -335,21 +341,22 @@ app.innerHTML = `
       </section>
       <section id="bass-panel" class="panel bass-panel" aria-labelledby="bass-title">
         <div class="section-header"><div class="section-title"><span class="section-number">02</span><h2 id="bass-title">Acid bass</h2><span class="small-tag">303</span></div><div class="bass-actions"><button id="bass-mute" class="mute-button" aria-label="Mute acid bass" aria-pressed="${project.bass.muted}">M</button><button id="generate" class="text-button">${icon("shuffle")} Generate</button></div></div>
-        <div class="bass-meta"><div class="waveform-switch bass-sounds" role="group" aria-label="Bass sound">${BASS_SOUNDS.map((sound, index) => `<button data-bass-sound="${index}">${sound}</button>`).join("")}</div><span class="bass-key">A MINOR <span>·</span> 1 BAR</span></div>
+        <div class="bass-meta"><div class="waveform-switch bass-sounds" role="group" aria-label="Bass sound">${BASS_SOUNDS.map((sound, index) => `<button data-bass-sound="${index}">${sound}</button>`).join("")}</div></div>
         <div class="acid-controls">${slider("cutoff", "Cutoff", 0, 100, Math.round((Math.log(project.bass.cutoff / 80) / Math.log(100)) * 100), formatFrequency(project.bass.cutoff))}${slider("resonance", "Resonance", 0, 22, project.bass.resonance, `${Math.round((project.bass.resonance / 22) * 100)}%`, "0.1")}${slider("envelope", "Envelope", 0, 100, project.bass.envelope * 100, `${Math.round(project.bass.envelope * 100)}%`)}${slider("bass-decay", "Decay", 50, 1500, project.bass.decay * 1000, `${Math.round(project.bass.decay * 1000)} ms`, "10")}${slider("bass-volume", "Level", 0, 100, project.bass.volume * 100, `${Math.round(project.bass.volume * 100)}%`)}${slider("bass-shape", "Shape", 0, 100, project.bass.shape * 100, `${Math.round(project.bass.shape * 100)}%`)}${slider("bass-drive", "Drive", 0, 100, project.bass.drive * 100, `${Math.round(project.bass.drive * 100)}%`)}${slider("bass-pulse", "Pulse", 0, 100, project.bass.pulse * 100, `${Math.round(project.bass.pulse * 100)}%`)}</div>${matrixMarkup("bass", "Bass")}
       </section>
       <section id="keys-panel" class="panel bass-panel keys-panel" aria-labelledby="keys-title">
         <div class="section-header"><div class="section-title"><span class="section-number">03</span><h2 id="keys-title">Texture</h2></div><div class="bass-actions"><button id="keys-mute" class="mute-button" aria-label="Mute Texture" aria-pressed="${project.keys.muted}">M</button><button id="keys-generate" class="text-button">${icon("shuffle")} New pattern</button></div></div>
-        <div class="bass-meta"><div class="waveform-switch keys-sounds" role="group" aria-label="Texture sound">${KEYS_SOUNDS.map((sound, index) => `<button data-key-sound="${index}">${sound}</button>`).join("")}</div><span class="bass-key keys-key">A MINOR</span></div>
+        <div class="bass-meta"><div class="waveform-switch keys-sounds" role="group" aria-label="Texture sound">${KEYS_SOUNDS.map((sound, index) => `<button data-key-sound="${index}">${sound}</button>`).join("")}</div></div>
         <div class="acid-controls">${slider("keys-tone", "Tone", 0, 100, project.keys.tone * 100, `${Math.round(project.keys.tone * 100)}%`)}${slider("keys-decay", "Decay", 80, 2000, project.keys.decay * 1000, `${Math.round(project.keys.decay * 1000)} ms`, "10")}${slider("keys-space", "Space", 0, 100, project.keys.space * 100, `${Math.round(project.keys.space * 100)}%`)}${slider("keys-volume", "Level", 0, 100, project.keys.volume * 100, `${Math.round(project.keys.volume * 100)}%`)}${slider("keys-grit", "Grit", 0, 100, project.keys.grit * 100, `${Math.round(project.keys.grit * 100)}%`)}${slider("keys-motion", "Motion", 0, 100, project.keys.motion * 100, `${Math.round(project.keys.motion * 100)}%`)}${slider("keys-width", "Width", 0, 100, project.keys.width * 100, `${Math.round(project.keys.width * 100)}%`)}${slider("keys-attack", "Attack", 0, 100, project.keys.attack * 100, `${Math.round(project.keys.attack * 100)}%`)}</div>
         ${matrixMarkup("keys", "Texture")}
       </section>
       <section id="arp-panel" class="panel bass-panel arp-panel" aria-labelledby="arp-title"></section>
       <section id="pad-panel" class="panel bass-panel pad-panel" aria-labelledby="pad-title"></section>
+      <section id="vocal-panel" class="panel bass-panel vocal-panel" aria-labelledby="vocal-title"></section>
     </div>
 </div>
     <footer class="app-footer"><span><kbd>SPACE</kbd> Play / stop</span><span>Per-instrument timing</span><span id="project-name"></span></footer>
-  </main><nav class="instrument-nav" aria-label="Instruments"><button data-instrument-jump="drums-panel">Drums</button><button data-instrument-jump="bass-panel">Bass</button><button data-instrument-jump="keys-panel">Texture</button><button data-instrument-jump="arp-panel">Arp</button><button data-instrument-jump="pad-panel">Pads</button><button id="studio-view" aria-expanded="false" aria-controls="visualizer-toolbar">View</button></nav><div id="visualizer-toolbar" class="visualizer-toolbar" role="region" aria-label="Visualizer controls"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><div class="visualizer-controls"><button id="visualizer-colour" class="visualizer-button palette-toggle" aria-expanded="false" aria-controls="visualizer-palettes"><span class="palette-current" aria-hidden="true"></span>Colour</button>${slider("intensity", "Intensity", 0, 100, 30, "30%")}${slider("swirl", "Swirl", 0, 100, visualizerSwirl, `${visualizerSwirl}%`, "1", "Visualizer swirl", undefined, 0)}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div><div id="visualizer-palettes" class="visualizer-palettes" role="group" aria-label="Visualizer colour" hidden>${VISUALIZER_PALETTES.map((palette) => `<button data-visualizer-palette="${palette.id}" aria-pressed="${palette.id === visualizerPalette}"><span class="palette-swatch" style="background:${palette.swatch}" aria-hidden="true"></span><span>${palette.label}</span></button>`).join("")}</div></div>
+  </main><nav class="instrument-nav" aria-label="Instruments"><button data-instrument-jump="drums-panel">Drums</button><button data-instrument-jump="bass-panel">Bass</button><button data-instrument-jump="keys-panel">Texture</button><button data-instrument-jump="arp-panel">Arp</button><button data-instrument-jump="pad-panel">Pads</button><button data-instrument-jump="vocal-panel">Vocals</button><button id="studio-view" aria-expanded="false" aria-controls="visualizer-toolbar">View</button></nav><div id="visualizer-toolbar" class="visualizer-toolbar" role="region" aria-label="Visualizer controls"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><div class="visualizer-controls"><button id="visualizer-colour" class="visualizer-button palette-toggle" aria-expanded="false" aria-controls="visualizer-palettes"><span class="palette-current" aria-hidden="true"></span>Colour</button>${slider("intensity", "Intensity", 0, 100, 30, "30%")}${slider("swirl", "Swirl", 0, 100, visualizerSwirl, `${visualizerSwirl}%`, "1", "Visualizer swirl", undefined, 0)}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div><div id="visualizer-palettes" class="visualizer-palettes" role="group" aria-label="Visualizer colour" hidden>${VISUALIZER_PALETTES.map((palette) => `<button data-visualizer-palette="${palette.id}" aria-pressed="${palette.id === visualizerPalette}"><span class="palette-swatch" style="background:${palette.swatch}" aria-hidden="true"></span><span>${palette.label}</span></button>`).join("")}</div></div>
 <div id="toast" role="status" class="toast" hidden></div>`;
 
 function slider(
@@ -388,7 +395,6 @@ function formatFrequency(value: number): string {
 function refreshIcons(): void {
   createIcons({
     icons: {
-      AudioLines,
       Play,
       Square,
       RotateCcw,
@@ -695,11 +701,6 @@ function clearMatrixUndo(track?: NoteTrack): void {
   }
 }
 function refreshScaleControls(): void {
-  const mode = SCALE_MODES.find((entry) => entry.id === project.scale.mode);
-  const label = `${noteName(project.scale.root + 60).slice(0, -1)} ${mode?.name ?? "Minor"}`;
-  document.querySelectorAll<HTMLElement>(".bass-key").forEach((element) => {
-    element.textContent = label;
-  });
   document
     .querySelectorAll<HTMLElement>("[data-root]")
     .forEach((button) =>
@@ -803,6 +804,7 @@ function refreshProject(): void {
   automationSweeps.clear();
   arpPanel.render();
   padPanel.render();
+  vocalPanel.render();
   updateBarPosition();
   renderDrums();
   renderBass();
@@ -883,6 +885,16 @@ const padParameters: PadParameter[] = [
   "shape",
   "volume",
 ];
+const vocalParameters: VocalParameter[] = [
+  "start",
+  "end",
+  "attack",
+  "release",
+  "tone",
+  "drive",
+  "space",
+  "volume",
+];
 function recordingLane(id: string): RecordingLane | null {
   const control = automationControls.find((control) => control.id === id);
   if (control) {
@@ -917,6 +929,18 @@ function recordingLane(id: string): RecordingLane | null {
       values: project.pad.automation[pad],
       write: (values) => {
         project.pad.automation[pad] = values;
+      },
+    };
+  const vocal = vocalParameters.find(
+    (parameter) => `vocal-${parameter}` === id,
+  );
+  if (vocal)
+    return {
+      timing: project.vocal.timing,
+      base: normalizedVocalValue(project.vocal, vocal),
+      values: project.vocal.automation[vocal],
+      write: (values) => {
+        project.vocal.automation[vocal] = values;
       },
     };
   return null;
@@ -960,6 +984,7 @@ function restoreRecordedControl(id: string): void {
 function commitRecording(ids: string[]): void {
   if (ids.some((id) => id.startsWith("arp-"))) arpPanel.refreshAutomation();
   if (ids.some((id) => id.startsWith("pad-"))) padPanel.refreshAutomation();
+  if (ids.some((id) => id.startsWith("vocal-"))) vocalPanel.refreshAutomation();
   for (const control of automationControls) {
     if (!ids.includes(control.id)) continue;
     if (control.target.track === "drums") drumEditor.refresh(control.target.id);
@@ -1063,6 +1088,16 @@ function updateAutomationIndicators(frame: PlaybackFrame): void {
       ),
       frame.playing,
     );
+  for (const parameter of vocalParameters)
+    showAutomation(
+      `vocal-${parameter}`,
+      resolvedAutomationValue(
+        project,
+        { instrument: "vocal", parameter },
+        frame.absoluteTick,
+      ),
+      frame.playing,
+    );
 }
 function showFrame(frame: PlaybackFrame): void {
   const recorded = automationRecorder.frame(
@@ -1109,6 +1144,7 @@ function showFrame(frame: PlaybackFrame): void {
     });
   arpPanel.setPosition(playingTick, project.swing);
   padPanel.setPosition(playingTick, project.swing);
+  vocalPanel.setPosition(playingTick, project.swing);
   updateAutomationIndicators(frame);
 }
 function showStep(step: number, absoluteStep: number): void {
@@ -1259,6 +1295,38 @@ const padPanel = createPadPanel(padContainer, {
   },
   renderControl: slider,
 });
+const vocalContainer = document.getElementById("vocal-panel");
+if (!vocalContainer) throw new Error("Vocal instrument is missing.");
+const vocalPanel = createVocalPanel(vocalContainer, {
+  getTrack: () => project.vocal,
+  getScale: () => project.scale,
+  onChange: () => persist(),
+  renderControl: slider,
+  onPreview: (note) => {
+    if (sessionStatus.role === "guest" || sessionEditingBlocked()) return;
+    void engine
+      .auditionVocal(project.vocal, note)
+      .catch(() => toast("Vocal preview could not load. Try again."));
+  },
+  onTrimGesture: (phase, parameter, value) => {
+    const id = `vocal-${parameter}`;
+    const control = document.getElementById(id);
+    if (!control || sessionEditingBlocked()) return;
+    if (phase === "begin") {
+      control.classList.add("dragging");
+      automationRecorder.begin(id);
+    } else if (phase === "change") {
+      setInput(id, value * 100);
+      if (!captureAutomation(control, id, value * 100))
+        updateControl(id, value * 100);
+    } else {
+      control.classList.remove("dragging");
+      automationRecorder.end(id);
+      restoreRecordedControl(id);
+    }
+  },
+});
+engine.setVocalLoadListener((status) => vocalPanel.setSampleStatus(status));
 const mixerContainer = document.getElementById("track-mixer");
 if (!mixerContainer) throw new Error("Mixer is missing.");
 const mixer = new TrackMixer(mixerContainer);
@@ -1275,7 +1343,8 @@ const gestures = installGestures(
       if (control.dataset.sourceControl) return;
       if (
         arpPanel.activateControl(control.id) ||
-        padPanel.activateControl(control.id)
+        padPanel.activateControl(control.id) ||
+        vocalPanel.activateControl(control.id)
       )
         return;
       selectAutomation(control.id);
@@ -1398,10 +1467,11 @@ function updatePlayback(): void {
   );
   if (recorded.length) commitRecording(recorded);
   const play = document.querySelector("#play");
+  const canStop = playing || starting;
   if (play) {
-    play.innerHTML = `${icon(playing ? "square" : "play")}<span>${playing ? "Stop" : "Play"}</span>`;
-    play.setAttribute("aria-label", playing ? "Stop pattern" : "Play pattern");
-    play.classList.toggle("playing", playing);
+    play.innerHTML = `${icon(canStop ? "square" : "play")}<span>${canStop ? "Stop" : "Play"}</span>`;
+    play.setAttribute("aria-label", canStop ? "Stop pattern" : "Play pattern");
+    play.classList.toggle("playing", canStop);
   }
   visualizer.setPlaying(playing);
   const status = document.querySelector("#audio-status");
@@ -1409,9 +1479,11 @@ function updatePlayback(): void {
     status.textContent =
       sessionStatus.role === "guest"
         ? "AUDIO ON HOST"
-        : playing
-          ? "AUDIO LIVE"
-          : "AUDIO IDLE";
+        : starting && !playing
+          ? "AUDIO LOADING"
+          : playing
+            ? "AUDIO LIVE"
+            : "AUDIO IDLE";
   if (!playing) {
     document
       .querySelectorAll(".current, .beat-lights .active")
@@ -1430,18 +1502,29 @@ async function togglePlayback(): Promise<void> {
     sessionClient?.transport(remotePlaying ? "stop" : "play");
     return;
   }
-  if (starting) return;
-  starting = true;
-  try {
-    if (engine.isPlaying) engine.stop();
-    else await engine.play(project);
-    updatePlayback();
-  } catch {
-    toast("Audio could not start. Try Play again.");
-  } finally {
+  if (starting || engine.isPlaying) {
+    playbackRequest++;
     starting = false;
+    engine.stop();
+    updatePlayback();
+    return;
+  }
+  const request = ++playbackRequest;
+  starting = true;
+  updatePlayback();
+  try {
+    await engine.play(project);
+  } catch {
+    if (request === playbackRequest)
+      toast("Audio could not start. Try Play again.");
+  } finally {
+    if (request === playbackRequest) {
+      starting = false;
+      updatePlayback();
+    }
   }
 }
+
 async function audition(id: DrumId = selectedDrum): Promise<void> {
   if (sessionStatus.role === "guest") return;
   const track = project.drums.find((item) => item.id === id);
@@ -1531,6 +1614,8 @@ document.addEventListener("click", async (event) => {
     armRecording(!automationRecorder.armed);
   }
   if (id === "restart") {
+    playbackRequest++;
+    starting = false;
     if (sessionStatus.role === "guest") {
       sessionClient?.transport("restart");
       return;
@@ -1862,7 +1947,11 @@ function updateControl(id: string, value: number): void {
     persist();
     return;
   }
-  if (arpPanel.updateControl(id, value) || padPanel.updateControl(id, value))
+  if (
+    arpPanel.updateControl(id, value) ||
+    padPanel.updateControl(id, value) ||
+    vocalPanel.updateControl(id, value)
+  )
     return;
   const automation = automationControls.find((control) => control.id === id);
   const baseBefore = automation ? automationBase(automation.target) : 0;
@@ -2168,6 +2257,8 @@ window.addEventListener("pageshow", (event) => {
   }
 });
 window.addEventListener("pagehide", () => {
+  playbackRequest++;
+  starting = false;
   phoneMotion.disable();
   engine.stop();
   sessionClient?.suspend();
@@ -2180,7 +2271,9 @@ window.addEventListener("pagehide", () => {
 });
 refreshProject();
 refreshIcons();
+installInstrumentCollapse(app, () => historyPointers.size > 0);
 installStudioNavigation(app);
+playOpeningAnimation(app);
 void document.fonts.ready.then(() => {
   beatCanvas.update(project);
   matrices.bass.update(project.bass.steps, project.scale, project.bass.muted);
@@ -2234,6 +2327,8 @@ function setSessionOpen(open: boolean): void {
     ?.setAttribute("aria-expanded", String(open));
 }
 function leaveSession(): void {
+  playbackRequest++;
+  starting = false;
   armRecording(false);
   engine.stop();
   sessionClient?.leave();
@@ -2260,7 +2355,11 @@ async function hostTransport(
     return;
   }
   try {
-    if (action === "stop" || action === "restart") engine.stop();
+    if (action === "stop" || action === "restart") {
+      playbackRequest++;
+      starting = false;
+      engine.stop();
+    }
     if (action !== "stop") await engine.play(project);
     updatePlayback();
     sessionClient?.clock(engine.isPlaying, currentAbsoluteTick);
@@ -2319,10 +2418,18 @@ sessionClient = new SessionClient(sessionApi, {
   onState: (state) => {
     sessionStatus = state;
     engine.setSilent(state.role === "guest");
+    vocalPanel.setHostCapability(
+      state.role !== "guest" ||
+        state.phase !== "connected" ||
+        !state.hostConnected ||
+        state.supportsVocal,
+    );
     sessionPanel.render(state);
     if (state.phase !== "idle") setSessionOpen(true);
     const blocked = sessionEditingBlocked();
     if (blocked) {
+      playbackRequest++;
+      starting = false;
       armRecording(false);
     }
     document
@@ -2374,6 +2481,7 @@ sessionClient = new SessionClient(sessionApi, {
     drumEditor.rebaseIncoming(next);
     arpPanel.rebaseIncoming(next.arp);
     padPanel.rebaseIncoming(next.pad);
+    vocalPanel.rebaseIncoming(next.vocal);
     const bassSteps =
         project.bass.steps.length === next.bass.steps.length
           ? project.bass.steps
@@ -2421,6 +2529,8 @@ sessionClient = new SessionClient(sessionApi, {
     }
   },
   onEnded: () => {
+    playbackRequest++;
+    starting = false;
     engine.stop();
     remotePlaying = false;
     showStep(-1, -1);

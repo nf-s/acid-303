@@ -29,6 +29,7 @@ export interface SessionStatus {
   role: "host" | "guest" | null;
   participants: number;
   hostConnected: boolean;
+  supportsVocal: boolean;
   inviteLink: string | null;
   message: string;
 }
@@ -84,6 +85,7 @@ export class SessionClient {
     role: null,
     participants: 0,
     hostConnected: false,
+    supportsVocal: false,
     inviteLink: null,
     message: "",
   };
@@ -99,6 +101,7 @@ export class SessionClient {
         this.report({
           phase: "reconnecting",
           hostConnected: false,
+          supportsVocal: false,
           message: "Offline. Waiting to reconnect…",
         });
         this.callbacks.onClock(false, 0);
@@ -124,6 +127,8 @@ export class SessionClient {
   }
 
   private report(update: Partial<SessionStatus>): void {
+    if (update.hostConnected === false)
+      update = { ...update, supportsVocal: false };
     this.status = { ...this.status, ...update };
     this.callbacks.onState({ ...this.status });
   }
@@ -239,6 +244,7 @@ export class SessionClient {
       role: credentials.role,
       participants: 0,
       hostConnected: false,
+      supportsVocal: false,
       inviteLink: link.href,
       message: "Connecting…",
     });
@@ -354,6 +360,7 @@ export class SessionClient {
       this.report({
         phase: "reconnecting",
         hostConnected: false,
+        supportsVocal: false,
         message: "Reconnecting…",
       });
       this.callbacks.onClock(false, 0);
@@ -405,6 +412,7 @@ export class SessionClient {
       this.report({
         phase: "connected",
         hostConnected: message.hostConnected,
+        supportsVocal: message.supportsVocal,
         participants: message.participants,
         message: kept ? "" : "Some unsynced edits could not be restored.",
       });
@@ -445,6 +453,7 @@ export class SessionClient {
       const hostReturned = !this.hostConnected && message.hostConnected;
       this.report({
         hostConnected: message.hostConnected,
+        supportsVocal: message.supportsVocal,
         participants: message.participants,
       });
       this.callbacks.onClock(message.playing, message.absoluteTick);
@@ -460,6 +469,7 @@ export class SessionClient {
       this.report({
         phase: "ended",
         hostConnected: false,
+        supportsVocal: false,
         message:
           message.reason === "expired"
             ? "Session expired."
@@ -580,6 +590,7 @@ export class SessionClient {
       role: null,
       participants: 0,
       hostConnected: false,
+      supportsVocal: false,
       inviteLink: null,
       message: "",
     });

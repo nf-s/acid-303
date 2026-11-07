@@ -14,12 +14,33 @@
   font: inherit;
   cursor: pointer;
 }
+.pattern-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pattern-inline-navigation {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 3px;
+}
+.pattern-inline-navigation [data-pattern-action="previous"],
+.pattern-inline-navigation [data-pattern-action="next"] {
+  padding: 3px 7px;
+  font-size: 18px;
+  line-height: 1;
+}
+.pattern-inline-navigation .pattern-page-trigger {
+  min-width: 67px;
+}
 .pattern-controls .pattern-trigger {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  width: 100%;
+  flex: 1 1 150px;
   min-width: 0;
   background: #202020;
   text-align: left;
@@ -103,7 +124,14 @@
 }
 .pattern-navigation {
   min-width: 0;
-  margin-top: 18px;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid #596671;
+  background: #1d252b;
+}
+.pattern-settings[hidden],
+.pattern-navigation[hidden] {
+  display: none;
 }
 .pattern-page-label {
   margin: 0 0 8px;
@@ -134,13 +162,19 @@
 }
 .pattern-dialog-actions {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   margin-top: 16px;
 }
 @media (max-width: 600px) {
+  .pattern-inline-navigation {
+    width: 100%;
+  }
+  .pattern-inline-navigation .pattern-page-trigger {
+    flex: 1;
+  }
   .pattern-controls .pattern-trigger {
-    min-height: 36px;
+    min-height: 34px;
     padding: 7px 8px;
     font-size: 9px;
   }

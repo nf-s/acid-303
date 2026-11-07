@@ -29,7 +29,7 @@ test("mixer levels and mutes share instrument controls, automation and undo", as
   );
   await page.goto("/");
   await page.getByText("Mixer", { exact: true }).click();
-  await expect(page.locator(".mixer-fader")).toHaveCount(9);
+  await expect(page.locator(".mixer-fader")).toHaveCount(10);
   await page.locator("#mixer-bass").press("ArrowUp");
   await expect(page.locator("#bass-volume")).toHaveAttribute(
     "aria-valuenow",
@@ -77,11 +77,11 @@ test("mobile mixer scrolls to every channel without widening the page", async ({
   const page = await context.newPage();
   await page.goto("/");
   await page.getByText("Mixer", { exact: true }).click();
-  await page.locator("#mixer-pad").scrollIntoViewIfNeeded();
-  await page.locator("#mixer-pad").press("Home");
-  await expect.poll(async () => (await saved(page)).pad.volume).toBe(0);
-  await page.locator('[data-mixer-mute="pad"]').click();
-  await expect.poll(async () => (await saved(page)).pad.muted).toBe(false);
+  await page.locator("#mixer-vocal").scrollIntoViewIfNeeded();
+  await page.locator("#mixer-vocal").press("Home");
+  await expect.poll(async () => (await saved(page)).vocal.volume).toBe(0);
+  await page.locator('[data-mixer-mute="vocal"]').click();
+  await expect.poll(async () => (await saved(page)).vocal.muted).toBe(false);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

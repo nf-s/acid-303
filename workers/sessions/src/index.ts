@@ -15,6 +15,7 @@ import {
   SESSION_PROTOCOL,
   sessionTokenSchema,
   sessionProjectSchema,
+  sessionMessageForProtocol,
 } from "../../../src/session-protocol";
 import type {
   ClientMessage,
@@ -48,7 +49,9 @@ const attachmentSchema = z.object({
   active: z.boolean(),
   playing: z.boolean(),
   absoluteTick: z.number().finite().nonnegative().default(0),
-  protocol: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
+  protocol: z
+    .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+    .default(1),
   window: z.number(),
   packets: z.number().int().nonnegative(),
   patches: z.number().int().nonnegative(),
@@ -84,7 +87,11 @@ function attachment(socket: WebSocket): Attachment | null {
 }
 function send(socket: WebSocket, message: ServerMessage): void {
   if (socket.readyState === WebSocket.OPEN)
-    socket.send(JSON.stringify(message));
+    socket.send(
+      JSON.stringify(
+        sessionMessageForProtocol(message, attachment(socket)?.protocol ?? 4),
+      ),
+    );
 }
 function error(
   socket: WebSocket,
@@ -111,7 +118,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
     );
     for (const socket of ctx.getWebSockets()) {
       const data = attachment(socket);
-      if (data && data.protocol !== 3 && data.active) {
+      if (data && data.protocol < 3 && data.active) {
         error(
           socket,
           "reload-required",
@@ -168,6 +175,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
   }
   private presence(): {
     hostConnected: boolean;
+    supportsVocal: boolean;
     playing: boolean;
     absoluteTick: number;
     participants: number;
@@ -176,6 +184,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
     const host = sockets.find(({ data }) => data.role === "host");
     return {
       hostConnected: host !== undefined,
+      supportsVocal: host?.data.protocol === 4,
       playing: host?.data.playing ?? false,
       absoluteTick: host?.data.absoluteTick ?? 0,
       participants: sockets.length,
@@ -215,7 +224,8 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       protocols.length !== 2 ||
       (protocols[0] !== SESSION_PROTOCOL &&
         protocols[0] !== "grain-session-v1" &&
-        protocols[0] !== "grain-session-v2") ||
+        protocols[0] !== "grain-session-v2" &&
+        protocols[0] !== "grain-session-v3") ||
       !token.success
     )
       return new Response("Invalid connection", { status: 400 });
@@ -233,7 +243,10 @@ export class SessionRoom extends DurableObject<SessionEnv> {
         ? "guest"
         : null;
     if (!role) return new Response("Invalid credentials", { status: 403 });
-    if (protocols[0] !== SESSION_PROTOCOL) {
+    if (
+      protocols[0] === "grain-session-v1" ||
+      protocols[0] === "grain-session-v2"
+    ) {
       const pair = new WebSocketPair();
       this.ctx.acceptWebSocket(pair[1]);
       pair[1].serializeAttachment({
@@ -291,7 +304,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       role,
       expiresAt: record.expiresAt,
       active: true,
-      protocol: 3,
+      protocol: protocols[0] === "grain-session-v3" ? 3 : 4,
       playing: false,
       absoluteTick: 0,
       window: Date.now(),
@@ -305,7 +318,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
     return new Response(null, {
       status: 101,
       webSocket: pair[0],
-      headers: { "Sec-WebSocket-Protocol": SESSION_PROTOCOL },
+      headers: { "Sec-WebSocket-Protocol": protocols[0] ?? SESSION_PROTOCOL },
     });
   }
   async webSocketMessage(
@@ -411,6 +424,21 @@ export class SessionRoom extends DurableObject<SessionEnv> {
         socket,
         "host-offline",
         "The host is disconnected",
+        message.sequence,
+      );
+      return;
+    }
+    if (
+      message.changes.some(
+        (change) =>
+          change.path[0] === "version" ||
+          (data.protocol === 3 && change.path[0] === "vocal"),
+      )
+    ) {
+      error(
+        socket,
+        "invalid-patch",
+        "This edit requires the current session protocol",
         message.sequence,
       );
       return;

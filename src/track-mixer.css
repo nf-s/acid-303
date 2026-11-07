@@ -9,7 +9,7 @@
 }
 .mixer-channels {
   display: grid;
-  grid-template-columns: repeat(9, minmax(45px, 1fr));
+  grid-template-columns: repeat(10, minmax(45px, 1fr));
   gap: 9px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -79,7 +79,7 @@
 @media (max-width: 650px) {
   .mixer-channels {
     gap: 5px;
-    grid-template-columns: repeat(9, 49px);
+    grid-template-columns: repeat(10, 49px);
   }
   .mixer-fader {
     height: 82px;

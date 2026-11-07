@@ -3,6 +3,7 @@ import { createProject, scaleNotes, resizeBassTrack } from "./model";
 import {
   applyProjectChanges,
   clientMessageSchema,
+  sessionMessageForProtocol,
   diffProject,
   MAX_SESSION_BYTES,
   serverMessageSchema,
@@ -157,10 +158,41 @@ describe("collaborative project patches", () => {
       serverMessageSchema.safeParse({
         type: "presence",
         hostConnected: false,
+        supportsVocal: false,
         participants: 8,
         playing: false,
         absoluteTick: 0,
       }).success,
     ).toBe(true);
+  });
+  it("projects v4 vocal edits to revision-preserving empty v3 patches", () => {
+    const message = {
+      type: "patch",
+      revision: 9,
+      sequence: 2,
+      clientId: "test-client-0000001",
+      changes: [{ path: ["vocal", "volume"], value: 0.8 }],
+    };
+    const parsed = serverMessageSchema.parse(message);
+    expect(sessionMessageForProtocol(parsed, 3)).toEqual({
+      ...message,
+      changes: [],
+    });
+    expect(sessionMessageForProtocol(parsed, 4)).toEqual(message);
+    const presence = serverMessageSchema.parse({
+      type: "presence",
+      supportsVocal: true,
+      hostConnected: true,
+      playing: false,
+      absoluteTick: 0,
+      participants: 2,
+    });
+    expect(sessionMessageForProtocol(presence, 3)).not.toHaveProperty(
+      "supportsVocal",
+    );
+    expect(sessionMessageForProtocol(presence, 4)).toHaveProperty(
+      "supportsVocal",
+      true,
+    );
   });
 });

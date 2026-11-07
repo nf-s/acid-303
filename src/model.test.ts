@@ -303,7 +303,7 @@ describe("saved project migration", () => {
       },
     };
     const upgraded = readProject(legacy);
-    expect(upgraded?.version).toBe(3);
+    expect(upgraded?.version).toBe(4);
     expect(upgraded?.bpm).toBe(139);
     expect(upgraded?.drums.find((track) => track.id === "rim")?.pitch).toBe(-4);
     expect(upgraded?.drums.map((track) => track.steps)).toEqual(
@@ -696,7 +696,7 @@ describe("independent timing migration", () => {
     };
     const restored = readProject(legacy);
     if (!restored) throw new Error("Legacy timing migration failed");
-    expect(restored.version).toBe(3);
+    expect(restored.version).toBe(4);
     expect(restored.drums).toEqual(project.drums);
     expect(restored.bass).toEqual(project.bass);
     expect(restored.keys).toEqual(project.keys);

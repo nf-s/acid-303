@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PRESETS, createPreset, findPresetByName } from "./presets";
+import { nightshiftSnapshot } from "./preset-data/nightshift";
 import {
   DRUM_META,
   automatedDrum,
@@ -36,7 +37,7 @@ async function presetHash(id: string): Promise<string> {
   };
   const bytes = new TextEncoder().encode(
     JSON.stringify({ ...project, version: 2, pad: oldPad }, (key, value) =>
-      key === "timing" || key === "fx" ? undefined : value,
+      key === "timing" || key === "fx" || key === "vocal" ? undefined : value,
     ),
   );
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -46,6 +47,47 @@ async function presetHash(id: string): Promise<string> {
 }
 
 describe("genre examples", () => {
+  it("preserves the supplied Nightshift arrangement through migration and saving", async () => {
+    const expected = readProject(nightshiftSnapshot);
+    if (!expected)
+      throw new Error("Supplied Nightshift snapshot did not load.");
+    expected.name = "Nightshift";
+    const project = createPreset("nightshift");
+    expect(project).toEqual(expected);
+    expect(project.scale).toEqual({ root: 5, mode: "phrygian" });
+    expect(project.bpm).toBe(124);
+    expect(project.vocal.muted).toBe(true);
+    expect(findPresetByName("Nightshift")).toEqual({
+      id: "nightshift",
+      name: "Nightshift",
+      genre: "House",
+    });
+    const saved: unknown = JSON.parse(JSON.stringify(project));
+    expect(readProject(saved)).toEqual(project);
+    const arrangement = JSON.stringify(project, (key, value: unknown) => {
+      if (["version", "name", "vocal"].includes(key)) return undefined;
+      if (value !== null && typeof value === "object" && !Array.isArray(value))
+        return Object.fromEntries(
+          Object.entries(value).sort(([a], [b]) => a.localeCompare(b)),
+        );
+      return value;
+    });
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(arrangement),
+    );
+    const fingerprint = Array.from(new Uint8Array(digest), (value) =>
+      value.toString(16).padStart(2, "0"),
+    ).join("");
+    // Captured from the user's decoded snapshot, excluding migration metadata.
+    expect(fingerprint).toBe(
+      "d96a2acdaa066891b422583060424b18cd9aa97022033d6ad66915638f9d4d7b",
+    );
+    project.bass.cutoff = 80;
+    project.pad.chords[0] = { degree: 6, inversion: 3 };
+    expect(createPreset("nightshift")).toEqual(expected);
+  });
+
   it("resolves current and saved legacy names without changing the saved arrangement", () => {
     const legacyNames = [
       { name: "Disco Moth", id: "house" },
@@ -203,11 +245,13 @@ describe("genre examples", () => {
           "0b498f25977f12059246cdba111eb07bac69a0718447e359c4be22f3a1d81288",
       },
     ];
-    for (const { id, sha256 } of frozen)
+    for (const { id, sha256 } of frozen) {
+      expect(createPreset(id).vocal.muted).toBe(true);
       expect(await presetHash(id)).toBe(sha256);
+    }
   });
 
-  it("provides twenty distinct valid arrangements with notes locked to their scales", () => {
+  it("provides twenty-one valid arrangements with notes locked to their scales", () => {
     expect(PRESETS.map((preset) => preset.id)).toEqual([
       "house",
       "tech-house",
@@ -229,6 +273,7 @@ describe("genre examples", () => {
       "ambient-breaks",
       "broken-beat",
       "uk-bass",
+      "nightshift",
     ]);
     expect(PRESETS.map((preset) => preset.name)).toEqual([
       "Afterhours",
@@ -251,8 +296,9 @@ describe("genre examples", () => {
       "Blue Hour",
       "Stagger",
       "Sublevel",
+      "Nightshift",
     ]);
-    expect(new Set(PRESETS.map((preset) => preset.name)).size).toBe(20);
+    expect(new Set(PRESETS.map((preset) => preset.name)).size).toBe(21);
     const projects = PRESETS.map((preset) => createPreset(preset.id));
     for (const project of projects) {
       expect(projectSchema.safeParse(project).success).toBe(true);
@@ -292,22 +338,26 @@ describe("genre examples", () => {
     }
     expect(
       new Set(
-        projects.map((project) =>
-          JSON.stringify(project.drums.map((drum) => drum.steps)),
-        ),
+        projects
+          .slice(0, 20)
+          .map((project) =>
+            JSON.stringify(project.drums.map((drum) => drum.steps)),
+          ),
       ).size,
     ).toBe(20);
     expect(
       new Set(
-        projects.map((project) =>
-          JSON.stringify([project.bass.sound, project.bass.steps]),
-        ),
+        projects
+          .slice(0, 20)
+          .map((project) =>
+            JSON.stringify([project.bass.sound, project.bass.steps]),
+          ),
       ).size,
     ).toBe(20);
   });
 
   it("limits authored additions and revisions to three to five audible roles", () => {
-    for (const preset of PRESETS.slice(2)) {
+    for (const preset of PRESETS.slice(2, 20)) {
       const project = createPreset(preset.id);
       const melodic = [
         project.bass,
@@ -333,7 +383,7 @@ describe("genre examples", () => {
   });
 
   it("gives the ten additions varied roles and purposeful automation", () => {
-    const additions = PRESETS.slice(10).map((preset) =>
+    const additions = PRESETS.slice(10, 20).map((preset) =>
       createPreset(preset.id),
     );
     expect(additions).toHaveLength(10);

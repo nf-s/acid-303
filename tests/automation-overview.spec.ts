@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
+import { build } from "vite";
 import { z } from "zod";
 
 import {
@@ -18,6 +19,37 @@ const overviewResultSchema = z.object({
   strokes: z.number(),
   busy: z.boolean(),
 });
+
+let matrixHarnessModule: Promise<string> | undefined;
+
+async function buildMatrixHarness(): Promise<string> {
+  const root = decodeURIComponent(new URL("../", import.meta.url).pathname);
+  const result = await build({
+    root,
+    configFile: false,
+    publicDir: false,
+    logLevel: "silent",
+    build: {
+      lib: {
+        entry: `${root}src/note-matrix.ts`,
+        formats: ["es"],
+        fileName: () => "note-matrix.js",
+      },
+      write: false,
+    },
+  });
+  const outputs = Array.isArray(result)
+    ? result
+    : "output" in result
+      ? [result]
+      : [];
+  const entry = outputs
+    .flatMap((output) => output.output)
+    .find((output) => output.type === "chunk" && output.isEntry);
+  if (!entry || entry.type !== "chunk")
+    throw new Error("Matrix harness module was not built");
+  return entry.code;
+}
 
 function longProject() {
   const project = createProject();
@@ -157,7 +189,7 @@ test("whole-loop keyboard navigation preserves the chosen page and Arp gate edit
 }) => {
   await loadProject(page);
   const controls = page.locator("#arp-pattern-controls");
-  await controls.locator('[data-pattern-action="open"]').click();
+  await controls.locator('[data-pattern-action="pages"]').click();
   await controls.locator('[data-pattern-page="23"]').click();
   await page.locator("#arp-tone").press("Enter");
   await wholeLoop(page, "Arpeggiator");
@@ -194,13 +226,14 @@ test("all drum curves use Whole loop while Gates returns to the selected page", 
   const original = await loadProject(page);
   await page.locator('[data-drum-mode="advanced"]').click();
   const controls = page.getByRole("button", {
-    name: "Kick timing",
+    name: "Kick choose page",
     exact: true,
   });
   await controls.click();
   await page
-    .getByRole("dialog", { name: "Kick timing and pages", exact: true })
-    .locator('[data-pattern-page="23"]')
+    .locator(
+      '.drum-detail[aria-label="Kick automation"] [data-pattern-page="23"]',
+    )
     .click();
   await wholeLoop(page, "Kick");
   const knobs = page.locator(
@@ -360,11 +393,20 @@ for (const width of [320, 375]) {
 }
 
 async function matrixHarness(page: Page) {
-  await page.route("**/automation-overview-harness*", (route) =>
+  matrixHarnessModule ??= buildMatrixHarness();
+  const module = await matrixHarnessModule;
+  const response = await page.request.get("/");
+  if (!response.ok()) throw new Error("Harness origin is unavailable");
+  const policy =
+    response.headers()["content-security-policy"] ??
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
+  await page.route("**/automation-overview-module.js", (route) =>
+    route.fulfill({ contentType: "text/javascript", body: module }),
+  );
+  await page.route("**/automation-overview-bootstrap.js", (route) =>
     route.fulfill({
-      contentType: "text/html",
-      body: `<!doctype html><html><body><style>canvas{width:600px;height:250px;touch-action:none}#access{position:absolute;pointer-events:none}output{display:none}</style><button id="remote">Remote edit</button><div><canvas id="matrix"></canvas><div id="access"></div></div><output id="result"></output><script type="module">
-      import { NoteMatrix } from '/src/note-matrix.ts';
+      contentType: "text/javascript",
+      body: `import { NoteMatrix } from '/automation-overview-module.js';
       const canvas = document.querySelector('#matrix'), access = document.querySelector('#access');
       const steps = Array.from({length:480}, () => ({note:48,on:true,accent:false,slide:false}));
       let values = Array(480).fill(.5), queued=false, strokes=0;
@@ -391,7 +433,14 @@ async function matrixHarness(page: Page) {
         refresh();
       });
       refresh();
-    </script></body></html>`,
+    `,
+    }),
+  );
+  await page.route("**/automation-overview-harness*", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      headers: { "Content-Security-Policy": policy },
+      body: `<!doctype html><html><body><style>canvas{width:600px;height:250px;touch-action:none}#access{position:absolute;pointer-events:none}output{display:none}</style><button id="remote">Remote edit</button><div><canvas id="matrix"></canvas><div id="access"></div></div><output id="result"></output><script type="module" src="/automation-overview-bootstrap.js"></script></body></html>`,
     }),
   );
   await page.goto("/automation-overview-harness");

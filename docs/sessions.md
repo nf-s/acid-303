@@ -21,8 +21,8 @@ both credentials. Local projects and snapshot Share links remain independent.
   It returns a random 128-bit room ID, distinct 256-bit host and guest tokens,
   and `expiresAt`. Creation also normalizes scale-locked pitches.
 - `GET /sessions/:roomId?clientId=<id>` upgrades to a WebSocket. The browser sends
-  protocols `["grain-session-v3", token]`. The response selects only
-  `grain-session-v3`; credentials are never put in an API URL or echoed as the
+  protocols `["grain-session-v4", token]`. The response selects only
+  the requested compatible version (`grain-session-v4` or `grain-session-v3`); credentials are never put in an API URL or echoed as the
   selected protocol. The server derives the role from the token.
 - Only token SHA-256 hashes are stored. Comparison uses the Workers
   constant-time comparison API. Guest links contain only the guest token in the
@@ -102,18 +102,46 @@ used by local imports. Existing room credentials, expiry, revision and client
 sequence acknowledgements remain intact. A migrated snapshot is written on the
 next accepted edit; migration itself does not add a storage write.
 
-Deploy the v3 Worker before the matching Pages client. Existing v1/v2 sockets and
-authenticated v1/v2 upgrade attempts receive `reload-required` and nonretryable
-close code `4010`, with no welcome or project data. A legacy host reconnect
-cannot displace a v3 host. Old Pages tabs must reload after the Pages deployment.
-This avoids interpreting old sixteenth-step clocks as the new tick clock and
-prevents older catalog clients from receiving unsupported sound indices. No
-Durable Object namespace migration or deletion is required.
+The timing and sound-catalog upgrades required v1/v2 tabs to reload. Those
+protocols still receive `reload-required` and close `4010`, without displacing a
+current host. The vocal release preserves compatible v3 connections as described
+below; no Durable Object namespace migration or deletion is required.
+
+## Vocal compatibility
+
+Project version 4 adds the independently timed Vocal sampler, its note rectangles
+and eight automation lanes. Older projects migrate with vocals muted; their
+existing music, timing, revision, credentials and deduplication state remain
+unchanged. Vocal audio files are static Pages assets. The Worker stores musical
+parameters only and never fetches, decodes or streams audio.
+
+Deploy the v4-compatible Worker before the new Pages client. Authoritative room
+state uses Project 4, but existing v3 sockets remain open. A v3 welcome projects
+the previous fields with version 3 and omits vocals. Vocal-only edits become empty
+v3 patches with the original revision, client ID and sequence, preserving ordering
+and acknowledgements. Older edits apply to the complete authoritative snapshot
+and cannot erase or overwrite the new vocal instrument. Host replacement still
+requires the host credential and closes only that replaced host connection.
+
+V4 welcome and presence messages include `supportsVocal`, derived from the active
+host's protocol. V3 messages omit this field to satisfy their strict schemas. A
+new guest editing alongside an old host sees that the host must reload to hear
+vocals; guests remain silent and are never promoted. A v4 host supports both old
+and new guests. V3 retained connections and reconnects survive Durable Object
+hibernation; no release-induced reload is required for them.
+
+The compatibility checks use the real frozen `70d764c` v3 frontend with a new v4
+guest. Vocal edits, empty legacy revisions, subsequent old-client edits, host-only
+Play/Stop, old-host reload/reconnect and room ending pass. Runtime coverage also
+checks v3 hibernation, an authenticated upgrade to a v4 host, the capability flag,
+and an 80-lane maximum snapshot with 480 vocal notes. The payload limit stays
+1 MiB and the indexed snapshot read/update remains one row each. No endpoint,
+binding, storage table, polling query or clock write is added.
 
 ## Sound catalog compatibility
 
-The expanded sound catalog uses wire protocol v3 while retaining Project
-version 3. Instrument timing, controls and saved patterns are unchanged. Hats
+The expanded sound catalog introduced wire protocol v3 with Project
+version 3. The vocal release supports those clients alongside v4. Instrument timing, controls and saved patterns are unchanged. Hats
 have eight rebuilt sounds; the other drums have seven, Bass eleven, Texture
 eight, Arp eight and Pads eight. Each drum's boundary validates its own catalog;
 index 7 is valid for hats and rejected for the other drums.
@@ -224,7 +252,7 @@ runs on a user action. The cached snapshot saves a read per warm edit; the
 client batches continuous gestures and reconnect replay to at most 10 edit
 messages/second. Full-project
 replacement can be a larger message, but remains one bounded snapshot write.
-The maximum-length randomized 72-lane fixture exceeds 380 kB and stays below
+The maximum-length randomized 80-lane fixture with 480 vocal notes exceeds 380 kB and stays below
 1 MiB. Its indexed lookup and update still measure one row read and one row
 written; byte size, serialization and schema validation CPU increase despite
 that unchanged row count. Sparse curve patches reduce wire duplication, while
