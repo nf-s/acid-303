@@ -10,7 +10,7 @@ import {
 } from "./model";
 
 describe("genre examples", () => {
-  it("provides nine distinct named, valid arrangements and uses every Texture voice", () => {
+  it("provides ten distinct valid genre arrangements with authored movement and all instrument palettes", () => {
     expect(PRESETS.map((preset) => preset.id)).toEqual([
       "house",
       "tech-house",
@@ -21,8 +21,9 @@ describe("genre examples", () => {
       "garage",
       "speed-garage",
       "jungle",
+      "bass-house",
     ]);
-    expect(new Set(PRESETS.map((preset) => preset.name)).size).toBe(9);
+    expect(new Set(PRESETS.map((preset) => preset.name)).size).toBe(10);
     const projects = PRESETS.map((preset) => createPreset(preset.id));
     for (const project of projects) {
       expect(projectSchema.safeParse(project).success).toBe(true);
@@ -50,10 +51,10 @@ describe("genre examples", () => {
           JSON.stringify(project.drums.map((drum) => drum.steps)),
         ),
       ).size,
-    ).toBe(9);
+    ).toBe(10);
     expect(new Set(projects.map((project) => project.keys.sound)).size).toBe(6);
     expect(projects.map((project) => project.bass.sound)).toEqual([
-      0, 1, 2, 3, 4, 5, 6, 7, 8,
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 6,
     ]);
     expect(projects.map((project) => BASS_SOUNDS[project.bass.sound])).toEqual([
       "Round",
@@ -65,15 +66,54 @@ describe("genre examples", () => {
       "Rubber",
       "Reese",
       "Pressure",
+      "Rubber",
     ]);
     for (const project of projects) {
       expect(
-        Object.values(project.bass.automation).every((lane) => lane === null),
+        project.bass.automation.cutoff &&
+          new Set(project.bass.automation.cutoff).size > 1,
       ).toBe(true);
+      expect(project.keys.automation.motion).toHaveLength(16);
       expect(
-        Object.values(project.keys.automation).every((lane) => lane === null),
+        project.drums.find((drum) => drum.id === "hat")?.automation.pan,
+      ).toHaveLength(16);
+      expect(project.arp.muted).toBe(false);
+      expect(
+        project.arp.notes.every((note) =>
+          scaleNotes(project.scale, 48, 84).includes(note),
+        ),
       ).toBe(true);
     }
+    expect(new Set(projects.map((project) => project.arp.sound)).size).toBe(6);
+    expect(
+      new Set(
+        projects
+          .filter((project) => !project.pad.muted)
+          .map((project) => project.pad.sound),
+      ).size,
+    ).toBe(6);
+    expect(
+      new Set(
+        projects.map((project) =>
+          JSON.stringify([
+            project.arp.sound,
+            project.arp.rate,
+            project.arp.steps,
+            project.pad.sound,
+            project.pad.bars,
+            project.pad.chords,
+          ]),
+        ),
+      ).size,
+    ).toBe(10);
+    expect(
+      createPreset("bass-house")
+        .drums.find((drum) => drum.id === "kick")
+        ?.steps.filter(Boolean),
+    ).toHaveLength(4);
+    expect(createPreset("bass-house").bass.drive).toBeGreaterThan(
+      createPreset("house").bass.drive,
+    );
     expect(createPreset("jungle").bpm).toBeGreaterThan(
       createPreset("garage").bpm,
     );
@@ -90,6 +130,14 @@ describe("genre examples", () => {
     const firstKick = house.drums.find((drum) => drum.id === "kick");
     if (!firstKick) throw new Error("House kick is missing.");
     firstKick.steps[0] = false;
+    house.arp.notes[0] = 84;
+    house.pad.chords[0] = { degree: 6, inversion: 3 };
+    const cutoff = house.bass.automation.cutoff;
+    if (cutoff) cutoff[0] = 1;
+    const fresh = createPreset("house");
+    expect(fresh.arp.notes[0]).not.toBe(84);
+    expect(fresh.pad.chords[0]).not.toEqual({ degree: 6, inversion: 3 });
+    expect(fresh.bass.automation.cutoff?.[0]).not.toBe(1);
     expect(
       createPreset("house").drums.find((drum) => drum.id === "kick")?.steps[0],
     ).toBe(true);

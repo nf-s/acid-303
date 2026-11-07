@@ -20,8 +20,75 @@ import {
   normalizedDrumValue,
   drumValueFromNormalized,
   emptyDrumAutomation,
+  projectBars,
 } from "./model";
 import type { DrumAutomationParameter } from "./model";
+
+describe("Arp and Pad project integration", () => {
+  it("adds muted independent instruments to old saves without changing existing tracks", () => {
+    const project = createProject();
+    const { arp, pad, ...old } = project;
+    const loaded = readProject(old);
+    expect(loaded).toEqual(project);
+    expect(loaded?.arp.muted).toBe(true);
+    expect(loaded?.pad.muted).toBe(true);
+    const second = readProject(old);
+    if (!loaded || !second) throw new Error("Expected an upgraded project.");
+    loaded.arp.notes.push(72);
+    loaded.pad.chords[0] = { degree: 4, inversion: 2 };
+    expect(second.arp.notes).toEqual(arp.notes);
+    expect(second.pad.chords).toEqual(pad.chords);
+  });
+
+  it("keeps the enabled progression length independent of its level", () => {
+    const project = createProject();
+    expect(projectBars(project)).toBe(2);
+    project.pad.muted = false;
+    for (const bars of [2, 4, 8, 16]) {
+      const valid = projectSchema.parse({
+        ...project,
+        pad: { ...project.pad, bars },
+      });
+      expect(projectBars(valid)).toBe(bars);
+      valid.pad.volume = 0;
+      expect(projectBars(valid)).toBe(bars);
+      valid.pad.muted = true;
+      expect(projectBars(valid)).toBe(2);
+    }
+  });
+
+  it("retunes selected notes and chord degrees while preserving expression and timing", () => {
+    const project = createProject();
+    project.arp.muted = false;
+    project.arp.notes = [58, 59, 62];
+    project.arp.direction = "played";
+    project.pad.muted = false;
+    project.pad.chords[0] = { degree: 6, inversion: 3 };
+    const changed = withScale(project, { root: 0, mode: "pentatonic" });
+    expect(changed.arp.notes).toEqual([58, 63]);
+    expect(changed.arp.direction).toBe("played");
+    expect(changed.arp.muted).toBe(false);
+    expect(changed.pad.chords[0]).toEqual({ degree: 1, inversion: 3 });
+    expect(changed.pad.bars).toBe(project.pad.bars);
+    expect(project.arp.notes).toEqual([58, 59, 62]);
+  });
+
+  it("rejects invalid new instrument data at the project boundary", () => {
+    const project = createProject();
+    expect(
+      readProject({ ...project, arp: { ...project.arp, notes: [60, 60] } }),
+    ).toBeNull();
+    expect(
+      readProject({ ...project, arp: { ...project.arp, rate: "fast" } }),
+    ).toBeNull();
+    expect(
+      readProject({ ...project, pad: { ...project.pad, bars: 3 } }),
+    ).toBeNull();
+    expect(
+      readProject({ ...project, pad: { ...project.pad, volume: Infinity } }),
+    ).toBeNull();
+  });
+});
 
 describe("drum automation and eight-control migration", () => {
   it("defaults older saves to centered dry drums and preserves note-track sound", () => {

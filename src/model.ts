@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { arpSchema, createArp, retuneArp } from "./arp-model";
+import { padSchema, createPad, retunePad } from "./pad-model";
 
 export const STEP_COUNT = 16;
 const automationLaneSchema = z
@@ -348,11 +350,18 @@ export const projectSchema = z.object({
     .refine((drums) => new Set(drums.map((drum) => drum.id)).size === 5),
   bass: bassSchema,
   keys: keysSchema,
+  arp: z.lazy(() => arpSchema).default(createArp),
+  pad: z.lazy(() => padSchema).default(createPad),
 });
 export type Project = z.infer<typeof projectSchema>;
+export function projectBars(project: Project): number {
+  return project.pad.muted ? 2 : project.pad.bars;
+}
 export function withScale(project: Project, scale: MusicalScale): Project {
   const next = structuredClone(project);
   next.scale = { ...scale };
+  next.arp = retuneArp(next.arp, scale);
+  next.pad = retunePad(next.pad, scale);
   next.bass.steps.forEach((step) => {
     step.note = snapNote(step.note, scale, 24, 60);
   });
@@ -461,6 +470,8 @@ export function createProject(preset = 0): Project {
         steps: pattern(drumHits[index] ?? []),
       })),
       keys: createKeys(preset),
+      arp: createArp(),
+      pad: createPad(),
       bass: {
         pulse: 0.5,
         shape: 0.5,

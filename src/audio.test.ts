@@ -7,6 +7,8 @@ import {
   tiesNextStep,
 } from "./audio";
 import { createProject, projectSchema, stepDuration } from "./model";
+import { arpTailDuration } from "./arp-audio";
+import { padTailDuration } from "./pad-audio";
 
 describe("audio timing and project boundary", () => {
   it("ties only adjacent enabled notes and includes the loop boundary", () => {
@@ -67,6 +69,27 @@ describe("audio timing and project boundary", () => {
 });
 
 describe("WAV export", () => {
+  it("reserves the complete Arp and Pad releases on the shared export", () => {
+    const project = createProject();
+    project.bpm = 60;
+    project.arp.muted = false;
+    project.arp.decay = 1.5;
+    project.arp.space = 1;
+    project.arp.gate = 1;
+    project.arp.rate = "1/8";
+    project.pad.muted = false;
+    project.pad.release = 1;
+    project.pad.space = 1;
+    expect(exportTailDuration(project)).toBeGreaterThanOrEqual(
+      arpTailDuration(project.arp, project.bpm),
+    );
+    expect(exportTailDuration(project)).toBeGreaterThanOrEqual(
+      padTailDuration(project.pad, project.bpm),
+    );
+    project.arp.muted = true;
+    project.pad.muted = true;
+    expect(exportTailDuration(project)).toBeLessThan(2);
+  });
   it("retains the longest keys release and echoes at the slowest tempo", () => {
     const project = createProject();
     project.bpm = 60;

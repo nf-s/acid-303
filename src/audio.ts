@@ -4,8 +4,11 @@ import {
   automatedDrum,
   automatedKeys,
   scaleNotes,
+  projectBars,
   stepDuration,
 } from "./model";
+import { ArpInstrument, arpTailDuration } from "./arp-audio";
+import { PadInstrument, padTailDuration } from "./pad-audio";
 import type {
   BassTrack,
   DrumTrack,
@@ -20,6 +23,7 @@ interface AudioGraph {
   context: BaseAudioContext;
   input: GainNode;
   cleanInput: GainNode;
+  melodicInput: GainNode;
   dry: GainNode;
   wet: GainNode;
   distortion: WaveShaperNode;
@@ -84,6 +88,7 @@ function localDriveCurve(drive: number, grit = 0): Float32Array<ArrayBuffer> {
 function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   const input = context.createGain();
   const cleanInput = context.createGain();
+  const melodicInput = context.createGain();
   const dry = context.createGain();
   const wet = context.createGain();
   const distortion = context.createWaveShaper();
@@ -93,6 +98,7 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   const safety = context.createWaveShaper();
   const analyser = context.createAnalyser();
   input.gain.value = 0.6;
+  melodicInput.gain.value = 0.72;
   cleanInput.gain.value = project.keys.muted
     ? 0
     : 0.72 * automatedKeys(project.keys, 0).volume;
@@ -128,6 +134,7 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   distortion.connect(wet);
   wet.connect(highpass);
   cleanInput.connect(highpass);
+  melodicInput.connect(highpass);
   highpass.connect(compressor);
   compressor.connect(master);
   master.connect(safety);
@@ -145,6 +152,7 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
     context,
     input,
     cleanInput,
+    melodicInput,
     dry,
     wet,
     distortion,
@@ -1102,7 +1110,13 @@ export function exportTailDuration(project: Project): number {
           ...automated.map((track) => keysEchoTail(track, project.bpm)),
         ) +
         0.08;
-  return Math.max(0.35, drumTail, keysTail);
+  return Math.max(
+    0.35,
+    drumTail,
+    keysTail,
+    arpTailDuration(project.arp, project.bpm),
+    padTailDuration(project.pad, project.bpm),
+  );
 }
 
 interface KeysTone {
@@ -1824,15 +1838,17 @@ export class AudioEngine {
   private graph: AudioGraph | null = null;
   private bass: BassVoice | null = null;
   private keys: KeysSequencer | null = null;
+  private arp: ArpInstrument | null = null;
+  private pad: PadInstrument | null = null;
   private project: Project | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private visualTimers = new Set<ReturnType<typeof setTimeout>>();
   private nextStepTime = 0;
-  private step = 0;
+  private absoluteStep = 0;
   private playing = false;
   private generation = 0;
 
-  constructor(private onStep: (step: number) => void) {}
+  constructor(private onStep: (step: number, absoluteStep: number) => void) {}
 
   get isPlaying(): boolean {
     return this.playing;
@@ -1855,7 +1871,9 @@ export class AudioEngine {
     this.project = project;
     this.bass = new BassVoice(graph);
     this.keys = new KeysSequencer(graph);
-    this.step = 0;
+    this.arp = new ArpInstrument(graph.context, graph.melodicInput);
+    this.pad = new PadInstrument(graph.context, graph.melodicInput);
+    this.absoluteStep = 0;
     this.nextStepTime = graph.context.currentTime + 0.035;
     this.playing = true;
     this.schedule();
@@ -1870,7 +1888,8 @@ export class AudioEngine {
     // A suspended browser tab must not emit all missed beats at once.
     if (this.nextStepTime < now - LOOKAHEAD) this.nextStepTime = now + 0.01;
     while (this.nextStepTime < now + LOOKAHEAD) {
-      const step = this.step;
+      const absoluteStep = this.absoluteStep;
+      const step = absoluteStep % STEP_COUNT;
       const time = this.nextStepTime;
       const duration = stepDuration(project.bpm, project.swing, step);
       for (const drum of project.drums) {
@@ -1889,15 +1908,31 @@ export class AudioEngine {
         time,
         duration,
       );
+      this.arp?.schedule(
+        project.arp,
+        project.scale,
+        absoluteStep,
+        time,
+        duration,
+        project.bpm,
+      );
+      this.pad?.schedule(
+        project.pad,
+        project.scale,
+        absoluteStep,
+        time,
+        duration,
+        project.bpm,
+      );
       const timer = setTimeout(
         () => {
           this.visualTimers.delete(timer);
-          if (this.playing) this.onStep(step);
+          if (this.playing) this.onStep(step, absoluteStep);
         },
         Math.max(0, (time - now) * 1000),
       );
       this.visualTimers.add(timer);
-      this.step = (step + 1) % STEP_COUNT;
+      this.absoluteStep += 1;
       this.nextStepTime += duration;
     }
   }
@@ -1915,11 +1950,19 @@ export class AudioEngine {
       graph.master.gain.cancelAndHoldAtTime(time);
       graph.master.gain.linearRampToValueAtTime(0, time + 0.012);
       this.bass?.stop(time);
+      const arp = this.arp;
+      if (arp) {
+        arp.stop(time);
+        setTimeout(() => arp.destroy(), 30);
+      }
+      this.pad?.stop(time);
       for (const source of graph.sources) source.stop(time + 0.015);
     }
     this.bass = null;
     this.keys = null;
-    this.onStep(-1);
+    this.arp = null;
+    this.pad = null;
+    this.onStep(-1, -1);
   }
 
   update(project: Project): void {
@@ -1988,7 +2031,8 @@ export class AudioEngine {
   }
 
   async exportWav(project: Project): Promise<Blob> {
-    const loopDuration = (60 / project.bpm) * 8;
+    const bars = projectBars(project);
+    const loopDuration = (60 / project.bpm) * 4 * bars;
     const tailDuration = exportTailDuration(project);
     const context = new OfflineAudioContext(
       2,
@@ -1998,8 +2042,10 @@ export class AudioEngine {
     const graph = createGraph(context, project);
     const bass = new BassVoice(graph);
     const keys = new KeysSequencer(graph);
+    const arp = new ArpInstrument(context, graph.melodicInput);
+    const pad = new PadInstrument(context, graph.melodicInput);
     let time = 0;
-    for (let index = 0; index < STEP_COUNT * 2; index += 1) {
+    for (let index = 0; index < STEP_COUNT * bars; index += 1) {
       const step = index % STEP_COUNT;
       const duration = stepDuration(project.bpm, project.swing, step);
       for (const drum of project.drums) {
@@ -2008,6 +2054,22 @@ export class AudioEngine {
       }
       bass.schedule(automatedBass(project.bass, step), step, time, duration);
       keys.schedule(automatedKeys(project.keys, step), step, time, duration);
+      arp.schedule(
+        project.arp,
+        project.scale,
+        index,
+        time,
+        duration,
+        project.bpm,
+      );
+      pad.schedule(
+        project.pad,
+        project.scale,
+        index,
+        time,
+        duration,
+        project.bpm,
+      );
       time += duration;
     }
     bass.stop(loopDuration);

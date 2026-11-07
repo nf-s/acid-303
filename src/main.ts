@@ -13,6 +13,7 @@ import {
 } from "lucide";
 import {
   createProject,
+  projectBars,
   DRUM_META,
   drumIdSchema,
   noteName,
@@ -39,6 +40,8 @@ import type {
 import { DrumEditor, DRUM_CONTROLS } from "./drum-editor";
 import { EditHistory } from "./history";
 import { encodeTrack, decodeTrack } from "./share";
+import { createArpPanel } from "./arp-panel";
+import { createPadPanel } from "./pad-panel";
 import { AudioEngine } from "./audio";
 import { FluidVisualizer } from "./visualizer";
 import { BeatCanvas } from "./beat-canvas";
@@ -158,6 +161,7 @@ const selectedAutomation: Record<NoteTrack, string | null> = {
 };
 const automationSweeps = new Map<string, { base: number; values: number[] }>();
 const storageKey = "acid-303-project-v1";
+let importedHash: string | null = null;
 let project = createProject();
 let storageAvailable = true;
 try {
@@ -227,7 +231,7 @@ app.innerHTML = `
       ${slider("swing", "Swing", 0, 50, project.swing * 100, `${Math.round(project.swing * 100)}%`)}
       ${slider("drive", "Crunch", 0, 100, project.drive * 100, `${Math.round(project.drive * 100)}%`)}
       ${slider("volume", "Volume", 0, 100, project.volume * 100, `${Math.round(project.volume * 100)}%`)}
-      <div class="position"><span id="position">01</span><span>/ 16</span><span class="beat-lights"><b></b><b></b><b></b><b></b></span></div>
+      <div class="position"><span id="position">01</span><span>/ 16</span><span id="bar-position" class="bar-position">Bar 1 / 2</span><span class="beat-lights"><b></b><b></b><b></b><b></b></span></div>
     </section>
     <section class="scale-panel panel" aria-label="Musical scale"><div class="scale-row"><span>ROOT</span><div class="scale-roots" role="group" aria-label="Root note">${Array.from({ length: 12 }, (_, root) => `<button data-root="${root}" aria-label="Root ${noteName(root + 60).slice(0, -1)}" aria-pressed="${project.scale.root === root}">${noteName(root + 60).slice(0, -1)}</button>`).join("")}</div></div><div class="scale-row"><span>SCALE</span><div class="scale-modes" role="group" aria-label="Scale type">${SCALE_MODES.map((scale) => `<button data-scale="${scale.id}" aria-pressed="${project.scale.mode === scale.id}">${scale.name}</button>`).join("")}</div></div></section>
     <div class="studio-grid"><div class="sequencers">
@@ -249,6 +253,8 @@ app.innerHTML = `
         <div class="acid-controls">${slider("keys-tone", "Tone", 0, 100, project.keys.tone * 100, `${Math.round(project.keys.tone * 100)}%`)}${slider("keys-decay", "Decay", 80, 2000, project.keys.decay * 1000, `${Math.round(project.keys.decay * 1000)} ms`, "10")}${slider("keys-space", "Space", 0, 100, project.keys.space * 100, `${Math.round(project.keys.space * 100)}%`)}${slider("keys-volume", "Level", 0, 100, project.keys.volume * 100, `${Math.round(project.keys.volume * 100)}%`)}${slider("keys-grit", "Grit", 0, 100, project.keys.grit * 100, `${Math.round(project.keys.grit * 100)}%`)}${slider("keys-motion", "Motion", 0, 100, project.keys.motion * 100, `${Math.round(project.keys.motion * 100)}%`)}${slider("keys-width", "Width", 0, 100, project.keys.width * 100, `${Math.round(project.keys.width * 100)}%`)}${slider("keys-attack", "Attack", 0, 100, project.keys.attack * 100, `${Math.round(project.keys.attack * 100)}%`)}</div>
         ${matrixMarkup("keys", "Texture")}
       </section>
+      <section id="arp-panel" class="panel bass-panel arp-panel" aria-labelledby="arp-title"></section>
+      <section id="pad-panel" class="panel bass-panel pad-panel" aria-labelledby="pad-title"></section>
     </div>
 </div>
 <div class="visualizer-toolbar"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><span class="visualizer-mode"><span class="visualizer-dot"></span>FLUID</span><div class="visualizer-controls">${slider("intensity", "Intensity", 0, 100, 30, "30%")}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div></div>
@@ -676,6 +682,9 @@ function updatePresetLabels(): void {
 }
 function refreshProject(): void {
   automationSweeps.clear();
+  arpPanel.render();
+  padPanel.render();
+  updateBarPosition();
   renderDrums();
   renderBass();
   renderKeys();
@@ -727,11 +736,23 @@ function refreshProject(): void {
   setInput("bass-volume", project.bass.volume * 100);
   setOutput("bass-volume", `${Math.round(project.bass.volume * 100)}%`);
 }
-const engine = new AudioEngine((step) => {
+let currentAbsoluteStep = -1;
+function updateBarPosition(absoluteStep = currentAbsoluteStep): void {
+  currentAbsoluteStep = absoluteStep;
+  const bars = projectBars(project);
+  const position = document.getElementById("bar-position");
+  if (position)
+    position.textContent = `Bar ${absoluteStep < 0 ? 1 : (Math.floor(absoluteStep / 16) % bars) + 1} / ${bars}`;
+  document
+    .getElementById("export")
+    ?.setAttribute("title", `Export ${bars} bars and release tails`);
+}
+const engine = new AudioEngine((step, absoluteStep) => {
   beatCanvas.setStep(step);
   matrices.bass.setStep(step);
   matrices.keys.setStep(step);
   drumEditor.setStep(step);
+  updateBarPosition(absoluteStep);
   if (step >= 0) visualizer.triggerStep(project.drums, step);
   document
     .querySelectorAll(".current")
@@ -748,6 +769,8 @@ const engine = new AudioEngine((step) => {
     );
   const position = document.querySelector("#position");
   if (position) position.textContent = String(step + 1).padStart(2, "0");
+  arpPanel.setStep(absoluteStep);
+  padPanel.setStep(absoluteStep);
 });
 const canvas = document.querySelector("#fluid-canvas");
 if (!(canvas instanceof HTMLCanvasElement))
@@ -828,6 +851,25 @@ const matrices = {
   bass: createMatrix("bass", "Bass", 24, 60),
   keys: createMatrix("keys", "Texture", 48, 84),
 };
+const arpContainer = document.getElementById("arp-panel");
+const padContainer = document.getElementById("pad-panel");
+if (!arpContainer || !padContainer)
+  throw new Error("Melodic instruments are missing.");
+const arpPanel = createArpPanel(arpContainer, {
+  getTrack: () => project.arp,
+  getScale: () => project.scale,
+  onChange: () => persist(),
+  renderControl: slider,
+});
+const padPanel = createPadPanel(padContainer, {
+  getTrack: () => project.pad,
+  getScale: () => project.scale,
+  onChange: () => {
+    updateBarPosition();
+    persist();
+  },
+  renderControl: slider,
+});
 const gestures = installGestures(
   app,
   (control, value) => updateControl(control.id, value),
@@ -896,6 +938,14 @@ function persist(record = true): void {
     const status = document.querySelector("#save-state");
     try {
       localStorage.setItem(storageKey, JSON.stringify(project));
+      if (importedHash !== null && location.hash === importedHash) {
+        const url = new URL(location.href);
+        const parameters = new URLSearchParams(url.hash.slice(1));
+        parameters.delete("track");
+        url.hash = parameters.toString();
+        window.history.replaceState(null, "", url);
+        importedHash = null;
+      }
       if (status)
         status.innerHTML =
           '<span class="status-dot"></span>Saved in this browser';
@@ -1301,6 +1351,8 @@ document.addEventListener("click", async (event) => {
   }
 });
 function updateControl(id: string, value: number): void {
+  if (arpPanel.updateControl(id, value) || padPanel.updateControl(id, value))
+    return;
   const automation = automationControls.find((control) => control.id === id);
   const baseBefore = automation ? automationBase(automation.target) : 0;
   if (id === "bpm") {
@@ -1548,15 +1600,18 @@ window.addEventListener("pagehide", () => {
 refreshProject();
 
 async function loadSharedTrack(): Promise<void> {
-  const encoded = new URLSearchParams(location.hash.slice(1)).get("track");
+  const hash = location.hash;
+  const encoded = new URLSearchParams(hash.slice(1)).get("track");
   if (!encoded) return;
   const shared = await decodeTrack(encoded);
+  if (location.hash !== hash) return;
   if (!shared) {
     toast("This track link is invalid or incomplete.");
     return;
   }
   historyGroup++;
   project = shared;
+  importedHash = hash;
   refreshProject();
   persist();
   toast("Shared track loaded.");

@@ -1494,6 +1494,211 @@ kbd {
 [hidden] {
   display: none !important;
 }
+.position {
+  flex-wrap: wrap;
+  max-width: 180px;
+}
+.bar-position {
+  font: 10px var(--mono);
+  width: 100%;
+  text-align: right;
+}
+.arp-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin: 12px 14px;
+}
+.arp-setting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+}
+.arp-setting .waveform-switch,
+.arp-sounds,
+.pad-sounds {
+  flex-wrap: wrap;
+}
+.arp-note-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 14px 14px 6px;
+  font-size: 11px;
+}
+.arp-note-options {
+  display: grid;
+  grid-template-columns: repeat(11, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 14px;
+}
+.arp-note-options button {
+  position: relative;
+  min-height: 46px;
+  background: #24282c;
+  border: 1px solid #686e75;
+}
+.arp-note-options small {
+  display: block;
+  min-height: 12px;
+  font-size: 8px;
+  opacity: 0.65;
+}
+.arp-note-options button[aria-pressed="true"],
+.arp-step-row button[aria-pressed="true"] {
+  background: #d5d8db;
+  color: #17191b;
+}
+.arp-rhythm {
+  margin: 14px;
+  font-size: 10px;
+}
+.arp-step-row {
+  display: grid;
+  grid-template-columns: repeat(16, minmax(0, 1fr));
+  gap: 3px;
+  margin: 6px 0 12px;
+}
+.arp-step-row button {
+  min-width: 0;
+  min-height: 30px;
+  border: 1px solid #646b73;
+  background: #25292e;
+  font: 9px var(--mono);
+  padding: 3px 0;
+}
+.arp-note-options button.current,
+.arp-step-row button.current {
+  outline: 2px solid #fff;
+  outline-offset: -3px;
+}
+.pad-length,
+.pad-progressions,
+.pad-chord-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 12px 14px;
+}
+.pad-length button,
+.pad-progressions button,
+.pad-degrees button,
+.pad-inversions button {
+  padding: 8px 12px;
+  background: #272c31;
+  border: 1px solid #727980;
+  font-size: 10px;
+}
+.pad-length button[aria-pressed="true"],
+.pad-progressions button[aria-pressed="true"],
+.pad-degrees button[aria-pressed="true"],
+.pad-inversions button[aria-pressed="true"],
+.pad-sounds button[aria-pressed="true"] {
+  background: #d5d8db;
+  color: #17191b;
+}
+.pad-progressions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.pad-chords {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 14px;
+}
+.pad-chords button {
+  text-align: left;
+  min-height: 94px;
+  padding: 10px;
+  border: 1px solid #70767d;
+  background: #23272c;
+}
+.pad-chords button[aria-pressed="true"] {
+  background: #3b4148;
+  outline: 1px solid #fff;
+}
+.pad-chords button.current {
+  box-shadow: inset 0 -5px #eff2f5;
+}
+.pad-chords span,
+.pad-chords strong,
+.pad-chords small {
+  display: block;
+}
+.pad-chords span {
+  font-size: 9px;
+  color: #a8afb7;
+}
+.pad-chords strong {
+  font-size: 21px;
+  margin: 7px 0;
+}
+.pad-chords small {
+  color: #c4cbd2;
+  font-size: 9px;
+}
+.pad-chord-editor {
+  justify-content: space-between;
+  gap: 10px;
+}
+.pad-degrees,
+.pad-inversions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.pad-position {
+  font-size: 10px;
+  white-space: nowrap;
+}
+@media (max-width: 650px) {
+  .arp-settings {
+    gap: 10px;
+    margin: 12px 9px;
+  }
+  .arp-setting {
+    flex-wrap: wrap;
+  }
+  .arp-note-options {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    margin: 0 9px;
+    gap: 3px;
+  }
+  .arp-note-options button {
+    min-height: 42px;
+    font-size: 10px;
+  }
+  .arp-rhythm {
+    margin: 12px 9px;
+  }
+  .arp-step-row {
+    gap: 2px;
+  }
+  .arp-step-row button {
+    font-size: 7px;
+  }
+  .pad-length,
+  .pad-progressions,
+  .pad-chord-editor,
+  .pad-chords {
+    margin: 10px 9px;
+  }
+  .pad-progressions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pad-chords {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pad-chords button {
+    min-height: 86px;
+  }
+  .pad-degrees button,
+  .pad-inversions button {
+    padding: 7px 9px;
+  }
+}
 .motion-options {
   max-width: 1040px;
   margin: auto;

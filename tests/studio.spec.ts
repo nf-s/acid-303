@@ -1185,6 +1185,14 @@ test("share link loads the full track into a fresh browser context", async ({
   await expect
     .poll(async () => (await savedProject(page)).bass.automation.cutoff?.[15])
     .toBeCloseTo(0.8, 1);
+  await page.locator('[data-arp-sound="2"]').click();
+  await page.locator('[data-pad-bars="16"]').click();
+  await page
+    .getByRole("button", { name: "Enable chord pads", exact: true })
+    .click();
+  await expect
+    .poll(async () => (await savedProject(page)).pad.muted)
+    .toBe(false);
   const original = await savedProject(page);
   await page.getByRole("button", { name: "Share", exact: true }).click();
   const field = page.locator("#share-url");
@@ -1199,6 +1207,13 @@ test("share link loads the full track into a fresh browser context", async ({
     "data-automated",
     "true",
   );
+  await expect.poll(() => new URL(other.url()).hash).toBe("");
+  await other.locator("#bpm").press("End");
+  await expect.poll(async () => (await savedProject(other)).bpm).toBe(180);
+  const edited = await savedProject(other);
+  await other.reload();
+  await expect.poll(() => savedProject(other)).toEqual(edited);
+  await expect(other.locator("#bpm")).toHaveAttribute("aria-valuenow", "180");
   await context.close();
 });
 
@@ -1226,4 +1241,136 @@ test("fluid overlay reaches transport, scale, knobs and matrices", async ({
   expect(
     (await page.locator(".workspace").boundingBox())?.width,
   ).toBeLessThanOrEqual(1040);
+});
+
+test("arpeggiator notes, order, rhythm and all eight controls persist with global undo", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator("#arp-panel .gesture-control")).toHaveCount(8);
+  await expect(
+    page
+      .getByRole("group", { name: "Arpeggiator sound", exact: true })
+      .getByRole("button"),
+  ).toHaveCount(6);
+  await page.locator("[data-arp-clear=notes]").click();
+  for (const note of ["E4", "A3", "C4"])
+    await page
+      .getByRole("button", { name: `Arpeggiator note ${note}`, exact: true })
+      .click();
+  await page.getByRole("button", { name: "Played", exact: true }).click();
+  await page.getByRole("button", { name: "1/32", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Arpeggiator step 2", exact: true })
+    .click();
+  await page.locator("#arp-shape").press("End");
+  await expect.poll(async () => (await savedProject(page)).arp.shape).toBe(1);
+  const arp = (await savedProject(page)).arp;
+  expect(arp.notes).toEqual([64, 57, 60]);
+  expect(arp.direction).toBe("played");
+  expect(arp.rate).toBe("1/32");
+  expect(arp.steps[1]).toBe(false);
+  await page
+    .getByRole("button", { name: "Undo last edit", exact: true })
+    .click();
+  await expect
+    .poll(async () => (await savedProject(page)).arp.shape)
+    .toBe(createProject().arp.shape);
+  await page
+    .getByRole("button", { name: "Redo last edit", exact: true })
+    .click();
+  await expect.poll(async () => (await savedProject(page)).arp.shape).toBe(1);
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Played", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Root F♯", exact: true }).click();
+  await expect
+    .poll(async () =>
+      (await savedProject(page)).arp.notes.every((note) =>
+        scaleNotes({ root: 6, mode: "minor" }, 48, 84).includes(note),
+      ),
+    )
+    .toBe(true);
+  await page.getByRole("button", { name: "Play pattern", exact: true }).click();
+  await expect
+    .poll(() => page.locator("[data-arp-step].current").count())
+    .toBe(1);
+  await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
+});
+
+test("pad progression length, chord edits and play position work across bars", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator("#pad-panel .gesture-control")).toHaveCount(8);
+  await expect(
+    page
+      .getByRole("group", { name: "Pad sound", exact: true })
+      .getByRole("button"),
+  ).toHaveCount(6);
+  await page
+    .getByRole("button", { name: "Enable chord pads", exact: true })
+    .click();
+  await page.getByRole("button", { name: "2 bars", exact: true }).click();
+  await page.locator("[data-pad-progression=descent]").click();
+  await page.locator('[data-pad-slot="1"]').click();
+  await page.locator('[data-pad-degree="3"]').click();
+  await page.locator('[data-pad-inversion="2"]').click();
+  await page.locator("#pad-tone").press("End");
+  await expect.poll(async () => (await savedProject(page)).pad.tone).toBe(1);
+  const pad = (await savedProject(page)).pad;
+  expect(pad.chords[1]).toEqual({ degree: 3, inversion: 2 });
+  expect(pad.bars).toBe(2);
+  expect(pad.muted).toBe(false);
+  await page.locator("#bpm").press("End");
+  await page.getByRole("button", { name: "Play pattern", exact: true }).click();
+  await expect
+    .poll(() => page.locator(".pad-position").textContent())
+    .toBe("Bar 2 / 2");
+  const barPosition = await page.evaluate(() => {
+    const before = document.querySelector("#bar-position")?.textContent;
+    document
+      .querySelector("#pad-tone")
+      ?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "End", bubbles: true }),
+      );
+    return {
+      before,
+      after: document.querySelector("#bar-position")?.textContent,
+    };
+  });
+  expect(barPosition).toEqual({ before: "Bar 2 / 2", after: "Bar 2 / 2" });
+  await expect(page.locator("[data-pad-slot].current")).toHaveCount(1);
+  await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "2 bars", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#pad-tone")).toHaveAttribute(
+    "aria-valuenow",
+    "100",
+  );
+});
+
+test("WAV export includes all eight progression bars and release tails", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator("#bpm").press("End");
+  await page
+    .getByRole("button", { name: "Enable chord pads", exact: true })
+    .click();
+  await page.getByRole("button", { name: "8 bars", exact: true }).click();
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export WAV", exact: true }).click();
+  const path = await (await downloaded).path();
+  if (!path) throw new Error("Missing progression WAV.");
+  const wav = await readFile(path);
+  const duration = (wav.length - 44) / (44100 * 4);
+  expect(duration).toBeGreaterThan((60 / 180) * 4 * 8);
+  let tail = 0;
+  for (let index = wav.length - 4410 * 4; index < wav.length; index += 2)
+    tail = Math.max(tail, Math.abs(wav.readInt16LE(index)));
+  expect(tail).toBeLessThan(10);
 });
