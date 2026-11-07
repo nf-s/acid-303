@@ -1,7 +1,16 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { projectSchema, createProject, resizeBassTrack } from "../src/model";
+import {
+  projectSchema,
+  createProject,
+  resizeBassTrack,
+  BASS_SOUNDS,
+  KEYS_SOUNDS,
+  DRUM_META,
+} from "../src/model";
 import { clientMessageSchema } from "../src/session-protocol";
+import { ARP_SOUNDS } from "../src/arp-model";
+import { PAD_SOUNDS } from "../src/pad-model";
 
 async function saved(page: Page) {
   await page.waitForFunction(
@@ -260,6 +269,12 @@ test("long triplet patterns, mixer edits and automation clocks stay shared witho
   browser,
 }) => {
   const initial = createProject();
+  for (const drum of initial.drums)
+    drum.sound = DRUM_META[drum.id].sounds.length - 1;
+  initial.bass.sound = BASS_SOUNDS.length - 1;
+  initial.keys.sound = KEYS_SOUNDS.length - 1;
+  initial.arp.sound = ARP_SOUNDS.length - 1;
+  initial.pad.sound = PAD_SOUNDS.length - 1;
   initial.bass = resizeBassTrack(initial.bass, {
     bars: 2,
     meter: "5/4",
@@ -300,6 +315,13 @@ test("long triplet patterns, mixer edits and automation clocks stay shared witho
   await expect
     .poll(async () => (await saved(guest)).bass.steps.length)
     .toBe(60);
+  const shared = await saved(guest);
+  for (const drum of shared.drums)
+    expect(drum.sound).toBe(DRUM_META[drum.id].sounds.length - 1);
+  expect(shared.bass.sound).toBe(BASS_SOUNDS.length - 1);
+  expect(shared.keys.sound).toBe(KEYS_SOUNDS.length - 1);
+  expect(shared.arp.sound).toBe(ARP_SOUNDS.length - 1);
+  expect(shared.pad.sound).toBe(PAD_SOUNDS.length - 1);
   await guest.locator('#bass-pattern [data-pattern-page="5"]').click();
   const lastCell = guest.getByRole("slider", {
     name: "Bass note step 60",

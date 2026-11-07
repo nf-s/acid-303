@@ -12,6 +12,17 @@ import type { PadTiming } from "./timing";
 import { automationLaneSchema, noteName, scaleNotes } from "./model";
 import type { MusicalScale } from "./model";
 
+export const PAD_SOUNDS = [
+  "Velvet",
+  "Air",
+  "Choir",
+  "Glass",
+  "Dust",
+  "Drone",
+  "Phase",
+  "Rotor",
+];
+
 const unit = z.number().min(0).max(1);
 const padAutomationSchema = z.object({
   attack: z.lazy(() => automationLaneSchema),
@@ -44,7 +55,12 @@ export const padChordSchema = z.object({
 export const padBaseSchema = z.object({
   timing: padTimingSchema.default(createPadTiming),
   automation: padAutomationSchema.default(emptyPadAutomation),
-  sound: z.number().int().min(0).max(5).default(0),
+  sound: z
+    .number()
+    .int()
+    .min(0)
+    .max(PAD_SOUNDS.length - 1)
+    .default(0),
   muted: z.boolean().default(true),
   chords: z
     .array(padChordSchema)
@@ -77,7 +93,7 @@ export const padSchema = padBaseSchema.superRefine((track, context) => {
 });
 export type PadTrack = z.infer<typeof padSchema>;
 export type PadChord = z.infer<typeof padChordSchema>;
-export const PAD_SOUNDS = ["Velvet", "Air", "Choir", "Glass", "Dust", "Drone"];
+
 export const PAD_PROGRESSIONS: ReadonlyArray<{
   id: string;
   name: string;

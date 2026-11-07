@@ -3,7 +3,7 @@ import { projectSchema, readProject } from "./model";
 import type { Project } from "./model";
 import { MAX_PROJECT_BYTES, MAX_TRACK_STEPS } from "./timing";
 
-export const SESSION_PROTOCOL = "grain-session-v2";
+export const SESSION_PROTOCOL = "grain-session-v3";
 export const MAX_SESSION_BYTES = MAX_PROJECT_BYTES;
 export const MAX_PROJECT_CHANGES = 4096;
 export const MAX_SESSION_CLIENTS = 8;

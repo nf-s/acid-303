@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ARP_SOUNDS,
   arpEvents,
   automatedArp,
   normalizedArpValue,
@@ -38,9 +39,35 @@ describe("arpeggiator model", () => {
     expect(arpSchema.parse({ sound: 4 }).sound).toBe(4);
   });
 
+  it("appends contrasting voices without changing saved sound indices", () => {
+    expect(ARP_SOUNDS.slice(0, 6)).toEqual([
+      "Pluck",
+      "Pulse",
+      "Glass",
+      "Acid",
+      "Reed",
+      "Dust",
+    ]);
+    for (const sound of [6, 7]) {
+      const track = activeTrack();
+      track.sound = sound;
+      track.automation.shape = Array.from(
+        { length: 16 },
+        (_, index) => index / 15,
+      );
+      const restored = arpSchema.parse(JSON.parse(JSON.stringify(track)));
+      expect(restored).toEqual(track);
+      expect(automatedArp(restored, 15).shape).toBe(1);
+      expect(arpEvents(restored, scale, 0)).toEqual(
+        arpEvents(activeTrack(), scale, 0),
+      );
+      expect(arpTailDuration(restored, 120)).toBeGreaterThan(0);
+    }
+  });
+
   it("rejects invalid persisted sounds, notes, curves and controls", () => {
     for (const invalid of [
-      { sound: 6 },
+      { sound: ARP_SOUNDS.length },
       { notes: [57, 57] },
       { notes: [20] },
       { direction: "backwards" },

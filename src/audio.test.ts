@@ -171,6 +171,30 @@ describe("WAV export", () => {
     expect(exportTailDuration(project)).toBeLessThan(1);
   });
 
+  it("retains Smear reverb and Vapor room tails at maximum decay", () => {
+    const project = createProject();
+    project.bpm = 180;
+    project.drums.forEach((track) => {
+      track.muted = true;
+    });
+    project.keys.muted = true;
+    const clap = project.drums.find((track) => track.id === "clap");
+    if (!clap) throw new Error("Expected clap");
+    clap.muted = false;
+    clap.sound = 6;
+    clap.decay = 1.5;
+    clap.space = 1;
+    expect(exportTailDuration(project)).toBeGreaterThanOrEqual(
+      1.5 * 1.25 + 0.95 + 0.92,
+    );
+    clap.muted = true;
+    project.keys.muted = false;
+    project.keys.sound = 7;
+    project.keys.decay = 2;
+    project.keys.space = 1;
+    expect(exportTailDuration(project)).toBeGreaterThanOrEqual(2.98);
+  });
+
   it("writes an interleaved stereo PCM file with correctly clamped samples", async () => {
     const blob = encodeWav(
       [new Float32Array([-2, 0.5, NaN]), new Float32Array([2, -0.5, Infinity])],

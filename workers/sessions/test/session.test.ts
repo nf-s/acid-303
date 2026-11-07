@@ -188,18 +188,23 @@ describe("session rooms in the Workers runtime", () => {
     await host.next("welcome");
     host.patch(1, ["bpm"], 137);
     await host.next("patch");
-    const old = await upgrade(
-      room,
-      room.hostToken,
-      crypto.randomUUID(),
-      "grain-session-v1",
-    );
-    expect(old.status).toBe(101);
-    if (!old.webSocket) throw new Error("No legacy WebSocket");
-    const closed = closeCode(old.webSocket);
-    const peer = new Peer(old.webSocket, crypto.randomUUID());
-    expect(await peer.next("error")).toMatchObject({ code: "reload-required" });
-    expect(await closed).toBe(4010);
+    for (const protocol of ["grain-session-v1", "grain-session-v2"]) {
+      const old = await upgrade(
+        room,
+        room.hostToken,
+        crypto.randomUUID(),
+        protocol,
+      );
+      expect(old.status).toBe(101);
+      expect(old.headers.get("Sec-WebSocket-Protocol")).toBe(protocol);
+      if (!old.webSocket) throw new Error("No legacy WebSocket");
+      const closed = closeCode(old.webSocket);
+      const peer = new Peer(old.webSocket, crypto.randomUUID());
+      expect(await peer.next("error")).toMatchObject({
+        code: "reload-required",
+      });
+      expect(await closed).toBe(4010);
+    }
     host.send({ type: "sync" });
     expect(await host.next("welcome")).toMatchObject({
       hostConnected: true,
@@ -253,6 +258,14 @@ describe("session rooms in the Workers runtime", () => {
       host = await connect(room, room.hostToken);
     const original = await host.next("welcome");
     const project = structuredClone(original.project);
+    project.drums = project.drums.map((track) => ({
+      ...track,
+      sound: track.id === "hat" ? 7 : 6,
+    }));
+    project.bass.sound = 10;
+    project.keys.sound = 7;
+    project.arp.sound = 7;
+    project.pad.sound = 7;
     const timing = sequenceTimingSchema.parse({
       bars: 8,
       meter: "5/4",
@@ -445,6 +458,34 @@ describe("session rooms in the Workers runtime", () => {
       role: "host",
       participants: 1,
       playing: false,
+    });
+  });
+  it("closes hibernating v2 sockets on the catalog upgrade without losing room state", async () => {
+    const room = await create(),
+      host = await connect(room, room.hostToken);
+    await host.next("welcome");
+    host.patch(1, ["bpm"], 139);
+    await host.next("patch");
+    const stub = env.ROOMS.getByName(room.roomId);
+    await runInDurableObject(stub, (_instance, state) => {
+      for (const socket of state.getWebSockets()) {
+        const data = z
+          .record(z.string(), z.unknown())
+          .parse(socket.deserializeAttachment());
+        socket.serializeAttachment({ ...data, protocol: 2 });
+      }
+    });
+    const closed = closeCode(host.socket);
+    await evictDurableObject(stub);
+    host.send({ type: "sync" });
+    expect(await host.next("error")).toMatchObject({ code: "reload-required" });
+    expect(await closed).toBe(4010);
+    const restored = await connect(room, room.hostToken, host.clientId);
+    expect(await restored.next("welcome")).toMatchObject({
+      role: "host",
+      revision: 1,
+      acknowledgedSequence: 1,
+      project: { bpm: 139 },
     });
   });
   it("reserves the eighth slot for the host", async () => {

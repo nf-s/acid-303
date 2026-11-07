@@ -48,7 +48,7 @@ const attachmentSchema = z.object({
   active: z.boolean(),
   playing: z.boolean(),
   absoluteTick: z.number().finite().nonnegative().default(0),
-  protocol: z.union([z.literal(1), z.literal(2)]).default(1),
+  protocol: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
   window: z.number(),
   packets: z.number().int().nonnegative(),
   patches: z.number().int().nonnegative(),
@@ -111,7 +111,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
     );
     for (const socket of ctx.getWebSockets()) {
       const data = attachment(socket);
-      if (data && data.protocol !== 2 && data.active) {
+      if (data && data.protocol !== 3 && data.active) {
         error(
           socket,
           "reload-required",
@@ -214,7 +214,8 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       !clientId.success ||
       protocols.length !== 2 ||
       (protocols[0] !== SESSION_PROTOCOL &&
-        protocols[0] !== "grain-session-v1") ||
+        protocols[0] !== "grain-session-v1" &&
+        protocols[0] !== "grain-session-v2") ||
       !token.success
     )
       return new Response("Invalid connection", { status: 400 });
@@ -242,7 +243,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
         active: false,
         playing: false,
         absoluteTick: 0,
-        protocol: 1,
+        protocol: protocols[0] === "grain-session-v2" ? 2 : 1,
         window: Date.now(),
         packets: 0,
         patches: 0,
@@ -256,7 +257,9 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       return new Response(null, {
         status: 101,
         webSocket: pair[0],
-        headers: { "Sec-WebSocket-Protocol": "grain-session-v1" },
+        headers: {
+          "Sec-WebSocket-Protocol": protocols[0] ?? "grain-session-v1",
+        },
       });
     }
     const existing = this.sockets();
@@ -288,7 +291,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       role,
       expiresAt: record.expiresAt,
       active: true,
-      protocol: 2,
+      protocol: 3,
       playing: false,
       absoluteTick: 0,
       window: Date.now(),

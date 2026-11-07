@@ -3,11 +3,15 @@ import type { Page, Locator } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import {
   BASS_SOUNDS,
+  KEYS_SOUNDS,
+  DRUM_META,
   createProject,
   projectSchema,
   scaleNotes,
 } from "../src/model";
 import { PRESETS } from "../src/presets";
+import { ARP_SOUNDS } from "../src/arp-model";
+import { PAD_SOUNDS } from "../src/pad-model";
 import { trackStepCount } from "../src/timing";
 
 async function openTrackControls(page: Page): Promise<void> {
@@ -525,7 +529,7 @@ test("all new Texture and drum sounds are directly selectable and persist", asyn
     name: "Texture sound",
     exact: true,
   });
-  await expect(sounds.getByRole("button")).toHaveCount(6);
+  await expect(sounds.getByRole("button")).toHaveCount(KEYS_SOUNDS.length);
   for (const sound of ["Scatter", "Dub", "Frost"]) {
     await sounds.getByRole("button", { name: sound, exact: true }).click();
     await expect(
@@ -539,15 +543,19 @@ test("all new Texture and drum sounds are directly selectable and persist", asyn
     page
       .getByRole("group", { name: "Hi-hat sounds", exact: true })
       .getByRole("button"),
-  ).toHaveCount(5);
-  await page.getByRole("button", { name: "Ride", exact: true }).click();
+  ).toHaveCount(DRUM_META.hat.sounds.length);
+  await page
+    .getByRole("group", { name: "Hi-hat sounds", exact: true })
+    .getByRole("button")
+    .last()
+    .click();
   await expect
     .poll(
       async () =>
         (await savedProject(page)).drums.find((drum) => drum.id === "hat")
           ?.sound,
     )
-    .toBe(4);
+    .toBe(DRUM_META.hat.sounds.length - 1);
   await page.reload();
   await expect(
     sounds.getByRole("button", { name: "Frost", exact: true }),
@@ -1109,7 +1117,7 @@ test("phone sound selection, expression controls and tap automation persist with
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
   const sounds = page.getByRole("group", { name: "Bass sound", exact: true });
-  await expect(sounds.getByRole("button")).toHaveCount(9);
+  await expect(sounds.getByRole("button")).toHaveCount(BASS_SOUNDS.length);
   for (const sound of BASS_SOUNDS) {
     await sounds.getByRole("button", { name: sound, exact: true }).tap();
     await expect(
@@ -1127,9 +1135,10 @@ test("phone sound selection, expression controls and tap automation persist with
     .poll(async () => (await savedProject(page)).drums[0]?.drive)
     .toBe(0.1);
   await page.reload();
-  await expect(
-    sounds.getByRole("button", { name: "Pressure", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+  await expect(sounds.getByRole("button").last()).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await expect(page.locator("#kick-tone")).toHaveAttribute(
     "aria-valuenow",
     "100",
@@ -1488,7 +1497,7 @@ test("arpeggiator notes, order, rhythm and all eight controls persist with globa
     page
       .getByRole("group", { name: "Arpeggiator sound", exact: true })
       .getByRole("button"),
-  ).toHaveCount(6);
+  ).toHaveCount(ARP_SOUNDS.length);
   await page.locator("[data-arp-clear=notes]").click();
   for (const note of ["E4", "A3", "C4"])
     await page
@@ -1545,7 +1554,7 @@ test("pad progression length, chord edits and play position work across bars", a
     page
       .getByRole("group", { name: "Pad sound", exact: true })
       .getByRole("button"),
-  ).toHaveCount(6);
+  ).toHaveCount(PAD_SOUNDS.length);
   await page
     .getByRole("button", { name: "Enable chord pads", exact: true })
     .click();

@@ -11,7 +11,16 @@ import type { SequenceTiming } from "./timing";
 import { automationLaneSchema, scaleNotes, snapNote } from "./model";
 import type { MusicalScale } from "./model";
 
-export const ARP_SOUNDS = ["Pluck", "Pulse", "Glass", "Acid", "Reed", "Dust"];
+export const ARP_SOUNDS = [
+  "Pluck",
+  "Pulse",
+  "Glass",
+  "Acid",
+  "Reed",
+  "Dust",
+  "Sync",
+  "Vowel",
+];
 export const ARP_DIRECTIONS: ReadonlyArray<{
   id: ArpTrack["direction"];
   label: string;
@@ -55,7 +64,12 @@ export function emptyArpAutomation(): ArpAutomation {
 export const arpBaseSchema = z.object({
   timing: sequenceTimingSchema.default(createTiming),
   automation: arpAutomationSchema.default(emptyArpAutomation),
-  sound: z.number().int().min(0).max(5).default(0),
+  sound: z
+    .number()
+    .int()
+    .min(0)
+    .max(ARP_SOUNDS.length - 1)
+    .default(0),
   muted: z.boolean().default(true),
   notes: z
     .array(z.number().int().min(48).max(84))

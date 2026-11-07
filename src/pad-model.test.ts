@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { scaleNotes, SCALE_MODES } from "./model";
 import {
   PAD_PROGRESSIONS,
+  PAD_SOUNDS,
   automatedPad,
   normalizedPadValue,
   applyPadProgression,
@@ -26,6 +27,35 @@ describe("chord progression model", () => {
     expect(padSchema.parse(JSON.parse(JSON.stringify(pad)))).toEqual(pad);
   });
 
+  it("appends contrasting pads while preserving old selections and complete curves", () => {
+    expect(PAD_SOUNDS.slice(0, 6)).toEqual([
+      "Velvet",
+      "Air",
+      "Choir",
+      "Glass",
+      "Dust",
+      "Drone",
+    ]);
+    for (const sound of [6, 7]) {
+      const track = createPad();
+      track.sound = sound;
+      track.muted = false;
+      track.automation.shape = Array.from(
+        { length: trackStepCount(track.timing) },
+        (_, index) => index / (trackStepCount(track.timing) - 1),
+      );
+      const restored = padSchema.parse(JSON.parse(JSON.stringify(track)));
+      expect(restored).toEqual(track);
+      expect(
+        automatedPad(restored, trackStepCount(track.timing) - 1).shape,
+      ).toBe(1);
+      expect(padChordNotes(restored, { root: 9, mode: "minor" }, 0)).toEqual(
+        padChordNotes(createPad(), { root: 9, mode: "minor" }, 0),
+      );
+      expect(padTailDuration(restored, 120)).toBeGreaterThan(0);
+    }
+  });
+
   it("rejects unsafe lengths, sound choices and chord positions at the boundary", () => {
     const pad = createPad();
     for (const bars of [0, -1, 3, 32, Infinity])
@@ -33,7 +63,9 @@ describe("chord progression model", () => {
         padSchema.safeParse({ ...pad, timing: { ...pad.timing, bars } })
           .success,
       ).toBe(false);
-    expect(padSchema.safeParse({ ...pad, sound: 6 }).success).toBe(false);
+    expect(
+      padSchema.safeParse({ ...pad, sound: PAD_SOUNDS.length }).success,
+    ).toBe(false);
     expect(
       padSchema.safeParse({ ...pad, chords: pad.chords.slice(1) }).success,
     ).toBe(false);

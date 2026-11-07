@@ -29,6 +29,32 @@ interface ArpVoice {
 }
 
 function profileFor(sound: number): ArpProfile {
+  if (sound === 6)
+    return {
+      first: "sine",
+      second: "sine",
+      harmonic: 1,
+      level: 0.3,
+      attack: 0.002,
+      sustain: 0.2,
+      release: 0.28,
+      fm: 0,
+      ratio: 1,
+      brightness: 1.4,
+    };
+  if (sound === 7)
+    return {
+      first: "sawtooth",
+      second: "triangle",
+      harmonic: 1,
+      level: 0.52,
+      attack: 0.006,
+      sustain: 0.3,
+      release: 0.4,
+      fm: 0,
+      ratio: 1,
+      brightness: 1.6,
+    };
   if (sound === 1)
     return {
       first: "square",
@@ -106,6 +132,27 @@ function profileFor(sound: number): ArpProfile {
     ratio: 2,
     brightness: 0.8,
   };
+}
+
+/** Reset a sine slave on each fundamental cycle; retain only band-limited partials. */
+function syncWave(context: BaseAudioContext, shape: number): PeriodicWave {
+  const real = new Float32Array(48),
+    imaginary = new Float32Array(48);
+  const ratio = 1.35 + shape * 6.4;
+  const samples = 256;
+  for (let harmonic = 1; harmonic < real.length; harmonic++) {
+    let cosine = 0,
+      sine = 0;
+    for (let sample = 0; sample < samples; sample++) {
+      const phase = (sample * Math.PI * 2) / samples;
+      const value = Math.sin(phase * ratio);
+      cosine += value * Math.cos(phase * harmonic);
+      sine += value * Math.sin(phase * harmonic);
+    }
+    real[harmonic] = (cosine * 2) / samples;
+    imaginary[harmonic] = (sine * 2) / samples;
+  }
+  return context.createPeriodicWave(real, imaginary);
 }
 
 export function arpTailDuration(track: ArpTrack, bpm: number): number {
@@ -238,6 +285,8 @@ export class ArpInstrument {
       envelope,
     };
     first.type = profile.first;
+    if (track.sound === 6)
+      first.setPeriodicWave(syncWave(context, track.shape));
     second.type = profile.second;
     first.frequency.value = frequency;
     second.frequency.value = frequency * profile.harmonic;
@@ -256,9 +305,32 @@ export class ArpInstrument {
     );
     modulation.connect(modulationLevel);
     modulationLevel.connect(first.frequency);
-    first.connect(filter);
-    second.connect(secondLevel);
-    secondLevel.connect(filter);
+    if (track.sound === 7) {
+      const source = context.createGain();
+      first.connect(source);
+      second.connect(secondLevel);
+      secondLevel.connect(source);
+      for (const [index, formant] of [
+        420 + track.shape * 650,
+        1150 + track.shape * 1600,
+      ].entries()) {
+        const band = context.createBiquadFilter();
+        const gain = context.createGain();
+        band.type = "bandpass";
+        band.frequency.value = formant * (frequency / 220) ** 0.2;
+        band.Q.value = 2 + track.resonance * 5;
+        gain.gain.value = index === 0 ? 1 : 0.65;
+        source.connect(band);
+        band.connect(gain);
+        gain.connect(filter);
+        voice.nodes.push(band, gain);
+      }
+      voice.nodes.push(source);
+    } else {
+      first.connect(filter);
+      second.connect(secondLevel);
+      secondLevel.connect(filter);
+    }
     filter.type = "lowpass";
     filter.Q.value =
       track.sound === 4

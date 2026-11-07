@@ -66,7 +66,7 @@ export function emptyDrumAutomation(): DrumAutomation {
 }
 export const drumIdSchema = z.enum(["kick", "snare", "hat", "clap", "rim"]);
 export type DrumId = z.infer<typeof drumIdSchema>;
-export const drumSchema = z.object({
+const drumBaseSchema = z.object({
   timing: sequenceTimingSchema.default(createTiming),
   pan: z.number().min(-1).max(1).default(0),
   attack: z.number().min(0).max(1).default(0),
@@ -75,13 +75,17 @@ export const drumSchema = z.object({
   tone: z.number().min(0).max(1).default(0.5),
   drive: z.number().min(0).max(1).default(0),
   id: drumIdSchema,
-  sound: z.number().int().min(0).max(4),
+  sound: z.number().int().min(0).max(7),
   pitch: z.number().min(-24).max(24),
   decay: z.number().min(0.03).max(1.5),
   volume: z.number().min(0).max(1),
   muted: z.boolean(),
   steps: z.array(z.boolean()).min(1).max(240),
 });
+export const drumSchema = drumBaseSchema.refine(
+  (track) => track.sound <= (track.id === "hat" ? 7 : 6),
+  { message: "Choose an available drum sound", path: ["sound"] },
+);
 export type DrumTrack = z.infer<typeof drumSchema>;
 export const bassStepSchema = z.object({
   note: z.number().int().min(24).max(60),
@@ -143,7 +147,7 @@ export const bassSchema = z.object({
   pulse: z.number().min(0).max(1).default(0.5),
   shape: z.number().min(0).max(1).default(0.5),
   drive: z.number().min(0).max(1).default(0),
-  sound: z.number().int().min(0).max(8).default(2),
+  sound: z.number().int().min(0).max(10).default(2),
   automation: bassAutomationSchema.default(emptyBassAutomation),
   waveform: z.enum(["sawtooth", "square"]),
   cutoff: z.number().min(80).max(8000),
@@ -165,6 +169,8 @@ export const BASS_SOUNDS = [
   "Rubber",
   "Reese",
   "Pressure",
+  "Hollow",
+  "Bite",
 ];
 export const keysStepSchema = z.object({
   note: z.number().int().min(48).max(84),
@@ -179,7 +185,7 @@ export const keysSchema = z.object({
   grit: z.number().min(0).max(1).default(0),
   motion: z.number().min(0).max(1).default(0),
   automation: keysAutomationSchema.default(emptyKeysAutomation),
-  sound: z.number().int().min(0).max(5),
+  sound: z.number().int().min(0).max(7),
   tone: z.number().min(0).max(1),
   decay: z.number().min(0.08).max(2),
   space: z.number().min(0).max(1),
@@ -294,6 +300,8 @@ export const KEYS_SOUNDS = [
   "Scatter",
   "Dub",
   "Frost",
+  "Membrane",
+  "Vapor",
 ];
 export function createKeys(preset = 0): KeysTrack {
   const root = preset === 2 ? 60 : 57;
@@ -448,31 +456,56 @@ export const DRUM_META: Record<
   kick: {
     name: "Kick",
     short: "BD",
-    sounds: ["Deep 808", "Punch 909", "Distorted", "Sub", "Knock"],
+    sounds: [
+      "Deep 808",
+      "Punch 909",
+      "Distorted",
+      "Sub",
+      "Knock",
+      "Thump",
+      "Zap",
+    ],
     icon: "circle-dot",
   },
   snare: {
     name: "Snare",
     short: "SD",
-    sounds: ["Dusty", "Tight 909", "Metallic", "Break", "Brush"],
+    sounds: [
+      "Dusty",
+      "Tight 909",
+      "Metallic",
+      "Break",
+      "Brush",
+      "Gated",
+      "Clatter",
+    ],
     icon: "drum",
   },
   hat: {
     name: "Hi-hat",
     short: "HH",
-    sounds: ["Closed", "Open", "Metallic", "Shaker", "Ride"],
+    sounds: [
+      "Tight",
+      "Air",
+      "Tick",
+      "Brush",
+      "Loose",
+      "Skitter",
+      "Voltage",
+      "Orbit",
+    ],
     icon: "disc-3",
   },
   clap: {
     name: "Clap",
     short: "CP",
-    sounds: ["Classic", "Wide", "Crunchy", "Room", "Snap"],
+    sounds: ["Classic", "Wide", "Crunchy", "Room", "Snap", "Hands", "Smear"],
     icon: "audio-lines",
   },
   rim: {
     name: "Rimshot",
     short: "RM",
-    sounds: ["Dry", "Wood", "Click", "Clave", "Block"],
+    sounds: ["Dry", "Wood", "Click", "Clave", "Block", "Stick", "Scrape"],
     icon: "circle-dot",
   },
 };
@@ -575,7 +608,7 @@ const legacyPadSchema = padBaseSchema.extend({
 const legacyBase = baseProjectSchema.extend({
   version: z.literal(2),
   drums: z
-    .array(drumSchema.extend({ steps: z.array(z.boolean()).length(16) }))
+    .array(drumBaseSchema.extend({ steps: z.array(z.boolean()).length(16) }))
     .length(5)
     .refine((drums) => new Set(drums.map((drum) => drum.id)).size === 5),
   bass: bassSchema.extend({ steps: z.array(bassStepSchema).length(16) }),
@@ -604,7 +637,7 @@ const legacyProjectSchema = legacyBase.omit({ keys: true }).extend({
   version: z.literal(1),
   drums: z
     .array(
-      drumSchema.extend({
+      drumBaseSchema.extend({
         id: z.enum(["kick", "snare", "hat", "clap", "cowbell"]),
         steps: z.array(z.boolean()).length(16),
       }),

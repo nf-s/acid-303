@@ -89,6 +89,28 @@ const profiles: PadProfile[] = [
     motion: 0.08,
     noise: 0.012,
   },
+  {
+    main: "sawtooth",
+    layer: "sawtooth",
+    harmonic: 1,
+    detune: 14,
+    gain: 0.1,
+    cutoff: 1.2,
+    resonance: 0.5,
+    motion: 0.16,
+    noise: 0,
+  },
+  {
+    main: "sine",
+    layer: "sine",
+    harmonic: 2,
+    detune: 0,
+    gain: 0.12,
+    cutoff: 1.8,
+    resonance: 0.4,
+    motion: 1.6,
+    noise: 0,
+  },
 ];
 
 export function padReleaseSeconds(track: PadTrack): number {
@@ -117,6 +139,9 @@ class PadVoice {
   private readonly vibrato: GainNode;
   private readonly layers: GainNode[] = [];
   private readonly panners: StereoPannerNode[] = [];
+  private readonly phaseFilters: BiquadFilterNode[] = [];
+  private readonly harmonics: Array<{ gain: GainNode; weight: number }> = [];
+  private rotaryDepth: GainNode | null = null;
   private readonly profile: PadProfile;
   readonly sound: number;
   endsAt: number;
@@ -191,6 +216,36 @@ class PadVoice {
         level.connect(this.filter);
         this.nodes.push(formant, level);
       }
+    } else if (track.sound === 6) {
+      const dry = context.createGain(),
+        wet = context.createGain();
+      dry.gain.value = 0.55;
+      wet.gain.value = 0.45;
+      mix.connect(dry);
+      dry.connect(this.filter);
+      let previous: AudioNode = mix;
+      for (let stage = 0; stage < 4; stage++) {
+        const phase = context.createBiquadFilter();
+        phase.type = "allpass";
+        phase.Q.value = 0.7;
+        this.lfoDepth.connect(phase.detune);
+        previous.connect(phase);
+        previous = phase;
+        this.phaseFilters.push(phase);
+        this.nodes.push(phase);
+      }
+      previous.connect(wet);
+      wet.connect(this.filter);
+      this.nodes.push(dry, wet);
+    } else if (track.sound === 7) {
+      const rotary = context.createGain();
+      rotary.gain.value = 0.78;
+      this.rotaryDepth = context.createGain();
+      this.lfo.connect(this.rotaryDepth);
+      this.rotaryDepth.connect(rotary.gain);
+      mix.connect(rotary);
+      rotary.connect(this.filter);
+      this.nodes.push(rotary, this.rotaryDepth);
     } else mix.connect(this.filter);
 
     for (const [index, note] of notes.entries()) {
@@ -219,6 +274,26 @@ class PadVoice {
       this.nodes.push(mainLevel, layerLevel, pan);
       this.layers.push(layerLevel);
       this.panners.push(pan);
+      if (track.sound === 7) {
+        for (const [partial, weight] of [
+          [3, 0.38],
+          [4, 0.24],
+          [8, 0.12],
+        ]) {
+          if (partial === undefined || weight === undefined) continue;
+          const harmonic = context.createOscillator(),
+            gain = context.createGain();
+          harmonic.type = "sine";
+          harmonic.frequency.value = frequency * partial;
+          gain.gain.value = 0;
+          harmonic.connect(gain);
+          gain.connect(pan);
+          this.vibrato.connect(harmonic.detune);
+          this.sources.push(harmonic);
+          this.nodes.push(gain);
+          this.harmonics.push({ gain, weight });
+        }
+      }
       if (track.sound === 3) {
         const modulator = context.createOscillator();
         const depth = context.createGain();
@@ -330,6 +405,22 @@ class PadVoice {
         ((index / Math.max(1, this.panners.length - 1)) * 2 - 1) *
           track.spread *
           0.85,
+        time,
+        0.04,
+      ),
+    );
+    this.phaseFilters.forEach((filter, index) =>
+      filter.frequency.setTargetAtTime(
+        180 * 2 ** index * (0.5 + track.shape * 3),
+        time,
+        0.04,
+      ),
+    );
+    this.rotaryDepth?.gain.setTargetAtTime(track.motion * 0.22, time, 0.04);
+    this.harmonics.forEach(({ gain, weight }) =>
+      gain.gain.setTargetAtTime(
+        (this.profile.gain * weight * (0.1 + track.shape * 1.5)) /
+          Math.sqrt(this.panners.length),
         time,
         0.04,
       ),

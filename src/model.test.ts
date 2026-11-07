@@ -440,12 +440,12 @@ describe("global scale lock", () => {
       readProject({ ...saved, scale: { root: 9, mode: "unknown" } }),
     ).toBeNull();
     expect(
-      readProject({ ...saved, keys: { ...current.keys, sound: 6 } }),
+      readProject({ ...saved, keys: { ...current.keys, sound: 8 } }),
     ).toBeNull();
     expect(
       readProject({
         ...saved,
-        drums: current.drums.map((drum) => ({ ...drum, sound: 5 })),
+        drums: current.drums.map((drum) => ({ ...drum, sound: 8 })),
       }),
     ).toBeNull();
   });
@@ -502,7 +502,9 @@ describe("instrument automation", () => {
     if (!loaded || !second) throw new Error("Expected valid legacy projects.");
     loaded.bass.automation.cutoff = Array.from({ length: 16 }, () => 0.5);
     expect(second.bass.automation.cutoff).toBeNull();
-    expect(readProject({ ...project, bass: { ...bass, sound: 9 } })).toBeNull();
+    expect(
+      readProject({ ...project, bass: { ...bass, sound: 11 } }),
+    ).toBeNull();
   });
 
   it("rejects malformed, out-of-range and nonfinite automation at the saved-data boundary", () => {
@@ -771,5 +773,46 @@ describe("independent timing migration", () => {
     expect(frame.positions.kick?.index).toBe(0);
     expect(frame.positions.snare?.index).not.toBe(0);
     expect(playbackFrame(project, 0, false).positions.bass).toBeNull();
+  });
+});
+
+describe("expanded sound catalogs", () => {
+  it("accepts each catalog entry and rejects missing per-instrument indices", async () => {
+    const {
+      DRUM_META,
+      BASS_SOUNDS,
+      KEYS_SOUNDS,
+      drumSchema,
+      bassSchema,
+      keysSchema,
+    } = await import("./model");
+    const project = createProject();
+    for (const drum of project.drums) {
+      const names = DRUM_META[drum.id].sounds;
+      expect(names).toHaveLength(drum.id === "hat" ? 8 : 7);
+      expect(new Set(names).size).toBe(names.length);
+      for (let sound = 0; sound < names.length; sound++)
+        expect(drumSchema.safeParse({ ...drum, sound }).success).toBe(true);
+      expect(
+        drumSchema.safeParse({ ...drum, sound: names.length }).success,
+      ).toBe(false);
+    }
+    expect(BASS_SOUNDS).toHaveLength(11);
+    expect(KEYS_SOUNDS).toHaveLength(8);
+    for (let sound = 0; sound < BASS_SOUNDS.length; sound++)
+      expect(bassSchema.safeParse({ ...project.bass, sound }).success).toBe(
+        true,
+      );
+    for (let sound = 0; sound < KEYS_SOUNDS.length; sound++)
+      expect(keysSchema.safeParse({ ...project.keys, sound }).success).toBe(
+        true,
+      );
+    project.drums = project.drums.map((track) => ({
+      ...track,
+      sound: DRUM_META[track.id].sounds.length - 1,
+    }));
+    project.bass.sound = 10;
+    project.keys.sound = 7;
+    expect(readProject(JSON.parse(JSON.stringify(project)))).toEqual(project);
   });
 });

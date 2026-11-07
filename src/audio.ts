@@ -404,6 +404,97 @@ function scheduleSources(
   }
 }
 
+interface HatProfile {
+  highpass: number;
+  lowpass: number;
+  level: number;
+  attack: number;
+  length: number;
+  maximum: number;
+}
+function hatProfile(sound: number): HatProfile {
+  const profiles: HatProfile[] = [
+    {
+      highpass: 4800,
+      lowpass: 11200,
+      level: 0.7,
+      attack: 0.0012,
+      length: 0.8,
+      maximum: 0.8,
+    },
+    {
+      highpass: 5800,
+      lowpass: 14500,
+      level: 0.54,
+      attack: 0.003,
+      length: 3.2,
+      maximum: 2.5,
+    },
+    {
+      highpass: 7200,
+      lowpass: 13000,
+      level: 0.62,
+      attack: 0.0008,
+      length: 0.55,
+      maximum: 0.35,
+    },
+    {
+      highpass: 3200,
+      lowpass: 9000,
+      level: 0.58,
+      attack: 0.01,
+      length: 1.5,
+      maximum: 1.6,
+    },
+    {
+      highpass: 4200,
+      lowpass: 13800,
+      level: 0.42,
+      attack: 0.004,
+      length: 6,
+      maximum: 3,
+    },
+    {
+      highpass: 4500,
+      lowpass: 10500,
+      level: 0.76,
+      attack: 0.001,
+      length: 1.1,
+      maximum: 1.4,
+    },
+    {
+      highpass: 3500,
+      lowpass: 11000,
+      level: 0.43,
+      attack: 0.001,
+      length: 1,
+      maximum: 1.4,
+    },
+    {
+      highpass: 2800,
+      lowpass: 10500,
+      level: 0.55,
+      attack: 0.008,
+      length: 2.4,
+      maximum: 2.5,
+    },
+  ];
+  return (
+    profiles[sound] ?? {
+      highpass: 4800,
+      lowpass: 11200,
+      level: 0.7,
+      attack: 0.0012,
+      length: 0.8,
+      maximum: 0.8,
+    }
+  );
+}
+function hatDuration(sound: number, decay: number): number {
+  const profile = hatProfile(sound);
+  return Math.max(0.018, Math.min(profile.maximum, decay * profile.length));
+}
+
 function drumVoice(graph: AudioGraph, track: DrumTrack, time: number): void {
   if (track.volume === 0) return;
   const context = graph.context;
@@ -511,7 +602,135 @@ function drumVoice(graph: AudioGraph, track: DrumTrack, time: number): void {
     return filter;
   };
 
-  if (track.id === "kick") {
+  if (track.id === "kick" && track.sound >= 5) {
+    const root = midiFrequency(24 + graph.scale.root);
+    const length = track.sound === 5 ? decay * 0.9 : decay * 0.72;
+    const body = oscillator(
+      "sine",
+      root * (track.sound === 5 ? 1.8 : 3.8),
+      output,
+    );
+    body.frequency.exponentialRampToValueAtTime(
+      root * pitch,
+      time + (track.sound === 5 ? 0.035 : 0.016),
+    );
+    envelope(output.gain, track.sound === 5 ? 0.94 : 0.85, length);
+    const transient = context.createGain();
+    transient.gain.value = 0;
+    nodes.push(transient);
+    if (track.sound === 5) {
+      transient.connect(mix);
+      oscillator("triangle", root * 2, transient);
+      envelope(transient.gain, 0.12, Math.min(0.06, length));
+    } else {
+      transient.connect(body.frequency);
+      oscillator("sine", root * 5, transient);
+      transient.gain.setValueAtTime(root * pitch * 3, time);
+      transient.gain.exponentialRampToValueAtTime(
+        MIN_GAIN,
+        time + Math.min(0.045, length),
+      );
+      const click = context.createGain();
+      click.gain.value = 0;
+      click.connect(mix);
+      nodes.push(click);
+      noise("bandpass", 2400, click);
+      envelope(click.gain, 0.075, 0.009);
+    }
+    end = time + length + 0.06;
+  } else if (track.id === "snare" && track.sound >= 5) {
+    const length =
+      track.sound === 5
+        ? Math.min(0.65, decay * 0.85)
+        : Math.min(1.4, decay * 1.05);
+    const lowpass = context.createBiquadFilter();
+    lowpass.type = "lowpass";
+    lowpass.frequency.value = track.sound === 5 ? 8200 : 6200;
+    lowpass.connect(output);
+    nodes.push(lowpass);
+    const filter = noise("bandpass", track.sound === 5 ? 2900 : 1600, lowpass);
+    filter.Q.value = track.sound === 5 ? 0.6 : 1.25;
+    const body = context.createGain();
+    body.gain.value = 0;
+    body.connect(mix);
+    nodes.push(body);
+    oscillator("triangle", midiFrequency(48 + graph.scale.root), body);
+    envelope(body.gain, 0.15, Math.min(length * 0.5, 0.16));
+    if (track.sound === 5) {
+      output.gain.setValueAtTime(0, time);
+      output.gain.linearRampToValueAtTime(track.volume * 0.64, time + 0.0015);
+      output.gain.exponentialRampToValueAtTime(
+        Math.max(MIN_GAIN, track.volume * 0.24),
+        time + length * 0.72,
+      );
+      output.gain.linearRampToValueAtTime(0, time + length);
+    } else {
+      for (let pulse = 0; pulse < 4; pulse++)
+        envelope(
+          output.gain,
+          0.62 / (1 + pulse * 0.35),
+          pulse === 3 ? length : 0.012,
+          pulse * 0.018,
+        );
+    }
+    end = time + length + (track.sound === 6 ? 0.104 : 0.05);
+  } else if (track.id === "clap" && track.sound >= 5) {
+    const filter = noise("bandpass", track.sound === 5 ? 1450 : 2300, output);
+    filter.Q.value = track.sound === 5 ? 0.8 : 0.5;
+    if (track.sound === 5) {
+      for (const [index, offset] of [0, 0.014, 0.033, 0.061].entries())
+        envelope(
+          output.gain,
+          0.54 - index * 0.055,
+          index === 3 ? decay * 0.65 : 0.012,
+          offset,
+        );
+      end = time + 0.061 + decay * 0.65 + 0.05;
+    } else {
+      const length = decay * 1.25;
+      output.gain.setValueAtTime(0, time);
+      output.gain.linearRampToValueAtTime(
+        track.volume * 0.5,
+        time + Math.min(0.09, length * 0.3),
+      );
+      output.gain.exponentialRampToValueAtTime(MIN_GAIN, time + length);
+      const room = context.createConvolver(),
+        wet = context.createGain();
+      room.buffer = textureRoom(graph);
+      wet.gain.value = 0.27;
+      output.connect(room);
+      room.connect(wet);
+      wet.connect(mix);
+      nodes.push(room, wet);
+      end = time + length + 0.95;
+    }
+  } else if (track.id === "rim" && track.sound >= 5) {
+    const root = midiFrequency(60 + graph.scale.root);
+    const length = Math.max(0.025, decay * (track.sound === 5 ? 0.42 : 0.9));
+    if (track.sound === 5) {
+      oscillator("triangle", root, output);
+      const partial = context.createGain();
+      partial.gain.value = 0.16;
+      partial.connect(output);
+      nodes.push(partial);
+      oscillator("sine", root * 4, partial);
+      envelope(output.gain, 0.36, length);
+    } else {
+      const resonator = noise("bandpass", root * 2, output);
+      resonator.Q.value = 5;
+      resonator.frequency.exponentialRampToValueAtTime(
+        root * pitch,
+        time + length,
+      );
+      const partial = context.createGain();
+      partial.gain.value = 0.05;
+      partial.connect(output);
+      nodes.push(partial);
+      oscillator("sine", root, partial);
+      envelope(output.gain, 2.1, length);
+    }
+    end = time + length + 0.05;
+  } else if (track.id === "kick") {
     const fundamental = midiFrequency(
       (track.sound === 4 ? 36 : 24) + graph.scale.root,
     );
@@ -608,47 +827,89 @@ function drumVoice(graph: AudioGraph, track: DrumTrack, time: number): void {
       envelope(snap.gain, 0.47, decay);
     }
   } else if (track.id === "hat") {
-    if (track.sound === 3) {
-      const filter = noise("bandpass", 7500, output);
-      filter.Q.value = 0.6;
-      envelope(output.gain, 0.25, 0.008);
-      envelope(output.gain, 0.19, 0.009, 0.011);
-      envelope(output.gain, 0.15, 0.009, 0.023);
-      envelope(output.gain, 0.12, decay * 0.8, 0.035);
-      end = time + 0.035 + decay * 0.8 + 0.06;
-    } else {
-      const highpass = context.createBiquadFilter();
-      highpass.type = "highpass";
-      highpass.frequency.value = Math.min(
-        16000,
-        (track.sound === 4 ? 3600 : track.sound === 2 ? 4100 : 6500) * pitch,
+    const profile = hatProfile(track.sound),
+      length = hatDuration(track.sound, decay);
+    const lowpass = context.createBiquadFilter();
+    lowpass.type = "lowpass";
+    lowpass.Q.value = 0.55;
+    lowpass.frequency.value = Math.min(
+      18000,
+      profile.lowpass * Math.sqrt(pitch),
+    );
+    lowpass.connect(output);
+    nodes.push(lowpass);
+    const hiss = context.createGain();
+    hiss.gain.value = profile.level;
+    hiss.connect(lowpass);
+    nodes.push(hiss);
+    const highpass = noise(
+      "highpass",
+      Math.min(12000, profile.highpass / Math.sqrt(pitch)),
+      hiss,
+    );
+    highpass.Q.value = 0.5;
+    if (track.sound === 2 || track.sound === 4 || track.sound === 6) {
+      const metal = context.createGain();
+      metal.gain.value =
+        track.sound === 2 ? 0.035 : track.sound === 4 ? 0.025 : 0.06;
+      metal.connect(lowpass);
+      nodes.push(metal);
+      const root = midiFrequency(48 + graph.scale.root);
+      const harmonic = (ratio: number) =>
+        Math.min(context.sampleRate * 0.4, root * pitch * ratio) / pitch;
+      const carrier = oscillator(
+        "sine",
+        harmonic(track.sound === 2 ? 24 : 16),
+        metal,
       );
-      highpass.Q.value = 0.7;
-      highpass.connect(output);
-      nodes.push(highpass);
-      const metalRatios =
-        track.sound === 4
-          ? [1, 1.405, 1.99, 2.86, 3.95, 5.88]
-          : [1, 1.8, 2.546, 3.897, 5.1, 6.819];
-      for (const ratio of metalRatios) {
-        oscillator(
-          "square",
-          midiFrequency(48 + graph.scale.root) * ratio,
-          highpass,
+      if (track.sound === 4) {
+        oscillator("sine", harmonic(23), metal);
+        oscillator("sine", harmonic(31), metal);
+      }
+      if (track.sound === 6) {
+        const depth = context.createGain();
+        depth.gain.value = root * pitch * 7;
+        depth.connect(carrier.frequency);
+        nodes.push(depth);
+        oscillator("sine", harmonic(16 * Math.SQRT2), depth);
+        depth.gain.exponentialRampToValueAtTime(
+          root * pitch * 0.2,
+          time + length,
         );
       }
-      const length =
-        track.sound === 4
-          ? Math.min(3, decay * 6)
-          : Math.min(2.5, decay * (track.sound === 1 ? 3.2 : 1));
-      if (track.sound === 4) noise("highpass", 6200, highpass);
-      envelope(
-        output.gain,
-        track.sound === 4 ? 0.045 : track.sound === 2 ? 0.11 : 0.075,
-        length,
-      );
-      end = time + length + 0.05;
     }
+    if (track.sound === 7) {
+      const depth = context.createGain();
+      depth.gain.value = 1200;
+      depth.connect(lowpass.detune);
+      nodes.push(depth);
+      oscillator("sine", 18 / pitch, depth);
+      lowpass.frequency.setValueAtTime(
+        Math.min(15000, 7000 * Math.sqrt(pitch)),
+        time,
+      );
+      lowpass.frequency.exponentialRampToValueAtTime(
+        Math.min(12000, 3000 * Math.sqrt(pitch)),
+        time + length,
+      );
+    }
+    if (track.sound === 5) {
+      for (let pulse = 0; pulse < 4; pulse++)
+        envelope(
+          output.gain,
+          0.75 / (1 + pulse * 0.25),
+          Math.max(0.006, length / 5),
+          (pulse * length) / 4,
+        );
+    } else {
+      output.gain.setValueAtTime(0, time);
+      output.gain.linearRampToValueAtTime(
+        track.volume * 0.68,
+        time + Math.min(profile.attack, length * 0.25),
+      );
+      output.gain.exponentialRampToValueAtTime(MIN_GAIN, time + length);
+    }
+    end = time + length + 0.05;
   } else if (track.id === "clap") {
     output.gain.value = 0;
     const filter = noise(
@@ -971,6 +1232,50 @@ function bassProfile(sound: number): BassProfile {
       fmRatio: 2,
       drive: 0.08,
     };
+  if (sound === 9)
+    return {
+      tones: [
+        { type: "square", multiplier: 1, level: 0.45, detune: 0, pan: 0 },
+        { type: "sine", multiplier: 3, level: 0.3, detune: 0, pan: -0.12 },
+        { type: "sine", multiplier: 1, level: 0.25, detune: 0, pan: 0.12 },
+      ],
+      level: 0.49,
+      attack: 0.003,
+      sustain: 0.18,
+      gate: 0.78,
+      release: 0.8,
+      cutoff: 0.8,
+      resonance: 0.09,
+      envelope: 3.2,
+      brightness: 750,
+      accentBrightness: 1500,
+      filterDecay: 0.55,
+      fm: 0.35,
+      fmRatio: 3,
+      drive: 0,
+    };
+  if (sound === 10)
+    return {
+      tones: [
+        { type: "sawtooth", multiplier: 1, level: 0.4, detune: -3, pan: -0.1 },
+        { type: "square", multiplier: 2, level: 0.35, detune: 3, pan: 0.1 },
+        { type: "sine", multiplier: 0.5, level: 0.25, detune: 0, pan: 0 },
+      ],
+      level: 0.42,
+      attack: 0.0015,
+      sustain: 0.13,
+      gate: 0.7,
+      release: 0.6,
+      cutoff: 1.6,
+      resonance: 0.3,
+      envelope: 8,
+      brightness: 2600,
+      accentBrightness: 3800,
+      filterDecay: 0.45,
+      fm: 1.8,
+      fmRatio: 1,
+      drive: 0.12,
+    };
   return {
     tones: [
       { type: "selected", multiplier: 1, level: 1, detune: 0, pan: 0 },
@@ -1263,7 +1568,7 @@ function keysEchoTail(track: KeysTrack, bpm: number): number {
   return track.space > 0
     ? Math.max(
         (60 / bpm) * (track.sound === 4 ? 2.25 : 1.5),
-        track.sound === 1 || track.sound === 5 ? 0.9 : 0,
+        track.sound === 1 || track.sound === 5 || track.sound === 7 ? 0.9 : 0,
       )
     : 0;
 }
@@ -1282,10 +1587,11 @@ export function exportTailDuration(project: Project): number {
         decay = Math.min(2, track.decay * 1.35);
       if (track.id === "snare" && track.sound === 4)
         decay = Math.min(2, track.decay * 1.3);
-      if (track.id === "hat" && track.sound === 1)
-        decay = Math.min(2.5, track.decay * 3.2);
-      if (track.id === "hat" && track.sound === 4)
-        decay = Math.min(3, track.decay * 6);
+      if (track.id === "hat") decay = hatDuration(track.sound, track.decay);
+      if (track.id === "snare" && track.sound === 6)
+        decay = Math.min(1.4, track.decay * 1.05) + 0.054;
+      if (track.id === "clap" && track.sound === 6)
+        decay = track.decay * 1.25 + 0.95;
       if (track.id === "clap" && track.sound === 3)
         decay = track.decay * 1.2 + 0.945;
       return Math.max(longest, decay + 0.12 + (track.space > 0 ? 0.92 : 0));
@@ -1363,6 +1669,18 @@ function keysTones(sound: number): KeysTone[] {
       { type: "sine", multiplier: 1, level: 0.02, detune: 0 },
       { type: "sine", multiplier: 2, level: 0.025, detune: 4 },
       { type: "triangle", multiplier: 3, level: 0.008, detune: -4 },
+    ];
+  if (sound === 6)
+    return [
+      { type: "sine", multiplier: 1, level: 0.72, detune: 0 },
+      { type: "sine", multiplier: 2, level: 0.13, detune: 0 },
+      { type: "triangle", multiplier: 3, level: 0.055, detune: 0 },
+    ];
+  if (sound === 7)
+    return [
+      { type: "triangle", multiplier: 1, level: 0.28, detune: -6 },
+      { type: "sine", multiplier: 2, level: 0.24, detune: 6 },
+      { type: "sine", multiplier: 4, level: 0.1, detune: -3 },
     ];
   return [
     {
@@ -1469,6 +1787,46 @@ function textureShape(sound: number): TextureShape {
       noiseLevel: 0.9,
       noiseTail: 0.7,
       roomLevel: 0.4,
+    };
+  if (sound === 6)
+    return {
+      attack: 0.001,
+      amplitude: 0.58,
+      sustain: 0.1,
+      sustainTime: 0.45,
+      cutoffBase: 800,
+      cutoffRange: 5200,
+      cutoffRoot: 3,
+      tailBase: 220,
+      tailRange: 1200,
+      tailRoot: 1.5,
+      noiseRatio: 3,
+      noiseRange: 2,
+      noiseQ: 1.1,
+      noiseQRange: 0.8,
+      noiseLevel: 0.24,
+      noiseTail: 0.002,
+      roomLevel: 0,
+    };
+  if (sound === 7)
+    return {
+      attack: 0.035,
+      amplitude: 0.56,
+      sustain: 0.58,
+      sustainTime: 0.62,
+      cutoffBase: 700,
+      cutoffRange: 4300,
+      cutoffRoot: 2,
+      tailBase: 320,
+      tailRange: 1500,
+      tailRoot: 1,
+      noiseRatio: 2,
+      noiseRange: 4,
+      noiseQ: 5,
+      noiseQRange: 4,
+      noiseLevel: 0.22,
+      noiseTail: 0.07,
+      roomLevel: 0.22,
     };
   return {
     attack: sound === 1 ? 0.035 : sound === 2 ? 0.0035 : 0.0015,
@@ -1730,7 +2088,11 @@ class KeysVoice {
             ? 0.3 + track.motion * 3
             : track.sound === 5
               ? 4 + track.motion * 12
-              : 2 + track.motion * 18;
+              : track.sound === 6
+                ? 12 + track.motion * 38
+                : track.sound === 7
+                  ? 0.65 + track.motion * 7
+                  : 2 + track.motion * 18;
     this.motionOscillator.type = track.sound === 3 ? "triangle" : "sine";
     this.motionOscillator.frequency.setValueAtTime(motionRate, time);
     this.motionDepth.gain.setValueAtTime(track.motion * 0.48, time);
@@ -1754,7 +2116,16 @@ class KeysVoice {
           targetFrequency,
           time + Math.min(0.08, duration * 0.65),
         );
-      else tone.oscillator.frequency.setValueAtTime(targetFrequency, time);
+      else if (track.sound === 6) {
+        tone.oscillator.frequency.setValueAtTime(
+          targetFrequency * (1.32 + track.motion * 0.7),
+          time,
+        );
+        tone.oscillator.frequency.exponentialRampToValueAtTime(
+          targetFrequency,
+          time + Math.min(0.065, track.decay * 0.4),
+        );
+      } else tone.oscillator.frequency.setValueAtTime(targetFrequency, time);
     });
     const attack = Math.min(
       track.decay * shape.sustainTime * 0.8,
@@ -1831,16 +2202,26 @@ class KeysVoice {
       shape.noiseQ + track.tone * shape.noiseQRange,
       time,
     );
+    if (track.sound === 7)
+      this.noiseFilter.frequency.exponentialRampToValueAtTime(
+        Math.min(14000, frequency * (2.2 + track.tone * 2)),
+        time + track.decay,
+      );
     const noiseLevel = shape.noiseLevel;
     this.noiseGain.gain.cancelAndHoldAtTime(time);
     if (!incomingSlide || accent) {
       this.noiseGain.gain.setValueAtTime(noiseLevel, time);
-      if (track.sound !== 1 && track.sound !== 3 && track.sound !== 5)
+      if (
+        track.sound !== 1 &&
+        track.sound !== 3 &&
+        track.sound !== 5 &&
+        track.sound !== 7
+      )
         this.noiseGain.gain.exponentialRampToValueAtTime(
           shape.noiseTail,
           time + Math.min(0.035, track.decay * 0.4),
         );
-    } else if (track.sound === 1 || track.sound === 5)
+    } else if (track.sound === 1 || track.sound === 5 || track.sound === 7)
       this.noiseGain.gain.setTargetAtTime(noiseLevel, time, 0.02);
     if (track.sound === 3) {
       const length = outgoingSlide ? duration : track.decay;

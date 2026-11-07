@@ -21,8 +21,8 @@ both credentials. Local projects and snapshot Share links remain independent.
   It returns a random 128-bit room ID, distinct 256-bit host and guest tokens,
   and `expiresAt`. Creation also normalizes scale-locked pitches.
 - `GET /sessions/:roomId?clientId=<id>` upgrades to a WebSocket. The browser sends
-  protocols `["grain-session-v2", token]`. The response selects only
-  `grain-session-v2`; credentials are never put in an API URL or echoed as the
+  protocols `["grain-session-v3", token]`. The response selects only
+  `grain-session-v3`; credentials are never put in an API URL or echoed as the
   selected protocol. The server derives the role from the token.
 - Only token SHA-256 hashes are stored. Comparison uses the Workers
   constant-time comparison API. Guest links contain only the guest token in the
@@ -80,12 +80,33 @@ used by local imports. Existing room credentials, expiry, revision and client
 sequence acknowledgements remain intact. A migrated snapshot is written on the
 next accepted edit; migration itself does not add a storage write.
 
-Deploy the v2 Worker before the matching Pages client. Existing v1 sockets and
-authenticated v1 upgrade attempts receive `reload-required` and nonretryable
+Deploy the v3 Worker before the matching Pages client. Existing v1/v2 sockets and
+authenticated v1/v2 upgrade attempts receive `reload-required` and nonretryable
 close code `4010`, with no welcome or project data. A legacy host reconnect
-cannot displace a v2 host. Old Pages tabs must reload after the Pages deployment.
-This avoids interpreting old sixteenth-step clocks as the new tick clock. No
+cannot displace a v3 host. Old Pages tabs must reload after the Pages deployment.
+This avoids interpreting old sixteenth-step clocks as the new tick clock and
+prevents older catalog clients from receiving unsupported sound indices. No
 Durable Object namespace migration or deletion is required.
+
+## Sound catalog compatibility
+
+The expanded sound catalog uses wire protocol v3 while retaining Project
+version 3. Instrument timing, controls and saved patterns are unchanged. Hats
+have eight rebuilt sounds; the other drums have seven, Bass eleven, Texture
+eight, Arp eight and Pads eight. Each drum's boundary validates its own catalog;
+index 7 is valid for hats and rejected for the other drums.
+
+Existing room snapshots, credentials and deduplication records remain valid.
+The v3 Worker closes both legacy v1 and v2 sockets with `reload-required` and
+4010 after authentication, including restored hibernating sockets. It sends no
+new catalog state to legacy clients and does not let a legacy host replace an
+active v3 host. Current source tests cover highest indices across all nine
+instruments and reconnection after an old socket closes. Deployment evidence
+below records v2 until the coordinated v3 publication is verified.
+
+This catalog update adds no endpoint, storage row, binding or message type.
+The 1 MiB payload boundary, 20 Hz clock cap, indexed snapshot queries and the
+metered usage review below remain unchanged.
 
 ## Runtime and tests
 
