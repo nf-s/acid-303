@@ -21,8 +21,8 @@ both credentials. Local projects and snapshot Share links remain independent.
   It returns a random 128-bit room ID, distinct 256-bit host and guest tokens,
   and `expiresAt`. Creation also normalizes scale-locked pitches.
 - `GET /sessions/:roomId?clientId=<id>` upgrades to a WebSocket. The browser sends
-  protocols `["grain-session-v4", token]`. The response selects only
-  the requested compatible version (`grain-session-v4` or `grain-session-v3`); credentials are never put in an API URL or echoed as the
+  protocols `["grain-session-v5", token]`. The response selects only
+  the requested compatible version (`grain-session-v5`, `grain-session-v4` or `grain-session-v3`); credentials are never put in an API URL or echoed as the
   selected protocol. The server derives the role from the token.
 - Only token SHA-256 hashes are stored. Comparison uses the Workers
   constant-time comparison API. Guest links contain only the guest token in the
@@ -94,8 +94,8 @@ Project version 3 adds independent instrument timing and centered global FX.
 Older projects retain their one-bar, 16-step sequencers. Pad progression lengths
 move from `pad.bars` to `pad.timing.bars`; the old 16 automation knots expand by
 cyclic interpolation across the existing progression. Musical controls and
-scale remain intact. Maximum lengths are 240 cells for each sequencer and 480
-for Pads, with all non-null automation lanes matching their instrument length.
+scale remain intact. Maximum lengths are 240 cells for the original drum, Bass,
+Texture and Arp sequencers and 480 for Pads, Vocal, Cloud and Tension, with all non-null automation lanes matching their instrument length.
 
 The Worker accepts old project snapshots through the same validated migration
 used by local imports. Existing room credentials, expiry, revision and client
@@ -138,10 +138,40 @@ and an 80-lane maximum snapshot with 480 vocal notes. The payload limit stays
 1 MiB and the indexed snapshot read/update remains one row each. No endpoint,
 binding, storage table, polling query or clock write is added.
 
+## Cloud, Tension and musical vocal compatibility
+
+Project version 5 adds independently timed Cloud and Tension tracks, each with
+six sounds and eight automation lanes. Both migrate muted. The vocal catalog
+also expands from 24 to 48 samples; existing sample indices keep their meanings.
+The Worker stores parameters only, with no audio fetching or synthesis.
+
+The v5 Worker remains compatible with active v3 and v4 sockets and their saved
+credentials. It projects v4 snapshots without Cloud and Tension, and v3 snapshots
+without those tracks or Vocal. Unsupported-only edits still deliver empty patches
+with the original revision and acknowledgement. Legacy edits apply to the full
+canonical project, preserving hidden instruments. A v4 peer sees a new vocal
+sample as muted sample 0; its whole-track edits preserve the hidden sample and
+mute state. It can explicitly choose an older supported sample, but cannot send
+an unsupported sample index or unmute a masked sample accidentally.
+
+V5 welcome and presence messages report `supportsVocal` for host protocol 4 or
+newer, and `supportsVocalMusic`, `supportsCloud` and `supportsTension` for protocol 5. Older peers receive only fields accepted by their strict schemas. Guests can
+see when the active host needs to reload for a newer sound; they remain silent.
+An authenticated host upgrade starts stopped and retains the same room state.
+
+The maximum snapshot now contains 96 automation lanes. The 1 MiB message limit,
+4,096-change limit and indexed single-row persistence are unchanged. Very large
+project differences compact changed instrument roots into bounded replacements.
+A v4 vocal projection may serialize one complete vocal track per vocal edit,
+which adds bounded CPU and outgoing bytes but no database query or write beyond
+the accepted edit. The final 20 workerd tests cover all three protocol versions,
+hibernation, hidden-state preservation, highest sample indices and measured
+maximum-snapshot row costs.
+
 ## Sound catalog compatibility
 
 The expanded sound catalog introduced wire protocol v3 with Project
-version 3. The vocal release supports those clients alongside v4. Instrument timing, controls and saved patterns are unchanged. Hats
+version 3. The current release supports those clients alongside v4 and v5. Instrument timing, controls and saved patterns are unchanged. Hats
 have eight rebuilt sounds; the other drums have seven, Bass eleven, Texture
 eight, Arp eight and Pads eight. Each drum's boundary validates its own catalog;
 index 7 is valid for hats and rejected for the other drums.
@@ -196,7 +226,7 @@ expiration and revocation. A regression test concurrently edits the final arp
 and pad automation lanes, recovers them after hibernation and edits a single
 restored curve cell. Additional tests cover old-client rejection without host
 displacement, stored v2 migration with preserved deduplication, and a maximum
-72-lane project with sparse edits to cells 478–479. Disposable room storage also verifies query plans
+96-lane project with sparse edits to cells 478–479. Disposable room storage also verifies query plans
 and measured SQLite row costs. The frontend additionally tests separate host
 and guest browsers against the local Worker.
 
@@ -252,7 +282,8 @@ runs on a user action. The cached snapshot saves a read per warm edit; the
 client batches continuous gestures and reconnect replay to at most 10 edit
 messages/second. Full-project
 replacement can be a larger message, but remains one bounded snapshot write.
-The maximum-length randomized 80-lane fixture with 480 vocal notes exceeds 380 kB and stays below
+The maximum-length randomized 96-lane fixture, including 480 vocal notes and
+480 Cloud and Tension cells each, exceeds 530 kB and stays below
 1 MiB. Its indexed lookup and update still measure one row read and one row
 written; byte size, serialization and schema validation CPU increase despite
 that unchanged row count. Sparse curve patches reduce wire duplication, while
@@ -287,6 +318,35 @@ token logs. Workers Logs currently includes 200,000 events/day on Free and
 releases after 1 December 2026, when the published pricing changes. Inspect DO
 request/duration, SQLite rows, stored bytes and sampled errors after launch.
 See [Workers Logs pricing](https://developers.cloudflare.com/workers/observability/logs/workers-logs/#pricing).
+
+## Protocol v5 production release evidence
+
+Released 7 November 2026 at 14:05:13 UTC from commit `a0ff876`, using the frozen
+production bundle and authenticated Cloudflare API. Worker version
+`78889346-26cb-4ed2-b175-0b83c69f2f3a` serves 100% in deployment
+`f3b13d35-4937-4b8d-9758-eae182c98c8a`. The downloaded module matches the local
+426,317-byte artifact, SHA-256
+`86258c5161ead75bc7859ea8be3e5a809098a26bdf17b85fb6300b656f41c8ff`.
+The SQLite namespace `ffe237d4fde14ba99780aa4f28eb4bec`, origin allowlist,
+rate bindings and observability settings are unchanged. Export reconciliation
+created, changed and deleted no namespaces. Health returned 200; missing and
+unapproved Origins returned 403.
+
+One identified test room was created at 14:04:41.344 UTC before deployment.
+Its v4 host and v3 guest stayed connected through the update without close events.
+A v5 guest then recovered the same revision and edited Cloud, Tension and vocal
+sample 47. Legacy projections, empty v3 revisions, v4 masked vocal edits,
+hidden-state preservation, host-only clocks and an authenticated v5 host upgrade
+all passed. The replacement host started stopped and the previous host closed
+with code 4009. The room was ended and its credentials revoked at 14:05:28.738 UTC;
+no test room remains.
+
+Before publication, 20 workerd tests, generated types, strict typechecking,
+production build and deployment dry-run passed. The coordinated frontend passed
+190 unit tests. Chrome and WebKit each rendered every new performance sound at
+default and extreme settings and verified all sixteen automated controls.
+The durable audio regression also checks held Cloud playback, release/resume,
+independent simultaneous Tension strikes, Stop cleanup and silent guests.
 
 ## Vocal compatibility production release evidence
 
