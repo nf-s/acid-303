@@ -345,6 +345,17 @@ releases after 1 December 2026, when the published pricing changes. Inspect DO
 request/duration, SQLite rows, stored bytes and sampled errors after launch.
 See [Workers Logs pricing](https://developers.cloudflare.com/workers/observability/logs/workers-logs/#pricing).
 
+## Protocol v6 production release evidence
+
+Source `00522b0` was released on 8 November 2026. Worker version
+`4a1cab38-0323-46c8-91b6-a1b3f21870f7` retains SessionRoom namespace
+`ffe237d4fde14ba99780aa4f28eb4bec` and adds SampleStore namespace
+`f368b26b743f4b3393c20bdd93f866bd`. Old v5 host/guest pages stayed connected
+through Worker and Pages upgrades; a fresh v6 guest joined and edited the same
+room with the correct older-host capabilities. Test rooms and recording assets
+were cleaned up. Full hashes, tests and continuity results are recorded in
+[the Stage 12 release](stage12-release.md).
+
 ## Protocol v5 production release evidence
 
 Released 7 November 2026 at 14:05:13 UTC from commit `a0ff876`, using the frozen
@@ -442,16 +453,18 @@ Workers-subdomain change is needed.
 1. Finish the shared model changes, regenerate types, typecheck and run both
    protocol and Worker runtime tests plus the frontend multi-browser tests.
 2. Build production output and inspect `.cloudflare/output/v0/workers/default/worker.config.json`:
-   localhost must be disabled, the canonical Pages origin unchanged, and the
-   only database binding must be the SQLite `SessionRoom` namespace.
+   localhost must be disabled and the canonical Pages origin unchanged. Confirm
+   the SQLite `SessionRoom` and `SampleStore` bindings; preserve the existing
+   SessionRoom namespace and review any resource additions before publishing.
 3. Run `npm exec -- cf deploy --dry-run --prebuilt`. After the coordinated GO,
    publish with `npm exec -- cf deploy --prebuilt` using the verified account.
-   The cf config provisions this Worker's SQLite Durable Object export.
-   If the CLI has no login, the authenticated Cloudflare connector can upload
+   The cf config describes this Worker's SQLite Durable Object exports.
+   If the CLI has no login or rejects the existing script-API ownership, the
+   authenticated Cloudflare connector can upload
    the same built module with the production config's bindings and declarative
    `exports` metadata, then enable this script's workers.dev route. Do not use
    a temporary account or change the account-wide subdomain.
-4. Read back the deployed Worker settings and namespace. Verify `/health`, a
+4. Read back the deployed Worker settings and namespaces. Verify `/health`, a
    real canonical-origin creation, host and guest joins, ordered edits, host
    replacement, denied credentials/origins, and end/revocation. Delete test
    rooms by ending them. Confirm a localhost Origin is denied in production.

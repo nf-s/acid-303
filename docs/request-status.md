@@ -12,6 +12,7 @@ The recovery/contrast release is source `47354ff`, deployment
 The instrument/music-vocal release is source `a0ff876`, deployment
 `d02485f4-45e4-47d5-b994-807be2dba7db`; see [release evidence](stage10-release.md).
 The techno-defaults update is source `e3ef989`; see [release evidence](stage11-release.md).
+The composition/recording update is source `00522b0`; see [release evidence](stage12-release.md).
 
 | Request                                                  | Delivered behavior                                                                                                                                                                                                     |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -40,6 +41,19 @@ The techno-defaults update is source `e3ef989`; see [release evidence](stage11-r
 | Phone knob taps opening unrelated controls               | Reproduced pointerup scroll retargeting a compatibility click into Timing; deferred scrolling fixes that path. The exact original Mixer-opening action was not reproduced.                                             |
 | Vocal stab sampler                                       | 24 CC0 clips, waveform Start/End, duration rectangles, resize/join, Sustain, pitch/scale, eight automation lanes, recording, sharing, mixer and WAV export.                                                            |
 | Browser reloads while playing                            | Removed a confirmed title-link reload trap. Reduced per-note delay allocation; desktop WebKit Nightshift audio-only memory was about 44% lower over three minutes. Spontaneous physical-iOS reload was not reproduced. |
+
+## Composition and custom recordings
+
+| Request                            | Delivered behavior                                                                                                                                                                                                                                                                   |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Record and import custom vocals    | Vocal → Recordings captures up to ten seconds or imports a small PCM WAV; waveform trim, notes, automation and playback use the existing sampler. Local library and WAV download are available.                                                                                      |
+| Share projects with recordings     | Audio stays local until explicit sharing or use in a session. Separate capability-protected assets keep track links small; shared copies expire after approximately 30 days without server access. Missing audio leaves a clear unavailable state while the rest of the track works. |
+| Chords independent of Pad          | Shared Chords sits above Examples. Pad, Arp and Vocal each have a Follow chords switch, preserving their local musical settings when switched off. No routing graph is required.                                                                                                     |
+| Consistent sequence and automation | Collapsible Sequence and Automation sections separate editing while repeated notes/gates remain visible behind automation. Drum Advanced mode provides the same sections per drum.                                                                                                   |
+| Independent loop lengths           | Automation defaults to Follow sequence; selecting a bar count gives it a separate loop on the same musical clock. Page and Whole loop views use the automation length.                                                                                                               |
+| Existing projects and sessions     | Version 6 migration retains existing musical values. Undo, local save, shared links, export and collaborative edits carry the new data; older session clients preserve fields they cannot edit.                                                                                      |
+
+Design and migration details: [composition](composition.md), [recording storage and limits](recordings.md).
 
 ## Latest follow-up requests
 
