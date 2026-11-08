@@ -4,6 +4,18 @@ Grain records up to ten seconds from the microphone, saves the result in Indexed
 
 The recorder uses an AudioWorklet with a frame limit, downmixes input to mono, resamples locally, and reuses the WAV encoder. Stop, Cancel, permission failure, page exit, and late permission responses release microphone tracks. The module is imported with `?url&no-inline`: the production worklet must be a separate same-origin JavaScript asset to satisfy the existing CSP. `Permissions-Policy` allows `microphone=(self)`; camera and location remain disabled.
 
+Capture and import peak-normalize PCM after resampling to 0.8 (about −2 dBFS).
+Peaks below 0.0001 are left quiet and nonfinite samples become zero. Repeated
+normalization is idempotent. Existing custom recordings normalize their decoded
+playback buffer after integrity validation; source WAV bytes, hashes, asset IDs
+and shared links remain intact. Built-in samples retain their authored levels.
+The custom waveform reflects the normalized peaks. Gain beside the waveform
+adds −24 to +24 dB before Tone/Drive, defaults to 0 dB, and double-tap resets it.
+It is separate from the mixer Level and has its own automatable/recordable lane.
+Tapping a knob opens automation without scrolling the control away; keyboard
+activation still reveals the editor. This preserves double-tap reset and prevents
+a compatibility click from landing on an unrelated control after a layout jump.
+
 Import WAV accepts ordinary mono/stereo 16-bit PCM at 24, 44.1, or 48 kHz, up to 2 MiB and ten seconds. RIFF sizes, padded chunk boundaries, format fields, alignment, and duration are checked before PCM allocation. Unsupported codecs and malformed input are rejected. Valid imports are downmixed and resampled locally; the server never accepts these larger original files.
 
 ## Local and shared data

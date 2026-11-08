@@ -20,7 +20,7 @@ interface DragState {
 }
 
 interface GestureActions {
-  activate?: (element: HTMLElement) => void;
+  activate?: (element: HTMLElement, source: "pointer" | "keyboard") => void;
   begin?: (element: HTMLElement) => void;
   end?: (element: HTMLElement) => void;
 }
@@ -248,7 +248,7 @@ export function installGestures(
           x: event.clientX,
           y: event.clientY,
         };
-        actions.activate?.(state.element);
+        actions.activate?.(state.element, "pointer");
       }
     } else lastTap = null;
     finish(event.pointerId);
@@ -269,7 +269,7 @@ export function installGestures(
       actions.activate
     ) {
       event.preventDefault();
-      if (!event.repeat) actions.activate(element);
+      if (!event.repeat) actions.activate(element, "keyboard");
       return;
     }
     let next: number;

@@ -21,11 +21,37 @@ import {
   VOCAL_SOUNDS,
   VOCAL_PATTERNS,
   withVocalPattern,
+  vocalGainDecibels,
 } from "./vocal-model";
 import { trackStepCount, timingSchema } from "./timing";
 import { scaleNotes } from "./model";
 const scale = createProject().scale;
 describe("vocal patterns", () => {
+  it("keeps older vocals at unity gain and resolves independent gain automation", () => {
+    const track = createVocal();
+    const { gain: _gain, automation, ...previous } = track;
+    const { gain: _curve, ...oldAutomation } = automation;
+    const migrated = vocalSchema.parse({
+      ...previous,
+      automation: oldAutomation,
+    });
+    expect(migrated.gain).toBe(0.5);
+    expect(migrated.automation.gain).toBeNull();
+    expect([0, 0.5, 0.625, 1].map(vocalGainDecibels)).toEqual([-24, 0, 6, 24]);
+    migrated.automationBars = 8;
+    migrated.automation.gain = Array.from(
+      { length: 128 },
+      (_, index) => index / 127,
+    );
+    expect(automatedVocal(migrated, 127).gain).toBe(1);
+    expect(automatedVocal(migrated, 128).gain).toBe(0);
+    expect(automatedVocal(migrated, 127).volume).toBe(track.volume);
+    const project = createProject();
+    project.vocal = migrated;
+    expect(readProject(JSON.parse(JSON.stringify(project)))?.vocal).toEqual(
+      migrated,
+    );
+  });
   it("builds musical rhythms across every meter/grid without replacing sound, trim or automation", () => {
     for (const meter of ["4/4", "3/4", "5/4", "6/8", "7/8"])
       for (const grid of ["straight", "triplet"])

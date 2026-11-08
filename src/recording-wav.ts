@@ -3,6 +3,7 @@ import {
   CUSTOM_SAMPLE_SECONDS,
 } from "./custom-sample-schema";
 import { encodeWav } from "./wav";
+import { normalizeRecordingPcm } from "./recording-normalization";
 
 export const MAX_IMPORTED_WAV_BYTES = 2 * 1024 * 1024;
 const IMPORT_ERROR =
@@ -94,13 +95,19 @@ export async function resampleRecording(
   );
   const offline = new OfflineAudioContext(1, frames, CUSTOM_SAMPLE_RATE),
     buffer = offline.createBuffer(1, samples.length, rate);
-  buffer.getChannelData(0).set(samples);
+  const input = buffer.getChannelData(0);
+  for (let index = 0; index < samples.length; index++) {
+    const value = samples[index];
+    input[index] = value !== undefined && Number.isFinite(value) ? value : 0;
+  }
   const source = offline.createBufferSource();
   source.buffer = buffer;
   source.connect(offline.destination);
   source.start();
   const rendered = await offline.startRendering();
-  return encodeWav([rendered.getChannelData(0)], CUSTOM_SAMPLE_RATE);
+  const normalized = rendered.getChannelData(0);
+  normalizeRecordingPcm(normalized);
+  return encodeWav([normalized], CUSTOM_SAMPLE_RATE);
 }
 export async function normalizeImportedWav(file: Blob): Promise<Blob> {
   if (file.size > MAX_IMPORTED_WAV_BYTES) throw new Error(IMPORT_ERROR);

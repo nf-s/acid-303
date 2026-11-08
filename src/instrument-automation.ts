@@ -388,7 +388,7 @@ export function createInstrumentAutomation<Parameter extends string>(
       undo = null;
       sweeps.clear();
     },
-    activateControl(controlId: string): boolean {
+    activateControl(controlId: string, reveal = true): boolean {
       const control = options.controls.find(
         (control) => id(control.parameter) === controlId,
       );
@@ -398,7 +398,7 @@ export function createInstrumentAutomation<Parameter extends string>(
       const section = container.closest("details");
       if (section instanceof HTMLDetailsElement) section.open = true;
       refresh();
-      container.scrollIntoView({ block: "nearest" });
+      if (reveal) container.scrollIntoView({ block: "nearest" });
       return true;
     },
     shiftControl(controlId: string, before: number, after: number): void {

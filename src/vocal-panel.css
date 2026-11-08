@@ -255,3 +255,29 @@
   font: inherit;
   font-size: 10px;
 }
+
+.vocal-instrument .vocal-sample-level {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 74px;
+  align-items: center;
+  gap: 12px;
+  margin: 0 14px;
+}
+.vocal-sample-level .vocal-waveform {
+  margin: 0;
+}
+.vocal-sample-level .dial-control {
+  min-width: 0;
+}
+.vocal-instrument #vocal-gain-capability {
+  margin: 8px 14px;
+}
+@media (max-width: 650px) {
+  .vocal-instrument .vocal-sample-level {
+    margin: 0 9px;
+    gap: 8px;
+  }
+  .vocal-sample-level .vocal-waveform {
+    margin: 0;
+  }
+}

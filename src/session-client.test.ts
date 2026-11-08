@@ -65,6 +65,7 @@ function welcome(
     supportsCloud: true,
     supportsTension: true,
     supportsComposition: true,
+    supportsVocalGain: true,
     participants: 1,
     playing: false,
     absoluteTick: 0,
@@ -251,6 +252,7 @@ describe("session connection recovery", () => {
       supportsCloud: true,
       supportsTension: true,
       supportsComposition: true,
+      supportsVocalGain: true,
       participants: 2,
       playing: false,
       absoluteTick: 0,
@@ -295,5 +297,31 @@ describe("session connection recovery", () => {
     expect(states.at(-1)?.message).toContain("another tab or device");
     expect(stopped).toHaveBeenCalled();
     expect(TestSocket.sockets).toHaveLength(1);
+  });
+});
+
+describe("vocal gain host capability", () => {
+  it("tracks gain support independently from composition and resets it on leaving", async () => {
+    const { client, states } = await connectClient("guest");
+    expect(states.at(-1)?.supportsVocalGain).toBe(true);
+    latest().receive({
+      type: "presence",
+      hostConnected: true,
+      supportsVocal: true,
+      supportsVocalMusic: true,
+      supportsCloud: true,
+      supportsTension: true,
+      supportsComposition: true,
+      supportsVocalGain: false,
+      participants: 2,
+      playing: false,
+      absoluteTick: 0,
+    });
+    expect(states.at(-1)).toMatchObject({
+      supportsComposition: true,
+      supportsVocalGain: false,
+    });
+    client.leave();
+    expect(states.at(-1)?.supportsVocalGain).toBe(false);
   });
 });

@@ -370,12 +370,15 @@ describe("genre examples", () => {
     for (const { id, sha256 } of frozen) {
       const { cloud, tension, ...project } = createPreset(id);
       expect(cloud.muted && tension.muted).toBe(true);
+      expect(project.vocal.gain).toBe(0.5);
+      expect(project.vocal.automation.gain).toBeNull();
       // Only newly revised muted factory tracks are omitted; all pre-existing state is frozen.
       const digest = await crypto.subtle.digest(
         "SHA-256",
         new TextEncoder().encode(
           JSON.stringify({ ...project, version: 5 }, (key, value) =>
             [
+              "gain",
               "automationBars",
               "followChords",
               "recording",

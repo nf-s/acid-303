@@ -62,6 +62,7 @@ const attachmentSchema = z.object({
       z.literal(4),
       z.literal(5),
       z.literal(6),
+      z.literal(7),
     ])
     .default(1),
   window: z.number(),
@@ -200,6 +201,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
     supportsCloud: boolean;
     supportsTension: boolean;
     supportsComposition: boolean;
+    supportsVocalGain: boolean;
     playing: boolean;
     absoluteTick: number;
     participants: number;
@@ -213,6 +215,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       supportsCloud: (host?.data.protocol ?? 0) >= 5,
       supportsTension: (host?.data.protocol ?? 0) >= 5,
       supportsComposition: (host?.data.protocol ?? 0) >= 6,
+      supportsVocalGain: (host?.data.protocol ?? 0) >= 7,
       playing: host?.data.playing ?? false,
       absoluteTick: host?.data.absoluteTick ?? 0,
       participants: sockets.length,
@@ -256,7 +259,8 @@ export class SessionRoom extends DurableObject<SessionEnv> {
         protocols[0] !== "grain-session-v2" &&
         protocols[0] !== "grain-session-v3" &&
         protocols[0] !== "grain-session-v4" &&
-        protocols[0] !== "grain-session-v5") ||
+        protocols[0] !== "grain-session-v5" &&
+        protocols[0] !== "grain-session-v6") ||
       !token.success
     )
       return new Response("Invalid connection", { status: 400 });
@@ -342,7 +346,9 @@ export class SessionRoom extends DurableObject<SessionEnv> {
             ? 4
             : protocols[0] === "grain-session-v5"
               ? 5
-              : 6,
+              : protocols[0] === "grain-session-v6"
+                ? 6
+                : 7,
       playing: false,
       absoluteTick: 0,
       window: Date.now(),

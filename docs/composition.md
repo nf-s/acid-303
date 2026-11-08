@@ -107,10 +107,10 @@ would exceed that limit, it exports the longest active cycle as a labelled
 excerpt. Random Arp order is also labelled incomplete. Instrument releases,
 late automated decay/release values and performance-effect tails are retained.
 
-Curves contain at most 480 points each. There are 96 lanes across twelve
+Curves contain at most 480 points each. There are 97 lanes across twelve
 instruments. The project boundary remains 1 MiB of decoded JSON; the compressed
 snapshot link limit is 600,000 characters. A maximum-length randomized fixture
-with all 96 curves has been round-tripped through real browser URL fragments in
+with all 97 curves has been round-tripped through real browser URL fragments in
 Chrome and desktop WebKit. These checks do not establish every messaging app's
 or URL-sharing service's own length limit.
 

@@ -3,6 +3,7 @@ import { VOCAL_BANKS, VOCAL_SOUNDS } from "./vocal-model";
 import { sampleSourceKey } from "./custom-sample-schema";
 import type { CustomSample } from "./custom-sample-schema";
 import { loadCustomSampleBytes } from "./custom-samples";
+import { normalizeRecordingPcm } from "./recording-normalization";
 
 export interface VocalSampleStatus {
   sound: number;
@@ -236,6 +237,7 @@ export async function loadVocalSample(
       !Number.isFinite(buffer.duration)
     )
       throw new Error("The vocal sample has an invalid format.");
+    if (recording) normalizeRecordingPcm(buffer.getChannelData(0));
     const loaded = { sample, buffer };
     const cache =
       decodedSamples.get(context) ?? new Map<string, LoadedVocalSample>();

@@ -4,6 +4,7 @@ import {
   automatedVocal,
   resolveVocalTrim,
   vocalProgressionNote,
+  vocalGainDecibels,
 } from "./vocal-model";
 import type { VocalNote, VocalTrack } from "./vocal-model";
 import type { LoadedVocalSample } from "./vocal-samples";
@@ -37,6 +38,7 @@ class VocalVoice {
   private source: AudioBufferSourceNode;
   private sourceLevel: GainNode;
   private readonly highpass: BiquadFilterNode;
+  private readonly inputGain: GainNode;
   private trimSignature: string;
   private sourceStarted = false;
   private readonly hold: ConstantSourceNode;
@@ -89,6 +91,7 @@ class VocalVoice {
     highpass.type = "highpass";
     highpass.frequency.value = 45;
     highpass.Q.value = 0.5;
+    this.inputGain = context.createGain();
     this.filter = context.createBiquadFilter();
     this.filter.type = "lowpass";
     this.filter.Q.value = 0.65;
@@ -106,7 +109,8 @@ class VocalVoice {
     this.envelope = context.createGain();
     source.connect(this.sourceLevel);
     this.sourceLevel.connect(highpass);
-    highpass.connect(this.filter);
+    highpass.connect(this.inputGain);
+    this.inputGain.connect(this.filter);
     this.filter.connect(this.dry);
     this.dry.connect(this.envelope);
     this.filter.connect(this.driveInput);
@@ -118,6 +122,7 @@ class VocalVoice {
       source,
       this.sourceLevel,
       highpass,
+      this.inputGain,
       this.filter,
       this.driveInput,
       distortion,
@@ -160,6 +165,11 @@ class VocalVoice {
     this.gate(track, end);
   }
   private controls(track: VocalTrack, note: VocalNote, time: number): void {
+    this.inputGain.gain.setTargetAtTime(
+      10 ** (vocalGainDecibels(track.gain) / 20),
+      time,
+      0.008,
+    );
     this.peak =
       (note.accent ? 1.16 : 1) *
       Math.min(1.25, Math.max(0.6, 0.18 / this.loaded.sample.rms));

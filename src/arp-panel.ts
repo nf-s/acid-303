@@ -58,7 +58,7 @@ export interface ArpPanel {
   setStep: (absoluteStep: number) => void;
   setPosition: (absoluteTick: number, swing: number) => void;
   updateControl: (id: string, value: number) => boolean;
-  activateControl: (id: string) => boolean;
+  activateControl: (id: string, reveal?: boolean) => boolean;
   rebaseIncoming: (next: ArpTrack) => void;
   destroy: () => void;
 }

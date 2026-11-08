@@ -269,6 +269,7 @@ let sessionStatus: SessionStatus = {
   supportsCloud: false,
   supportsTension: false,
   supportsComposition: false,
+  supportsVocalGain: false,
   inviteLink: null,
   message: "",
 };
@@ -934,6 +935,7 @@ const padParameters: PadParameter[] = [
   "volume",
 ];
 const vocalParameters: VocalParameter[] = [
+  "gain",
   "start",
   "end",
   "attack",
@@ -1806,14 +1808,16 @@ const gestures = installGestures(
     updateControl(id, value);
   },
   {
-    activate: (control) => {
+    activate: (control, source) => {
       if (control.dataset.sourceControl) return;
+      // Keep tapped controls stationary for double-tap reset and the native click.
+      const reveal = source === "keyboard";
       if (
-        arpPanel.activateControl(control.id) ||
-        padPanel.activateControl(control.id) ||
-        vocalPanel.activateControl(control.id) ||
-        cloudPanel.activateControl(control.id) ||
-        tensionPanel.activateControl(control.id)
+        arpPanel.activateControl(control.id, reveal) ||
+        padPanel.activateControl(control.id, reveal) ||
+        vocalPanel.activateControl(control.id, reveal) ||
+        cloudPanel.activateControl(control.id, reveal) ||
+        tensionPanel.activateControl(control.id, reveal)
       )
         return;
       selectAutomation(control.id);
@@ -2997,6 +3001,10 @@ sessionClient = new SessionClient(sessionApi, {
         state.phase !== "connected" ||
         !state.hostConnected ||
         state.supportsComposition,
+      state.role !== "guest" ||
+        state.phase !== "connected" ||
+        !state.hostConnected ||
+        state.supportsVocalGain,
     );
     cloudPanel.setHostCapability(
       state.role !== "guest" ||

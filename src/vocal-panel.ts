@@ -20,6 +20,7 @@ import {
   setVocalValue,
   vocalStepNotes,
   vocalProgressionNote,
+  vocalGainDecibels,
 } from "./vocal-model";
 import type { VocalParameter, VocalTrack } from "./vocal-model";
 import { loadVocalCatalog, vocalSourceKey } from "./vocal-samples";
@@ -28,6 +29,7 @@ import { VocalRoll } from "./vocal-roll";
 import { createSampleRecorder } from "./sample-recorder";
 import type { RecordingStatus } from "./sample-recorder";
 import { normalizeImportedWav } from "./recording-wav";
+import { recordingNormalizationGain } from "./recording-normalization";
 import {
   deleteLocalRecording,
   listRecordings,
@@ -68,6 +70,7 @@ interface VocalPanelOptions {
     step?: string,
     ariaLabel?: string,
     allowedValues?: number[],
+    resetValue?: number,
   ) => string;
 }
 const LABELS: ReadonlyArray<{ parameter: VocalParameter; label: string }> = [
@@ -80,9 +83,29 @@ const LABELS: ReadonlyArray<{ parameter: VocalParameter; label: string }> = [
   { parameter: "space", label: "Space" },
   { parameter: "volume", label: "Level" },
 ];
-const CONTROLS: ReadonlyArray<InstrumentControl<VocalParameter>> = LABELS.map(
-  (control) => ({ ...control, min: 0, max: 100, multiplier: 100, step: "0.1" }),
-);
+function formatGain(value: number): string {
+  const decibels = vocalGainDecibels(value);
+  return `${decibels > 0 ? "+" : ""}${decibels.toFixed(1)} dB`;
+}
+const GAIN_CONTROL: InstrumentControl<VocalParameter> = {
+  parameter: "gain",
+  label: "Gain",
+  min: -24,
+  max: 24,
+  multiplier: 48,
+  step: "0.1",
+  format: formatGain,
+};
+const CONTROLS: ReadonlyArray<InstrumentControl<VocalParameter>> = [
+  ...LABELS.map((control) => ({
+    ...control,
+    min: 0,
+    max: 100,
+    multiplier: 100,
+    step: "0.1",
+  })),
+  GAIN_CONTROL,
+];
 
 /** Stable knobs share root gestures and recording; waveform controls are aliases. */
 export function createVocalPanel(
@@ -104,6 +127,7 @@ export function createVocalPanel(
   let hostSupportsVocal = true;
   let hostSupportsMusic = true;
   let hostSupportsComposition = true;
+  let hostSupportsGain = true;
   let recordings: StoredRecording[] = [];
   let recordingStatus: RecordingStatus = { phase: "idle", seconds: 0 };
   let recordingMessage = "";
@@ -118,22 +142,27 @@ export function createVocalPanel(
     <p id="vocal-host-capability" class="vocal-status" hidden>Host must reload Grain to play vocals.</p>
     <div class="vocal-sample-picker"><div class="waveform-switch vocal-banks" role="group" aria-label="Vocal voice">${VOCAL_BANKS.map((item) => `<button data-vocal-bank="${item.id}">${item.label}</button>`).join("")}</div><div class="waveform-switch vocal-sounds" role="group" aria-label="Vocal sample"></div></div>
     <details class="vocal-recordings instrument-section"><summary>Recordings</summary><div class="vocal-recording-actions"><button id="vocal-record-mic">Record mic</button><button id="vocal-import-wav">Import WAV</button><input id="vocal-import-file" type="file" accept=".wav,audio/wav" aria-label="Import short PCM WAV" hidden><button id="vocal-record-stop" hidden>Stop recording</button><button id="vocal-record-cancel" hidden>Cancel</button><output id="vocal-record-time"></output></div><p class="vocal-recording-limit">On this device until shared · 10 seconds maximum. WAV imports: mono or stereo, 16-bit PCM, 24/44.1/48 kHz, up to 2 MiB.</p><p class="vocal-recording-limit">Sharing uploads audio. Anyone with the track or session link can hear it. Shared copies expire after 30 days without access.</p><output id="vocal-record-message" role="status"></output><div id="vocal-recording-list"></div></details>
-    <div class="vocal-waveform" aria-label="Vocal sample waveform"><svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"><path id="vocal-waveform-path"/><rect class="vocal-trim-shade" id="vocal-trim-before" y="0" height="100"/><rect class="vocal-trim-shade" id="vocal-trim-after" y="0" height="100"/><line class="vocal-trim-line" id="vocal-trim-start-line" y1="0" y2="100"/><line class="vocal-trim-line" id="vocal-trim-end-line" y1="0" y2="100"/></svg><label class="vocal-trim vocal-trim-start"><span>Start</span><input id="vocal-trim-start" data-source-control="vocal-start" type="range" min="0" max="100" step="0.1" aria-label="Vocal sample start"/></label><label class="vocal-trim vocal-trim-end"><span>End</span><input id="vocal-trim-end" data-source-control="vocal-end" type="range" min="0" max="100" step="0.1" aria-label="Vocal sample end"/></label></div>
+    <div class="vocal-sample-level"><div class="vocal-waveform" aria-label="Vocal sample waveform"><svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"><path id="vocal-waveform-path"/><rect class="vocal-trim-shade" id="vocal-trim-before" y="0" height="100"/><rect class="vocal-trim-shade" id="vocal-trim-after" y="0" height="100"/><line class="vocal-trim-line" id="vocal-trim-start-line" y1="0" y2="100"/><line class="vocal-trim-line" id="vocal-trim-end-line" y1="0" y2="100"/></svg><label class="vocal-trim vocal-trim-start"><span>Start</span><input id="vocal-trim-start" data-source-control="vocal-start" type="range" min="0" max="100" step="0.1" aria-label="Vocal sample start"/></label><label class="vocal-trim vocal-trim-end"><span>End</span><input id="vocal-trim-end" data-source-control="vocal-end" type="range" min="0" max="100" step="0.1" aria-label="Vocal sample end"/></label></div>${options.renderControl("vocal-gain", "Gain", -24, 24, vocalGainDecibels(options.getTrack().gain), formatGain(options.getTrack().gain), "0.1", "Vocal gain", undefined, 0)}</div>
+    <p id="vocal-gain-capability" class="vocal-status" hidden>The host needs updated Grain to use vocal gain.</p>
     <div class="vocal-waveform-info"><span id="vocal-pitch-reference"></span><output id="vocal-trim-duration"></output><button id="vocal-loop" aria-pressed="false">Sustain</button></div>
     <div class="vocal-status-row"><span id="vocal-sample-status" class="vocal-status" role="status"></span><button id="vocal-retry" hidden>Retry sample</button></div>
-    <div class="acid-controls vocal-controls">${CONTROLS.map((control) => {
-      const value = options.getTrack()[control.parameter] * 100;
-      return options.renderControl(
-        `vocal-${control.parameter}`,
-        control.label,
-        0,
-        100,
-        value,
-        `${Math.round(value)}%`,
-        control.step,
-        `Vocal ${control.label.toLowerCase()}`,
-      );
-    }).join("")}</div>
+    <div class="acid-controls vocal-controls">${CONTROLS.filter(
+      (control) => control.parameter !== "gain",
+    )
+      .map((control) => {
+        const value = options.getTrack()[control.parameter] * 100;
+        return options.renderControl(
+          `vocal-${control.parameter}`,
+          control.label,
+          0,
+          100,
+          value,
+          `${Math.round(value)}%`,
+          control.step,
+          `Vocal ${control.label.toLowerCase()}`,
+        );
+      })
+      .join("")}</div>
     <details class="instrument-section instrument-sequence-section" open><summary>Sequence</summary><div class="follow-chord-controls"><button id="vocal-follow-chords" aria-pressed="false">Follow chords</button><output class="follow-chord-context" id="vocal-chord-context"></output><button id="vocal-edit-chords">Edit chords</button></div><div class="vocal-rhythms waveform-switch" role="group" aria-label="Vocal rhythm">${VOCAL_PATTERNS.map((item) => `<button data-vocal-pattern="${item.id}">${item.label}</button>`).join("")}</div>
     <div id="vocal-pattern-controls" class="instrument-pattern-controls"></div>
     <div class="vocal-roll-tools"><div class="vocal-octaves" role="group" aria-label="Vocal pitch view"><button data-vocal-octave="-1" aria-label="Lower vocal pitch view">−</button><output id="vocal-octave-label"></output><button data-vocal-octave="1" aria-label="Raise vocal pitch view">+</button></div><output id="vocal-selected-note">Select a note</output><div class="vocal-note-actions" role="group" aria-label="Selected vocal note"><button data-vocal-note-action="shorter" aria-label="Shorten selected vocal note">− length</button><button data-vocal-note-action="longer" aria-label="Lengthen selected vocal note">+ length</button><button data-vocal-note-action="accent" aria-pressed="false">Accent</button><button data-vocal-note-action="join">Join</button><button data-vocal-note-action="delete">Delete</button></div></div>
@@ -193,8 +222,14 @@ export function createVocalPanel(
     controls: CONTROLS,
     minNote: 36,
     maxNote: 84,
-    getLane: (parameter) => options.getTrack().automation[parameter],
+    getLane: (parameter) => {
+      const lane = options.getTrack().automation[parameter];
+      return parameter === "gain" && !hostSupportsGain
+        ? (lane?.slice() ?? null)
+        : lane;
+    },
     setLane: (parameter, values) => {
+      if (parameter === "gain" && !hostSupportsGain) return;
       options.getTrack().automation[parameter] = values;
     },
     getBase: (parameter) => normalizedVocalValue(options.getTrack(), parameter),
@@ -554,12 +589,14 @@ export function createVocalPanel(
     const element = container.querySelector<HTMLElement>(
       `#vocal-${control.parameter}`,
     );
-    const value = options.getTrack()[control.parameter] * 100;
+    const normalized = options.getTrack()[control.parameter];
+    const value = control.min + normalized * (control.max - control.min);
+    const display = control.format?.(normalized) ?? `${Math.round(value)}%`;
     element?.setAttribute("aria-valuenow", String(value));
-    element?.setAttribute("aria-valuetext", `${Math.round(value)}%`);
-    element?.style.setProperty("--knob-angle", `${-135 + value * 2.7}deg`);
+    element?.setAttribute("aria-valuetext", display);
+    element?.style.setProperty("--knob-angle", `${-135 + normalized * 270}deg`);
     const output = container.querySelector(`#vocal-${control.parameter}-value`);
-    if (output) output.textContent = `${Math.round(value)}%`;
+    if (output) output.textContent = display;
   }
   function renderWaveform(): void {
     const track = options.getTrack(),
@@ -585,13 +622,17 @@ export function createVocalPanel(
       path.getAttribute("data-source-key") !==
         vocalSourceKey(track.sound, track.recording)
     ) {
-      const upper = sample.peaks
+      const waveformGain = track.recording
+        ? recordingNormalizationGain(Math.max(...sample.peaks))
+        : 1;
+      const peaks = sample.peaks.map((peak) => peak * waveformGain);
+      const upper = peaks
         .map(
           (peak, index) =>
             `${(index * 1000) / (sample.peaks.length - 1)},${50 - peak * 45}`,
         )
         .join(" L ");
-      const lower = [...sample.peaks]
+      const lower = [...peaks]
         .reverse()
         .map(
           (peak, index) =>
@@ -683,6 +724,18 @@ export function createVocalPanel(
       renderStatus();
     }
   }
+  function renderGainCapability(): void {
+    const gain = container.querySelector("#vocal-gain");
+    gain?.setAttribute("aria-disabled", String(!hostSupportsGain));
+    const warning = container.querySelector<HTMLElement>(
+      "#vocal-gain-capability",
+    );
+    if (warning) warning.hidden = hostSupportsGain;
+    if (automationContainer)
+      automationContainer.inert =
+        !hostSupportsGain &&
+        Boolean(gain?.classList.contains("automation-selected"));
+  }
   function renderHostCapability(): void {
     const warning = container.querySelector<HTMLElement>(
       "#vocal-host-capability",
@@ -731,16 +784,28 @@ export function createVocalPanel(
       ?.setAttribute("aria-pressed", String(track.followChords));
     roll.refresh();
     automation.refresh(true);
+    renderGainCapability();
   }
   function updateControl(id: string, value: number): boolean {
     const control = CONTROLS.find(
       (control) => `vocal-${control.parameter}` === id,
     );
     if (!control) return false;
-    if (!Number.isFinite(value)) return true;
+    if (
+      !Number.isFinite(value) ||
+      (control.parameter === "gain" && !hostSupportsGain)
+    )
+      return true;
     const track = options.getTrack(),
       before = normalizedVocalValue(track, control.parameter);
-    Object.assign(track, setVocalValue(track, control.parameter, value / 100));
+    Object.assign(
+      track,
+      setVocalValue(
+        track,
+        control.parameter,
+        (value - control.min) / (control.max - control.min),
+      ),
+    );
     if (control.parameter === "start")
       trimStart.value = String(track.start * 100);
     if (control.parameter === "end") trimEnd.value = String(track.end * 100);
@@ -966,7 +1031,12 @@ export function createVocalPanel(
       automation.setPosition(tick, 0);
     },
     updateControl,
-    activateControl: automation.activateControl,
+    activateControl: (id: string, reveal = true) => {
+      if (id === "vocal-gain" && !hostSupportsGain) return true;
+      const activated = automation.activateControl(id, reveal);
+      renderGainCapability();
+      return activated;
+    },
     rebaseIncoming: (next: VocalTrack) => {
       roll.rebaseIncoming(next);
       automation.rebaseIncoming(
@@ -983,10 +1053,13 @@ export function createVocalPanel(
       supported: boolean,
       music = supported,
       composition = music,
+      gain = composition,
     ) => {
       hostSupportsVocal = supported;
       hostSupportsMusic = music;
       hostSupportsComposition = composition;
+      hostSupportsGain = gain;
+      renderGainCapability();
       renderHostCapability();
     },
     destroy: () => {

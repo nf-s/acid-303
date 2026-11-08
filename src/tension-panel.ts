@@ -424,11 +424,11 @@ export function createTensionPanel(
     setPosition,
     setStep: (step: number) => setPosition(step < 0 ? -1 : (step * PPQ) / 4, 0),
     updateControl,
-    activateControl: (id: string): boolean => {
+    activateControl: (id: string, reveal = true): boolean => {
       if (!CONTROLS.some((control) => `tension-${control.parameter}` === id))
         return false;
       automationDetails.open = true;
-      return automation.activateControl(id);
+      return automation.activateControl(id, reveal);
     },
     rebaseIncoming: (next: TensionTrack) => {
       const current = options.getTrack().timing;

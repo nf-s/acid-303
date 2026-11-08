@@ -22,7 +22,7 @@ both credentials. Local projects and snapshot Share links remain independent.
   and `expiresAt`. Creation also normalizes scale-locked pitches.
 - `GET /sessions/:roomId?clientId=<id>` upgrades to a WebSocket. The browser sends
   protocols `["grain-session-v5", token]`. The response selects only
-  the requested compatible version (`grain-session-v6`, `grain-session-v5`, `grain-session-v4` or `grain-session-v3`); credentials are never put in an API URL or echoed as the
+  the requested compatible version (`grain-session-v7`, `grain-session-v6`, `grain-session-v5`, `grain-session-v4` or `grain-session-v3`); credentials are never put in an API URL or echoed as the
   selected protocol. The server derives the role from the token.
 - Only token SHA-256 hashes are stored. Comparison uses the Workers
   constant-time comparison API. Guest links contain only the guest token in the
@@ -87,6 +87,22 @@ requests are routed to the host; they do not claim playback has started.
 Guest patches are rejected while the host is disconnected. Presence and clock
 state are stored in hibernating WebSocket attachments, not SQLite. Plaintext
 `ping` / `pong` is reserved for the hibernation auto-response heartbeat.
+
+## Vocal gain compatibility
+
+Protocol v7 adds `supportsVocalGain`; project version remains 6 with additive
+`vocal.gain` (default 0.5, representing 0 dB) and `vocal.automation.gain`
+(default null). Older saved projects keep unity input gain. Host protocol 7 or
+later advertises gain playback support; a new guest with an older host sees the
+Gain control disabled with a local explanation. Other vocal controls remain
+available.
+
+Protocol v6 peers retain all composition and recording fields, but their wire
+projection omits gain and its curve. v3–v5 projections omit them too. An older
+peer's whole-track or automation replacement preserves canonical gain. If an
+older peer changes Vocal timing, the hidden gain curve resamples to the resulting
+automation length. Older protocols cannot write gain directly. These changes do
+not require a namespace migration or force an existing tab to reload.
 
 ## Timing migration and coordinated rollout
 

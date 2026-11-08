@@ -9,7 +9,7 @@ import {
 } from "./timing";
 import type { Timing, AutomationBars } from "./timing";
 
-export const SESSION_PROTOCOL = "grain-session-v6";
+export const SESSION_PROTOCOL = "grain-session-v7";
 export const MAX_SESSION_BYTES = MAX_PROJECT_BYTES;
 export const MAX_PROJECT_CHANGES = 4096;
 export const MAX_SESSION_CLIENTS = 8;
@@ -97,6 +97,7 @@ const presenceFields = {
   supportsCloud: z.boolean(),
   supportsTension: z.boolean(),
   supportsComposition: z.boolean().default(false),
+  supportsVocalGain: z.boolean().default(false),
   participants: z.number().int().min(0).max(MAX_SESSION_CLIENTS),
 };
 const actionSchema = z.enum(["play", "stop", "restart"]);
@@ -320,6 +321,16 @@ export function applyProjectChanges(
   return readProject(updated);
 }
 
+export type VersionSixProject = Omit<Project, "vocal"> & {
+  vocal: Omit<Project["vocal"], "gain" | "automation"> & {
+    automation: Omit<Project["vocal"]["automation"], "gain">;
+  };
+};
+export function versionSixProject(project: Project): VersionSixProject {
+  const { gain: _gain, automation, ...vocal } = project.vocal;
+  const { gain: _gainCurve, ...previousAutomation } = automation;
+  return { ...project, vocal: { ...vocal, automation: previousAutomation } };
+}
 type LegacyTrack<T> = Omit<T, "automationBars" | "followChords" | "recording">;
 export type VersionFiveProject = Omit<
   Project,
@@ -340,7 +351,7 @@ export type VersionFiveProject = Omit<
   keys: LegacyTrack<Project["keys"]>;
   arp: LegacyTrack<Project["arp"]>;
   pad: LegacyTrack<Project["pad"]>;
-  vocal: LegacyTrack<Project["vocal"]>;
+  vocal: LegacyTrack<VersionSixProject["vocal"]>;
   cloud: LegacyTrack<Project["cloud"]>;
   tension: LegacyTrack<Project["tension"]>;
 };
@@ -392,7 +403,7 @@ export function versionFiveProject(project: Project): VersionFiveProject {
         }
       : legacyTrack(project.pad),
     vocal: {
-      ...legacyTrack(project.vocal),
+      ...legacyTrack(versionSixProject(project).vocal),
       ...(project.vocal.recording ? { sound: 0, muted: true } : {}),
       muted:
         project.vocal.muted ||
@@ -438,13 +449,19 @@ export function versionThreeProject(project: Project): VersionThreeProject {
 type LegacyWelcome = Omit<
   Extract<ServerMessage, { type: "welcome" }>,
   | "project"
+  | "supportsVocalGain"
   | "supportsComposition"
   | "supportsCloud"
   | "supportsTension"
   | "supportsVocalMusic"
   | "supportsVocal"
 > & {
-  project: VersionFiveProject | VersionFourProject | VersionThreeProject;
+  project:
+    | VersionSixProject
+    | VersionFiveProject
+    | VersionFourProject
+    | VersionThreeProject;
+  supportsComposition?: boolean;
   supportsVocal?: boolean;
   supportsVocalMusic?: boolean;
   supportsCloud?: boolean;
@@ -452,12 +469,14 @@ type LegacyWelcome = Omit<
 };
 type LegacyPresence = Omit<
   Extract<ServerMessage, { type: "presence" }>,
+  | "supportsVocalGain"
   | "supportsComposition"
   | "supportsCloud"
   | "supportsTension"
   | "supportsVocalMusic"
   | "supportsVocal"
 > & {
+  supportsComposition?: boolean;
   supportsVocal?: boolean;
   supportsVocalMusic?: boolean;
   supportsCloud?: boolean;
@@ -471,12 +490,14 @@ const extendedFields = new Set([
   "recording",
   "progression",
 ]);
-function containsExtended(value: JsonValue): boolean {
-  if (Array.isArray(value)) return value.some(containsExtended);
+const vocalGainFields = new Set(["gain"]);
+function containsExtended(value: JsonValue, fields = extendedFields): boolean {
+  if (Array.isArray(value))
+    return value.some((child) => containsExtended(child, fields));
   return (
     object(value) &&
     Object.entries(value).some(
-      ([key, child]) => extendedFields.has(key) || containsExtended(child),
+      ([key, child]) => fields.has(key) || containsExtended(child, fields),
     )
   );
 }
@@ -485,6 +506,17 @@ export function sessionCanChange(
   change: ProjectChange,
 ): boolean {
   const field = change.path[0];
+  if (
+    protocol < 7 &&
+    field === "vocal" &&
+    (change.path.includes("gain") ||
+      ("value" in change
+        ? containsExtended(change.value, vocalGainFields)
+        : change.entries.some(([, value]) =>
+            containsExtended(value, vocalGainFields),
+          )))
+  )
+    return false;
   if (
     protocol < 6 &&
     (change.path.some(
@@ -513,12 +545,18 @@ export function sessionCanChange(
 function legacyProject(
   project: Project,
   protocol: number,
-): VersionFiveProject | VersionFourProject | VersionThreeProject {
-  return protocol >= 5
-    ? versionFiveProject(project)
-    : protocol === 4
-      ? versionFourProject(project)
-      : versionThreeProject(project);
+):
+  | VersionSixProject
+  | VersionFiveProject
+  | VersionFourProject
+  | VersionThreeProject {
+  return protocol >= 6
+    ? versionSixProject(project)
+    : protocol >= 5
+      ? versionFiveProject(project)
+      : protocol === 4
+        ? versionFourProject(project)
+        : versionThreeProject(project);
 }
 /** Legacy peers receive valid projected tracks and every revision, including empty ones. */
 export function sessionMessageForProtocol(
@@ -526,10 +564,11 @@ export function sessionMessageForProtocol(
   protocol: number,
   project?: Project,
 ): CompatibleServerMessage {
-  if (protocol >= 6) return message;
+  if (protocol >= 7) return message;
   if (message.type === "welcome" || message.type === "presence") {
     const {
-      supportsComposition: _composition,
+      supportsVocalGain: _gain,
+      supportsComposition,
       supportsVocalMusic,
       supportsCloud,
       supportsTension,
@@ -537,6 +576,7 @@ export function sessionMessageForProtocol(
       ...previous
     } = message;
     const capabilities = {
+      ...(protocol >= 6 ? { supportsComposition } : {}),
       ...(protocol >= 4 ? { supportsVocal } : {}),
       ...(protocol >= 5
         ? { supportsVocalMusic, supportsCloud, supportsTension }
@@ -584,10 +624,45 @@ export function applySessionProjectChanges(
 ): Project | null {
   if (changes.some((change) => !sessionCanChange(protocol, change)))
     return null;
-  if (protocol >= 6) {
+  if (protocol >= 7) {
     const next = applyProjectChanges(current, changes);
     return next?.vocal.recording?.kind === "local" ? null : next;
   }
+  // Old clients cannot carry this curve when changing its timing or replacing a track.
+  const source = {
+    ...current,
+    vocal: {
+      ...current.vocal,
+      automation: { ...current.vocal.automation, gain: null },
+    },
+  };
+  const next =
+    protocol >= 6
+      ? applyProjectChanges(source, changes)
+      : applyLegacyProjectChanges(source, changes, protocol);
+  if (!next || next.vocal.recording?.kind === "local") return null;
+  return readProject({
+    ...next,
+    vocal: {
+      ...next.vocal,
+      gain: current.vocal.gain,
+      automation: {
+        ...next.vocal.automation,
+        gain: resizeAutomationLane(
+          current.vocal.automation.gain,
+          automationTiming(current.vocal),
+          automationTiming(next.vocal),
+          current.vocal.gain,
+        ),
+      },
+    },
+  });
+}
+function applyLegacyProjectChanges(
+  current: Project,
+  changes: readonly ProjectChange[],
+  protocol: number,
+): Project | null {
   const canonical = jsonValueSchema.parse(current);
   const projected = jsonValueSchema.parse(legacyProject(current, protocol));
   if (!object(canonical) || !object(projected)) return null;

@@ -258,7 +258,7 @@ test("waveform trim handles clamp safely, match their knobs and persist with Sus
   expect((await saved(page)).vocal).toEqual(vocal);
 });
 
-test("all eight vocal automation lanes draw across a sixteen-bar loop", async ({
+test("all nine vocal automation lanes draw across a sixteen-bar loop", async ({
   page,
 }) => {
   const project = await load(page, true);
@@ -269,6 +269,7 @@ test("all eight vocal automation lanes draw across a sixteen-bar loop", async ({
     .getByRole("button", { name: "Whole loop", exact: true })
     .click();
   for (const parameter of [
+    "gain",
     "start",
     "end",
     "attack",
@@ -294,7 +295,7 @@ test("all eight vocal automation lanes draw across a sixteen-bar loop", async ({
           (lane) => lane !== null,
         ).length,
     )
-    .toBe(8);
+    .toBe(9);
   const vocal = (await saved(page)).vocal;
   for (const lane of Object.values(vocal.automation)) {
     expect(lane).toHaveLength(480);

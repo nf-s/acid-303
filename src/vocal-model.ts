@@ -86,6 +86,7 @@ export const VOCAL_BANKS: ReadonlyArray<{
   { id: "fighter", label: "Fighter", start: 16, count: 8 },
 ];
 const vocalAutomationSchema = z.object({
+  gain: z.lazy(() => automationLaneSchema).default(null),
   start: z.lazy(() => automationLaneSchema),
   end: z.lazy(() => automationLaneSchema),
   attack: z.lazy(() => automationLaneSchema),
@@ -99,6 +100,7 @@ export type VocalAutomation = z.infer<typeof vocalAutomationSchema>;
 export type VocalParameter = keyof VocalAutomation;
 export function emptyVocalAutomation(): VocalAutomation {
   return {
+    gain: null,
     start: null,
     end: null,
     attack: null,
@@ -144,8 +146,14 @@ export const vocalBaseSchema = z.object({
   tone: z.number().min(0).max(1).default(0.62),
   drive: z.number().min(0).max(1).default(0),
   space: z.number().min(0).max(1).default(0.08),
+  gain: z.number().min(0).max(1).default(0.5),
   volume: z.number().min(0).max(1).default(0.45),
 });
+export function vocalGainDecibels(value: number): number {
+  return (
+    (Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5)) - 0.5) * 48
+  );
+}
 export const vocalSchema = vocalBaseSchema.superRefine((track, context) => {
   const count = trackStepCount(track.timing);
   if (track.end <= track.start)

@@ -8,6 +8,7 @@ import {
 import { resizeBassAutomation, resizeDrumAutomation } from "./model";
 import { resizeCloudTrack } from "./cloud-model";
 import { resizeTensionTrack } from "./tension-model";
+import { resizeVocalAutomation } from "./vocal-model";
 import {
   applyProjectChanges,
   clientMessageSchema,
@@ -19,6 +20,7 @@ import {
   versionThreeProject,
   versionFourProject,
   versionFiveProject,
+  versionSixProject,
   MAX_PROJECT_CHANGES,
   applySessionProjectChanges,
 } from "./session-protocol";
@@ -100,7 +102,7 @@ describe("collaborative project patches", () => {
       followChords: _follow,
       recording: _recording,
       ...legacyVocal
-    } = project.vocal;
+    } = versionSixProject(project).vocal;
     expect(versionFourProject(project).vocal).toEqual(legacyVocal);
     const patch = serverMessageSchema.parse({
       type: "patch",
@@ -494,5 +496,148 @@ describe("composition compatibility", () => {
         6,
       ),
     ).toBeNull();
+  });
+});
+
+describe("vocal gain compatibility", () => {
+  it("projects gain out of v6 without dropping composition or recordings", () => {
+    const project = createProject();
+    project.vocal.gain = 0.8;
+    project.vocal.automation.gain = Array(16).fill(0.7);
+    project.vocal.followChords = true;
+    const previous = versionSixProject(project);
+    expect(previous.version).toBe(6);
+    expect(previous.progression).toEqual(project.progression);
+    expect(previous.vocal.followChords).toBe(true);
+    expect(previous.vocal.recording).toBeNull();
+    for (const vocal of [
+      previous.vocal,
+      versionFiveProject(project).vocal,
+      versionFourProject(project).vocal,
+    ]) {
+      expect(vocal).not.toHaveProperty("gain");
+      expect(vocal.automation).not.toHaveProperty("gain");
+    }
+    const presence = serverMessageSchema.parse({
+      type: "presence",
+      hostConnected: true,
+      supportsVocal: true,
+      supportsVocalMusic: true,
+      supportsCloud: true,
+      supportsTension: true,
+      supportsComposition: true,
+      supportsVocalGain: true,
+      participants: 2,
+      playing: false,
+      absoluteTick: 0,
+    });
+    expect(sessionMessageForProtocol(presence, 6)).toMatchObject({
+      supportsComposition: true,
+    });
+    expect(sessionMessageForProtocol(presence, 6)).not.toHaveProperty(
+      "supportsVocalGain",
+    );
+    expect(sessionMessageForProtocol(presence, 7)).toHaveProperty(
+      "supportsVocalGain",
+      true,
+    );
+  });
+  it.each([4, 5, 6])(
+    "preserves gain through protocol %i whole track, automation and sparse lane edits",
+    (protocol) => {
+      const project = createProject();
+      project.vocal.sound = 0;
+      project.vocal.gain = 0.8;
+      project.vocal.automation.gain = Array.from(
+        { length: 16 },
+        (_, index) => index / 16,
+      );
+      project.vocal.automation.tone = Array(16).fill(0.4);
+      const previous =
+        protocol === 6
+          ? versionSixProject(project).vocal
+          : versionFiveProject(project).vocal;
+      for (const changes of [
+        [{ path: ["vocal"], value: { ...previous, tone: 0.7 } }],
+        [
+          {
+            path: ["vocal", "automation"],
+            value: { ...previous.automation, tone: Array(16).fill(0.7) },
+          },
+        ],
+        [
+          {
+            path: ["vocal", "automation", "tone"],
+            entries: [
+              [0, 0.8],
+              [15, 0.9],
+            ],
+          },
+        ],
+      ]) {
+        const packet = clientMessageSchema.parse({
+          type: "patch",
+          clientId: "legacy-client-0001",
+          sequence: 1,
+          changes,
+        });
+        if (packet.type !== "patch") throw new Error("Expected patch");
+        const merged = applySessionProjectChanges(
+          project,
+          packet.changes,
+          protocol,
+        );
+        expect(merged?.vocal.gain).toBe(0.8);
+        expect(merged?.vocal.automation.gain).toEqual(
+          project.vocal.automation.gain,
+        );
+      }
+    },
+  );
+  it("resizes the hidden gain curve when v6 changes automation length", () => {
+    const project = createProject();
+    project.vocal.gain = 0.8;
+    project.vocal.automation.gain = Array.from(
+      { length: 16 },
+      (_, index) => index / 16,
+    );
+    const changed = {
+      ...project,
+      vocal: resizeVocalAutomation(project.vocal, 4),
+    };
+    const merged = applySessionProjectChanges(
+      project,
+      [{ path: ["vocal"], value: versionSixProject(changed).vocal }],
+      6,
+    );
+    expect(merged?.vocal.automationBars).toBe(4);
+    expect(merged?.vocal.gain).toBe(0.8);
+    expect(merged?.vocal.automation.gain).toEqual(
+      changed.vocal.automation.gain,
+    );
+  });
+  it("rejects hidden gain writes from old peers while accepting v7 edits", () => {
+    const project = createProject();
+    for (const protocol of [3, 4, 5, 6]) {
+      expect(
+        sessionCanChange(protocol, { path: ["vocal", "gain"], value: 0.9 }),
+      ).toBe(false);
+      expect(
+        sessionCanChange(protocol, {
+          path: ["vocal", "automation"],
+          value: { gain: null },
+        }),
+      ).toBe(false);
+      expect(
+        sessionCanChange(protocol, { path: ["vocal"], value: project.vocal }),
+      ).toBe(false);
+    }
+    expect(
+      applySessionProjectChanges(
+        project,
+        [{ path: ["vocal", "gain"], value: 0.9 }],
+        7,
+      )?.vocal.gain,
+    ).toBe(0.9);
   });
 });

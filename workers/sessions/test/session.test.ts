@@ -27,6 +27,7 @@ import {
   SESSION_PROTOCOL,
   MAX_SESSION_BYTES,
   diffProject,
+  versionSixProject,
   sessionCreatedSchema,
   serverMessageSchema,
 } from "../../../src/session-protocol";
@@ -166,6 +167,111 @@ function nextLegacyMessage(
 }
 
 describe("session rooms in the Workers runtime", () => {
+  it("preserves v7 vocal gain through v6 edits and hibernation without promoting the old host", async () => {
+    const room = await create(),
+      id = crypto.randomUUID();
+    const response = await upgrade(
+        room,
+        room.hostToken,
+        id,
+        "grain-session-v6",
+      ),
+      old = response.webSocket;
+    expect(response.headers.get("Sec-WebSocket-Protocol")).toBe(
+      "grain-session-v6",
+    );
+    if (!old) throw new Error("Missing v6 socket");
+    peers.push(old);
+    const first = nextLegacyMessage(old, "welcome");
+    old.accept();
+    const welcome = await first;
+    expect(welcome).toMatchObject({
+      supportsComposition: true,
+      project: { version: 6 },
+    });
+    expect(welcome).not.toHaveProperty("supportsVocalGain");
+    expect(welcome.project).not.toHaveProperty("vocal.gain");
+    expect(welcome.project).not.toHaveProperty("vocal.automation.gain");
+    const guest = await connect(room, room.guestToken),
+      initial = await guest.next("welcome");
+    expect(initial).toMatchObject({
+      supportsComposition: true,
+      supportsVocalGain: false,
+    });
+    const gain = Array.from({ length: 16 }, (_, index) => index / 16);
+    const projected = nextLegacyMessage(old, "patch");
+    guest.send({
+      type: "patch",
+      clientId: guest.clientId,
+      sequence: 1,
+      changes: [
+        { path: ["vocal", "gain"], value: 0.75 },
+        { path: ["vocal", "automation", "gain"], value: gain },
+      ],
+    });
+    const hidden = await projected;
+    expect(JSON.stringify(hidden)).not.toContain('"gain"');
+    await guest.next("patch");
+    const previous = versionSixProject(initial.project).vocal;
+    for (const [sequence, changes] of [
+      [1, [{ path: ["vocal"], value: { ...previous, tone: 0.77 } }]],
+      [
+        2,
+        [
+          {
+            path: ["vocal", "automation"],
+            value: { ...previous.automation, tone: Array(16).fill(0.6) },
+          },
+        ],
+      ],
+    ]) {
+      const edited = nextLegacyMessage(old, "patch");
+      old.send(
+        JSON.stringify({ type: "patch", clientId: id, sequence, changes }),
+      );
+      await edited;
+      await guest.next("patch");
+    }
+    await evictDurableObject(env.ROOMS.getByName(room.roomId));
+    const restored = nextLegacyMessage(old, "welcome");
+    old.send(JSON.stringify({ type: "sync" }));
+    expect(await restored).toMatchObject({
+      acknowledgedSequence: 2,
+      revision: 3,
+      supportsComposition: true,
+    });
+    guest.send({ type: "sync" });
+    expect(await guest.next("welcome")).toMatchObject({
+      supportsComposition: true,
+      supportsVocalGain: false,
+      project: {
+        vocal: {
+          gain: 0.75,
+          tone: 0.77,
+          automation: { gain, tone: Array(16).fill(0.6) },
+        },
+      },
+    });
+    const denied = nextLegacyMessage(old, "error");
+    old.send(
+      JSON.stringify({
+        type: "patch",
+        clientId: id,
+        sequence: 3,
+        changes: [{ path: ["vocal", "gain"], value: 0.2 }],
+      }),
+    );
+    expect(await denied).toMatchObject({ code: "invalid-patch" });
+    const closed = closeCode(old),
+      host = await connect(room, room.hostToken, id);
+    expect(await closed).toBe(4009);
+    expect(await host.next("welcome")).toMatchObject({
+      supportsVocalGain: true,
+      project: { vocal: { gain: 0.75, automation: { gain } } },
+    });
+    host.send({ type: "end" });
+    await guest.next("ended");
+  });
   it("keeps a musical vocal sample intact when a v4 host edits its masked track", async () => {
     const room = await create(),
       id = crypto.randomUUID(),
