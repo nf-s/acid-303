@@ -11,6 +11,7 @@ import {
   normalizedTensionValue,
   tensionValueFromNormalized,
   resizeTensionTrack,
+  resizeTensionAutomation,
   tensionStepNotes,
   tensionDecaySeconds,
 } from "./tension-model";
@@ -107,8 +108,8 @@ export function createTensionPanel(
         );
       },
     ).join("")}</div></details>
-    <details class="material-sequence" open><summary>Sequence</summary><div id="tension-pattern-controls" class="instrument-pattern-controls"></div><div class="matrix-toolbar material-note-tools"><div role="group" aria-label="Tension note attribute">${["pitch", "gate", "velocity"].map((item) => `<button data-tension-attribute="${item}" aria-pressed="${item === "pitch"}">${item[0]?.toUpperCase()}${item.slice(1)}</button>`).join("")}</div><div class="matrix-tools" role="group" aria-label="Tension note drawing tool"><button data-tension-tool="draw" aria-pressed="true">Draw</button><button data-tension-tool="line" aria-pressed="false">Line</button><button id="tension-clear-notes">Clear notes</button></div></div><div class="note-matrix material-note-matrix"><canvas id="tension-notes-canvas" aria-label="Draw Tension notes"></canvas><div class="matrix-access" id="tension-notes-access"></div></div></details>
-    <details class="material-automation-details"><summary>Automation</summary><div id="tension-automation"></div></details>`;
+    <details class="material-sequence instrument-section instrument-sequence" open><summary>Sequence</summary><div id="tension-pattern-controls" class="instrument-pattern-controls"></div><div class="matrix-toolbar material-note-tools"><div role="group" aria-label="Tension note attribute">${["pitch", "gate", "velocity"].map((item) => `<button data-tension-attribute="${item}" aria-pressed="${item === "pitch"}">${item[0]?.toUpperCase()}${item.slice(1)}</button>`).join("")}</div><div class="matrix-tools" role="group" aria-label="Tension note drawing tool"><button data-tension-tool="draw" aria-pressed="true">Draw</button><button data-tension-tool="line" aria-pressed="false">Line</button><button id="tension-clear-notes">Clear notes</button></div></div><div class="note-matrix material-note-matrix"><canvas id="tension-notes-canvas" aria-label="Draw Tension notes"></canvas><div class="matrix-access" id="tension-notes-access"></div></div></details>
+    <details class="material-automation-details instrument-section instrument-automation-section"><summary>Automation</summary><div id="tension-automation"></div></details>`;
   const surfaceCanvas = container.querySelector("#tension-surface"),
     noteCanvas = container.querySelector("#tension-notes-canvas"),
     access = container.querySelector<HTMLElement>("#tension-notes-access"),
@@ -158,6 +159,15 @@ export function createTensionPanel(
     getScale: options.getScale,
     getMuted: () => options.getTrack().muted,
     getTiming: () => options.getTrack().timing,
+    getAutomationBars: () => options.getTrack().automationBars,
+    onAutomationBarsChange: (bars) => {
+      Object.assign(
+        options.getTrack(),
+        resizeTensionAutomation(options.getTrack(), bars),
+      );
+      render();
+      options.onChange();
+    },
     getSteps: () => tensionStepNotes(options.getTrack()),
     onTimingChange: (timing) => {
       const parsed = timingSchema.safeParse(timing);
@@ -433,7 +443,11 @@ export function createTensionPanel(
           tensionStepNotes(next),
           next.steps.map((step) => step.velocity),
         );
-      automation.rebaseIncoming((key) => next.automation[key], next.timing);
+      automation.rebaseIncoming(
+        (key) => next.automation[key],
+        next.timing,
+        next.automationBars,
+      );
     },
     setHostCapability: (supported: boolean) => {
       const message = container.querySelector<HTMLElement>(

@@ -263,6 +263,7 @@ test("all eight vocal automation lanes draw across a sixteen-bar loop", async ({
 }) => {
   const project = await load(page, true);
   await openVocalSounds(page);
+  await page.locator("#vocal-tone").press("Enter");
   await page
     .getByRole("group", { name: "Vocal automation view", exact: true })
     .getByRole("button", { name: "Whole loop", exact: true })

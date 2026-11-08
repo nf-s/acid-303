@@ -17,7 +17,9 @@ import {
   playbackFrame,
   resolvedAutomationValue,
   resizeBassTrack,
+  resizeBassAutomation,
   resizeKeysTrack,
+  resizeKeysAutomation,
   DRUM_META,
   drumIdSchema,
   noteName,
@@ -36,8 +38,6 @@ import type {
   PlaybackFrame,
   BassStep,
   DrumId,
-  BassAutomation,
-  KeysAutomation,
   BassAutomationParameter,
   KeysAutomationParameter,
   DrumAutomationParameter,
@@ -47,7 +47,11 @@ import { EditHistory } from "./history";
 import { encodeTrack, decodeTrack } from "./share";
 import { createArpPanel } from "./arp-panel";
 import { createPadPanel } from "./pad-panel";
+import { createProgressionPanel } from "./progression-panel";
 import { createVocalPanel } from "./vocal-panel";
+import { configureSampleApi, ensureSharedSample } from "./custom-samples";
+import type { CustomSample } from "./custom-sample-schema";
+import { vocalSourceKey } from "./vocal-samples";
 import { createCloudPanel } from "./cloud-panel";
 import { createTensionPanel } from "./tension-panel";
 import { cloudGrainSeconds, cloudGrainsPerSecond } from "./cloud-model";
@@ -88,9 +92,11 @@ import { PatternControls } from "./pattern-controls";
 import type { PatternViewport } from "./pattern-controls";
 import {
   sequenceTimingSchema,
+  automationTiming,
+  automationPosition,
+  trackStepCount,
   PPQ,
   ticksPerStep,
-  trackStepCount,
   unswungTick,
 } from "./timing";
 import type { ArpParameter } from "./arp-model";
@@ -231,14 +237,22 @@ for (const id of drumIdSchema.options)
       label: control.label,
       target: { track: "drums", id, parameter: control.parameter },
     });
-type MatrixSnapshot =
-  | { track: "bass"; steps: BassStep[]; automation: BassAutomation }
-  | { track: "keys"; steps: BassStep[]; automation: KeysAutomation };
+type MatrixSnapshot = { steps: BassStep[] };
+const automationUndo: Record<
+  NoteTrack,
+  { id: string; values: number[] | null } | null
+> = { bass: null, keys: null };
 const selectedAutomation: Record<NoteTrack, string | null> = {
-  bass: null,
-  keys: null,
+  bass: "cutoff",
+  keys: "keys-tone",
 };
 const notePagers: Partial<Record<NoteTrack, PatternControls>> = {};
+const automationPagers: Partial<Record<NoteTrack, PatternControls>> = {};
+const automationMatrices: Partial<Record<NoteTrack, NoteMatrix>> = {};
+const automationContexts: Record<NoteTrack, BassStep[]> = {
+  bass: [],
+  keys: [],
+};
 let drumViewport: PatternViewport = { start: 0, count: 16 };
 const automationSweeps = new Map<string, { base: number; values: number[] }>();
 const storageKey = "acid-303-project-v1";
@@ -254,6 +268,7 @@ let sessionStatus: SessionStatus = {
   supportsVocalMusic: false,
   supportsCloud: false,
   supportsTension: false,
+  supportsComposition: false,
   inviteLink: null,
   message: "",
 };
@@ -350,6 +365,7 @@ app.innerHTML = `
       <div id="track-mixer"></div>
   <div class="share-panel" id="share-panel" hidden><label for="share-url">Track link</label><input id="share-url" readonly><button id="copy-share">Copy</button><button id="close-share" aria-label="Close share link">×</button></div>
     </section>
+    <section id="progression-controls" class="project-progression" aria-label="Shared chords"></section>
     <section class="preset-section panel" aria-label="Examples">
         <div class="preset-bar"><div class="preset-navigation"><button class="preset-scroll" data-example-scroll="-1" aria-label="Scroll examples left">‹</button><div class="preset-options" role="group" aria-label="Genre examples">${PRESETS.map((preset) => `<button data-preset="${preset.id}" aria-label="${preset.name} — ${preset.genre}"><strong>${preset.name}</strong><span>${preset.genre}</span></button>`).join("")}</div><button class="preset-scroll" data-example-scroll="1" aria-label="Scroll examples right">›</button></div><div class="preset-actions"><button id="remix" class="remix-button">${icon("shuffle")} Remix</button><button id="undo-remix" class="text-button undo-remix" disabled>Undo</button></div></div>
     </section>
@@ -357,8 +373,8 @@ app.innerHTML = `
       <section id="drums-panel" class="panel drums-panel" aria-labelledby="drums-title">
         <div class="section-header"><div class="section-title"><span class="section-number">01</span><h1 id="drums-title">Drum sequencer</h1></div><button id="reset" class="text-button" title="Restore the selected preset">${icon("rotate-ccw")} Reset</button></div>
         <div id="drum-editors"></div>
-        <div class="beat-surface"><canvas id="beat-canvas" aria-label="Paint drum beats" aria-describedby="paint-help"></canvas><div id="drum-grid" class="beat-keyboard" role="grid" aria-label="Drum steps"></div></div>
-        <div class="section-footer"><span><span class="legend-pad"></span><span id="paint-help">Drag to paint · Drag a filled step to erase</span></span><span>Drag controls up / down</span></div>
+        <details class="instrument-section instrument-sequence" id="drum-simple-sequence" open><summary>Sequence</summary><div id="drum-simple-pattern"></div><div class="beat-surface"><canvas id="beat-canvas" aria-label="Paint drum beats" aria-describedby="paint-help"></canvas><div id="drum-grid" class="beat-keyboard" role="grid" aria-label="Drum steps"></div></div>
+        <div class="section-footer"><span><span class="legend-pad"></span><span id="paint-help">Drag to paint · Drag a filled step to erase</span></span><span>Drag controls up / down</span></div></details>
       </section>
       <section id="bass-panel" class="panel bass-panel" aria-labelledby="bass-title">
         <div class="section-header"><div class="section-title"><span class="section-number">02</span><h2 id="bass-title">Acid bass</h2><span class="small-tag">303</span></div><div class="bass-actions"><button id="bass-mute" class="mute-button" aria-label="Mute acid bass" aria-pressed="${project.bass.muted}">M</button><button id="generate" class="text-button">${icon("shuffle")} Generate</button></div></div>
@@ -408,7 +424,7 @@ function slider(
               ? "Visualizer intensity"
               : "Swing"
         : `${id.startsWith("keys-") ? "Texture" : "Bass"} ${label.toLowerCase()}`);
-  return `<div class="dial-control"><span class="dial-label">${label}</span><div class="gesture-control" id="${id}" role="slider" tabindex="0" title="${automation ? "Click or Enter to draw automation · Drag to adjust" : "Drag up/down · Shift for fine control · Double-tap to reset"}" ${automation ? `data-automation-control="${id}" aria-controls="${automation.target.track === "drums" ? automation.target.id : automation.target.track}-matrix-canvas"` : ""} aria-label="${name}" aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}" aria-valuetext="${display}" aria-orientation="vertical" data-step="${step}" ${id.startsWith("fx-") ? 'data-drag-axis="both"' : ""} ${allowedValues ? `data-values="${allowedValues.join(",")}"` : ""} data-reset="${resetValue}" style="--knob-angle:${-135 + ((value - min) / (max - min)) * 270}deg"><span class="knob-face" aria-hidden="true"><span></span><span class="automation-live"></span></span><output id="${id}-value">${display}</output></div></div>`;
+  return `<div class="dial-control"><span class="dial-label">${label}</span><div class="gesture-control" id="${id}" role="slider" tabindex="0" title="${automation ? "Click or Enter to draw automation · Drag to adjust" : "Drag up/down · Shift for fine control · Double-tap to reset"}" ${automation ? `data-automation-control="${id}" aria-controls="${automation.target.track === "drums" ? `${automation.target.id}-matrix-canvas` : `${automation.target.track}-automation-canvas`}"` : ""} aria-label="${name}" aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}" aria-valuetext="${display}" aria-orientation="vertical" data-step="${step}" ${id.startsWith("fx-") ? 'data-drag-axis="both"' : ""} ${allowedValues ? `data-values="${allowedValues.join(",")}"` : ""} data-reset="${resetValue}" style="--knob-angle:${-135 + ((value - min) / (max - min)) * 270}deg"><span class="knob-face" aria-hidden="true"><span></span><span class="automation-live"></span></span><output id="${id}-value">${display}</output></div></div>`;
 }
 function formatFrequency(value: number): string {
   return value >= 1000
@@ -457,7 +473,7 @@ function renderDrums(): void {
 }
 type NoteTrack = "bass" | "keys";
 function matrixMarkup(track: NoteTrack, label: string): string {
-  return `<div id="${track}-pattern"></div><div class="matrix-toolbar"><div class="matrix-parameters" role="group" aria-label="${label} matrix parameter">${[
+  return `<details class="instrument-section instrument-sequence" open><summary>Sequence</summary><div id="${track}-pattern"></div><div class="matrix-toolbar"><div class="matrix-parameters" role="group" aria-label="${label} matrix parameter">${[
     ["pitch", "Pitch"],
     ["gate", "Gate"],
     ["accent", "Accent"],
@@ -469,7 +485,8 @@ function matrixMarkup(track: NoteTrack, label: string): string {
     )
     .join(
       "",
-    )}</div><div class="matrix-tools" role="group" aria-label="${label} drawing tool"><button data-matrix-track="${track}" data-matrix-tool="draw" aria-pressed="true">Draw</button><button data-matrix-track="${track}" data-matrix-tool="line" aria-pressed="false">Line</button><button data-matrix-undo="${track}" aria-label="Undo ${label} drawing" disabled>Undo</button></div></div><div class="automation-strip" id="${track}-automation" hidden><span id="${track}-automation-label"></span><div class="automation-view" role="group" aria-label="${label} automation view"><button data-matrix-track="${track}" data-matrix-automation-view="page" aria-pressed="true">Page</button><button data-matrix-track="${track}" data-matrix-automation-view="loop" aria-pressed="false">Whole loop</button></div><button data-automation-clear="${track}" aria-label="Clear ${label} automation">Clear curve</button><button data-automation-close="${track}" aria-label="Return to ${label} notes">Notes</button></div><div class="note-matrix" id="${track}-matrix"><canvas id="${track}-matrix-canvas" aria-label="Draw ${label} pitch" aria-describedby="${track}-matrix-help"></canvas><div class="matrix-access" id="${track}-matrix-access"></div></div><div class="matrix-legend" aria-hidden="true"><span class="motif-pitch">━ Pitch</span><span class="motif-gate">▌ Gate</span><span class="motif-accent">◆ Accent</span><span class="motif-glide">⌒ Glide</span></div><div class="section-footer note-help" id="${track}-matrix-help"><span>Draw pitch in scale · Tap a knob to automate</span><span>↑↓ Edit · ←→ Step · Enter Gate</span></div>`;
+    )}</div><div class="matrix-tools" role="group" aria-label="${label} drawing tool"><button data-matrix-track="${track}" data-matrix-tool="draw" aria-pressed="true">Draw</button><button data-matrix-track="${track}" data-matrix-tool="line" aria-pressed="false">Line</button><button data-matrix-undo="${track}" aria-label="Undo ${label} drawing" disabled>Undo</button></div></div><div class="note-matrix" id="${track}-matrix"><canvas id="${track}-matrix-canvas" aria-label="Draw ${label} pitch" aria-describedby="${track}-matrix-help"></canvas><div class="matrix-access" id="${track}-matrix-access"></div></div><div class="matrix-legend" aria-hidden="true"><span class="motif-pitch">━ Pitch</span><span class="motif-gate">▌ Gate</span><span class="motif-accent">◆ Accent</span><span class="motif-glide">⌒ Glide</span></div><div class="section-footer note-help" id="${track}-matrix-help"><span>Draw pitch in scale</span><span>↑↓ Edit · ←→ Step · Enter Gate</span></div></details>
+  <details class="instrument-section instrument-automation-section" id="${track}-automation-section"><summary>Automation</summary><div id="${track}-automation-pattern"></div><div class="automation-strip" id="${track}-automation"><span id="${track}-automation-label"></span><div class="automation-view" role="group" aria-label="${label} automation view"><button data-matrix-track="${track}" data-matrix-automation-view="page" aria-pressed="true">Page</button><button data-matrix-track="${track}" data-matrix-automation-view="loop" aria-pressed="false">Whole loop</button></div><div class="matrix-tools" role="group" aria-label="${label} automation drawing tool"><button data-matrix-track="${track}" data-note-automation-tool="draw" aria-pressed="true">Draw</button><button data-matrix-track="${track}" data-note-automation-tool="line" aria-pressed="false">Line</button><button data-note-automation-undo="${track}" aria-label="Undo ${label} automation" disabled>Undo</button><button data-automation-clear="${track}" aria-label="Clear ${label} automation">Clear curve</button></div></div><div class="note-matrix"><canvas id="${track}-automation-canvas" aria-label="Draw ${label} automation"></canvas><div class="matrix-access" id="${track}-automation-access"></div></div></details>`;
 }
 function automationValues(
   target: AutomationTarget,
@@ -517,8 +534,6 @@ function refreshAutomation(track: NoteTrack): void {
       control.id === selectedAutomation[track] &&
       control.target.track === track,
   );
-  const strip = document.getElementById(`${track}-automation`);
-  if (strip) strip.hidden = !selected;
   for (const control of automationControls.filter(
     (control) => control.target.track === track,
   )) {
@@ -535,35 +550,46 @@ function refreshAutomation(track: NoteTrack): void {
       `${active ? "Automation active. " : ""}Click or Enter to draw automation. Drag to ${active ? "shift the curve" : "adjust"}.`,
     );
   }
-  if (!selected) {
-    matrices[track].setAutomation(null);
-    return;
+  const matrix = automationMatrices[track];
+  if (!selected || !matrix) return;
+  const timing = automationTiming(project[track]);
+  const steps = automationContexts[track];
+  steps.length = trackStepCount(timing);
+  for (let index = 0; index < steps.length; index++) {
+    const source = project[track].steps[index % project[track].steps.length];
+    if (!source) continue;
+    const target = steps[index];
+    if (target) Object.assign(target, source);
+    else steps[index] = { ...source };
   }
+  matrix.update(steps, project.scale, project[track].muted);
+  matrix.setAutomationView(matrix.automationView, timing.bars);
   const values = automationValues(selected.target);
-  matrices[track].setAutomationView(
-    matrices[track].automationView,
-    project[track].timing.bars,
-  );
-  for (const button of document.querySelectorAll<HTMLElement>(
-    `[data-matrix-track="${track}"][data-matrix-automation-view]`,
-  ))
-    button.setAttribute(
-      "aria-pressed",
-      String(
-        button.dataset.matrixAutomationView === matrices[track].automationView,
-      ),
-    );
-  matrices[track].setAutomation({
+  matrix.setAutomation({
     id: selected.id,
     label: selected.label,
     values,
     base: automationBase(selected.target),
     format: (value) => automationDisplay(selected.id, value),
   });
+  automationPagers[track]?.update(
+    timing,
+    project[track].automationBars === null,
+  );
+  for (const button of document.querySelectorAll<HTMLElement>(
+    `[data-matrix-track="${track}"][data-matrix-automation-view]`,
+  ))
+    button.setAttribute(
+      "aria-pressed",
+      String(button.dataset.matrixAutomationView === matrix.automationView),
+    );
   const label = document.getElementById(`${track}-automation-label`);
   if (label) label.textContent = `${selected.label} automation`;
   const clear = document.querySelector(`[data-automation-clear="${track}"]`);
   if (clear instanceof HTMLButtonElement) clear.disabled = values === null;
+  const undo = document.querySelector(`[data-note-automation-undo="${track}"]`);
+  if (undo instanceof HTMLButtonElement)
+    undo.disabled = automationUndo[track] === null;
 }
 function selectAutomation(id: string): void {
   const control = automationControls.find((control) => control.id === id);
@@ -574,27 +600,14 @@ function selectAutomation(id: string): void {
   }
   const track = control.target.track;
   selectedAutomation[track] = id;
-  document
-    .querySelectorAll<HTMLButtonElement>(
-      `[data-matrix-track="${track}"][data-matrix-parameter]`,
-    )
-    .forEach((button) => button.setAttribute("aria-pressed", "false"));
+  const section = document.getElementById(`${track}-automation-section`);
+  if (section instanceof HTMLDetailsElement) section.open = true;
   refreshAutomation(track);
-  const help = document.querySelector(`#${track}-matrix-help > span`);
-  if (help)
-    help.textContent = "Draw automation · Drag the knob to shift the curve";
-  document
-    .querySelector(`#${track}-matrix-canvas`)
-    ?.setAttribute(
-      "aria-label",
-      `Draw ${track === "bass" ? "Bass" : "Texture"} ${control.label.toLowerCase()} automation`,
-    );
 }
 function selectMatrixParameter(
   track: NoteTrack,
   parameter: MatrixParameter,
 ): void {
-  selectedAutomation[track] = null;
   matrices[track].setParameter(parameter);
   refreshAutomation(track);
   document
@@ -622,10 +635,11 @@ function selectMatrixParameter(
 }
 function matrixPaint(track: NoteTrack, change: MatrixChange): void {
   if (change.parameter === "restore") {
-    project[track].steps.forEach((step, index) => {
-      const saved = change.steps[index];
-      if (saved) Object.assign(step, saved);
-    });
+    if (!change.automation)
+      project[track].steps.forEach((step, index) => {
+        const saved = change.steps[index];
+        if (saved) Object.assign(step, saved);
+      });
     if (change.automation) {
       const control = automationControls.find(
         (control) =>
@@ -651,14 +665,15 @@ function matrixPaint(track: NoteTrack, change: MatrixChange): void {
       !control ||
       !Number.isInteger(change.index) ||
       change.index < 0 ||
-      change.index >= project[track].steps.length ||
+      change.index >= trackStepCount(automationTiming(project[track])) ||
       !Number.isFinite(change.value)
     )
       return;
     const lane =
       automationValues(control.target) ??
-      Array.from({ length: project[track].steps.length }, () =>
-        automationBase(control.target),
+      Array.from(
+        { length: trackStepCount(automationTiming(project[track])) },
+        () => automationBase(control.target),
       );
     lane[change.index] = Math.max(0, Math.min(1, change.value));
     setAutomationValues(control.target, lane);
@@ -700,25 +715,31 @@ function queueMatrixSave(): void {
   }
 }
 function saveMatrixUndo(track: NoteTrack): void {
-  if (track === "bass")
-    matrixUndo.bass = {
-      track,
-      steps: structuredClone(project.bass.steps),
-      automation: structuredClone(project.bass.automation),
-    };
-  else
-    matrixUndo.keys = {
-      track,
-      steps: structuredClone(project.keys.steps),
-      automation: structuredClone(project.keys.automation),
-    };
+  matrixUndo[track] = { steps: structuredClone(project[track].steps) };
   const button = document.querySelector(`[data-matrix-undo="${track}"]`);
   if (button instanceof HTMLButtonElement) button.disabled = false;
+}
+function saveAutomationUndo(track: NoteTrack): void {
+  const control = automationControls.find(
+    (entry) => entry.id === selectedAutomation[track],
+  );
+  if (!control) return;
+  const values = automationValues(control.target);
+  automationUndo[track] = {
+    id: control.id,
+    values: values ? [...values] : null,
+  };
 }
 function clearMatrixUndo(track?: NoteTrack): void {
   const tracks: NoteTrack[] = track ? [track] : ["bass", "keys"];
   for (const target of tracks) {
     matrixUndo[target] = null;
+    automationUndo[target] = null;
+    const automationButton = document.querySelector(
+      `[data-note-automation-undo="${target}"]`,
+    );
+    if (automationButton instanceof HTMLButtonElement)
+      automationButton.disabled = true;
     const button = document.querySelector(`[data-matrix-undo="${target}"]`);
     if (button instanceof HTMLButtonElement) button.disabled = true;
   }
@@ -828,6 +849,7 @@ function refreshProject(cancelPerformance = true): void {
   automationSweeps.clear();
   arpPanel.render();
   padPanel.render();
+  progressionPanel.render();
   vocalPanel.render();
   cloudPanel.render();
   tensionPanel.render();
@@ -951,7 +973,7 @@ function recordingLane(id: string): RecordingLane | null {
         : project[target.track];
     if (!track) return null;
     return {
-      timing: track.timing,
+      timing: automationTiming(track),
       base: automationBase(target),
       values: automationValues(target),
       write: (values) => setAutomationValues(target, values),
@@ -960,7 +982,7 @@ function recordingLane(id: string): RecordingLane | null {
   const arp = arpParameters.find((parameter) => `arp-${parameter}` === id);
   if (arp)
     return {
-      timing: project.arp.timing,
+      timing: automationTiming(project.arp),
       base: normalizedArpValue(project.arp, arp),
       values: project.arp.automation[arp],
       write: (values) => {
@@ -970,7 +992,7 @@ function recordingLane(id: string): RecordingLane | null {
   const pad = padParameters.find((parameter) => `pad-${parameter}` === id);
   if (pad)
     return {
-      timing: project.pad.timing,
+      timing: automationTiming(project.pad),
       base: normalizedPadValue(project.pad, pad),
       values: project.pad.automation[pad],
       write: (values) => {
@@ -982,7 +1004,7 @@ function recordingLane(id: string): RecordingLane | null {
   );
   if (vocal)
     return {
-      timing: project.vocal.timing,
+      timing: automationTiming(project.vocal),
       base: normalizedVocalValue(project.vocal, vocal),
       values: project.vocal.automation[vocal],
       write: (values) => {
@@ -994,7 +1016,7 @@ function recordingLane(id: string): RecordingLane | null {
   );
   if (cloud)
     return {
-      timing: project.cloud.timing,
+      timing: automationTiming(project.cloud),
       base: project.cloud[cloud],
       values: project.cloud.automation[cloud],
       write: (values) => {
@@ -1006,7 +1028,7 @@ function recordingLane(id: string): RecordingLane | null {
   );
   if (tension)
     return {
-      timing: project.tension.timing,
+      timing: automationTiming(project.tension),
       base: project.tension[tension],
       values: project.tension.automation[tension],
       write: (values) => {
@@ -1224,6 +1246,14 @@ function showFrame(frame: PlaybackFrame): void {
   matrices.bass.setStep(positions.bass?.index ?? -1);
   matrices.keys.setStep(positions.keys?.index ?? -1);
   const playingTick = frame.playing ? frame.absoluteTick : -1;
+  for (const track of noteTracks) {
+    automationMatrices[track]?.setStep(
+      playingTick < 0
+        ? -1
+        : automationPosition(project[track], playingTick, project.swing).index,
+    );
+    automationPagers[track]?.setTick(playingTick, project.swing);
+  }
   drumEditor.setTick(playingTick, project.swing);
   notePagers.bass?.setTick(playingTick, project.swing);
   notePagers.keys?.setTick(playingTick, project.swing);
@@ -1251,6 +1281,7 @@ function showFrame(frame: PlaybackFrame): void {
     });
   arpPanel.setPosition(playingTick, project.swing);
   padPanel.setPosition(playingTick, project.swing);
+  progressionPanel.setPosition(playingTick, project.swing);
   vocalPanel.setPosition(playingTick, project.swing);
   cloudPanel.setPosition(playingTick, project.swing);
   tensionPanel.setPosition(playingTick, project.swing);
@@ -1385,18 +1416,84 @@ for (const track of noteTracks) {
   });
   notePagers[track]?.update(project[track].timing);
 }
+for (const track of noteTracks) {
+  const canvas = document.getElementById(`${track}-automation-canvas`);
+  const access = document.getElementById(`${track}-automation-access`);
+  const container = document.getElementById(`${track}-automation-pattern`);
+  if (!(canvas instanceof HTMLCanvasElement) || !access || !container)
+    throw new Error("Note automation controls are missing.");
+  const matrix = new NoteMatrix(
+    canvas,
+    access,
+    track === "bass" ? "Bass" : "Texture",
+    track === "bass" ? 24 : 48,
+    track === "bass" ? 60 : 84,
+    (change) => matrixPaint(track, change),
+    () => {
+      automationPagers[track]?.freezeFollow();
+      saveAutomationUndo(track);
+    },
+  );
+  automationMatrices[track] = matrix;
+  const changeBars = (bars: import("./timing").AutomationBars): void => {
+    matrix.cancelStroke();
+    automationUndo[track] = null;
+    if (track === "bass")
+      project.bass = resizeBassAutomation(project.bass, bars);
+    else project.keys = resizeKeysAutomation(project.keys, bars);
+    refreshAutomation(track);
+    persist();
+  };
+  automationPagers[track] = new PatternControls(container, {
+    label: `${track === "bass" ? "Bass" : "Texture"} automation`,
+    barsOnly: true,
+    allowedBars: [1, 2, 4, 8, 16],
+    onFollowSequence: () => changeBars(null),
+    onTimingChange: (timing) => changeBars(timing.bars),
+    isBusy: () => matrix.busy,
+    onViewportChange: (viewport) => matrix.setViewport(viewport),
+  });
+  refreshAutomation(track);
+}
+const progressionContainer = document.getElementById("progression-controls");
+if (!progressionContainer) throw new Error("Chord controls are missing.");
+function openChords(): void {
+  const tools = document.getElementById("studio-tools-panel");
+  const button = document.getElementById("studio-tools");
+  if (tools) tools.hidden = true;
+  button?.setAttribute("aria-expanded", "false");
+  progressionPanel.open();
+  requestAnimationFrame(() =>
+    progressionContainer?.scrollIntoView({
+      block: "start",
+      behavior: "smooth",
+    }),
+  );
+}
+const progressionPanel = createProgressionPanel(progressionContainer, {
+  getProgression: () => project.progression,
+  getScale: () => project.scale,
+  onChange: () => {
+    refreshProject();
+    persist();
+  },
+});
 const arpContainer = document.getElementById("arp-panel");
 const padContainer = document.getElementById("pad-panel");
 if (!arpContainer || !padContainer)
   throw new Error("Melodic instruments are missing.");
 const arpPanel = createArpPanel(arpContainer, {
   getTrack: () => project.arp,
+  getProgression: () => project.progression,
+  onProgressionEdit: () => openChords(),
   getScale: () => project.scale,
   onChange: () => persist(),
   renderControl: slider,
 });
 const padPanel = createPadPanel(padContainer, {
   getTrack: () => project.pad,
+  getProgression: () => project.progression,
+  onProgressionEdit: () => openChords(),
   getScale: () => project.scale,
   onChange: () => {
     updateBarPosition();
@@ -1404,11 +1501,62 @@ const padPanel = createPadPanel(padContainer, {
   },
   renderControl: slider,
 });
+async function prepareSharedProject(): Promise<
+  ReturnType<typeof createProject>
+> {
+  const snapshot = structuredClone(project);
+  if (snapshot.vocal.recording)
+    snapshot.vocal.recording = await ensureSharedSample(
+      snapshot.vocal.recording,
+    );
+  return snapshot;
+}
+async function useVocalRecording(sample: CustomSample): Promise<void> {
+  if (sessionEditingBlocked())
+    throw new Error(
+      "Wait for the session to reconnect before changing recordings.",
+    );
+  if (
+    sessionStatus.role === "guest" &&
+    sessionStatus.hostConnected &&
+    !sessionStatus.supportsComposition
+  )
+    throw new Error(
+      "The host needs the current version of Grain to play custom recordings.",
+    );
+  const source = project;
+  const previousSource = vocalSourceKey(
+    project.vocal.sound,
+    project.vocal.recording,
+  );
+  const role = sessionStatus.role;
+  const invite = sessionClient?.inviteLink;
+  const recording = role ? await ensureSharedSample(sample) : sample;
+  if (
+    project !== source ||
+    vocalSourceKey(project.vocal.sound, project.vocal.recording) !==
+      previousSource ||
+    sessionStatus.role !== role ||
+    sessionClient?.inviteLink !== invite ||
+    sessionEditingBlocked()
+  )
+    throw new Error(
+      "Track changed while uploading. Select the recording again.",
+    );
+  project.vocal.recording = recording;
+  project.vocal.muted = false;
+  vocalPanel.render();
+  persist();
+}
 const vocalContainer = document.getElementById("vocal-panel");
 if (!vocalContainer) throw new Error("Vocal instrument is missing.");
 const vocalPanel = createVocalPanel(vocalContainer, {
   getTrack: () => project.vocal,
   getScale: () => project.scale,
+  getProgression: () => project.progression,
+  onProgressionEdit: openChords,
+  getSessionActive: () => sessionStatus.role !== null,
+  onUseRecording: useVocalRecording,
   onChange: () => persist(),
   renderControl: slider,
   onPreview: (note) => {
@@ -1678,7 +1826,8 @@ const gestures = installGestures(
       );
       if (control?.target.track === "drums")
         drumEditor.cancel(control.target.id);
-      else if (control) matrices[control.target.track].cancelStroke();
+      else if (control)
+        automationMatrices[control.target.track]?.cancelStroke();
     },
     end: (control) => {
       const id = control.dataset.sourceControl ?? control.id;
@@ -1874,8 +2023,9 @@ document.addEventListener("click", async (event) => {
   }
   if (id === "share-track") {
     button.disabled = true;
+    button.textContent = "Sharing…";
     try {
-      const encoded = await encodeTrack(structuredClone(project));
+      const encoded = await encodeTrack(await prepareSharedProject());
       const url = new URL(location.href);
       url.hash = `track=${encoded}`;
       const field = document.getElementById("share-url"),
@@ -1891,10 +2041,15 @@ document.addEventListener("click", async (event) => {
       } catch {
         toast("Copy the track link above.");
       }
-    } catch {
-      toast("Could not create the track link.");
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? error.message
+          : "Could not create the track link.",
+      );
     } finally {
       button.disabled = false;
+      button.textContent = "Share";
     }
   }
   if (id === "copy-share") {
@@ -2064,12 +2219,30 @@ document.addEventListener("click", async (event) => {
       dataset.matrixAutomationView === "page" ||
       dataset.matrixAutomationView === "loop"
     ) {
-      notePagers[track]?.freezeFollow();
-      matrices[track].setAutomationView(
+      automationPagers[track]?.freezeFollow();
+      automationMatrices[track]?.setAutomationView(
         dataset.matrixAutomationView,
-        project[track].timing.bars,
+        automationTiming(project[track]).bars,
       );
       refreshAutomation(track);
+    }
+    if (
+      dataset.noteAutomationTool === "draw" ||
+      dataset.noteAutomationTool === "line"
+    ) {
+      automationMatrices[track]?.setTool(dataset.noteAutomationTool);
+      document
+        .querySelectorAll<HTMLElement>(
+          `[data-matrix-track="${track}"][data-note-automation-tool]`,
+        )
+        .forEach((item) =>
+          item.setAttribute(
+            "aria-pressed",
+            String(
+              item.dataset.noteAutomationTool === dataset.noteAutomationTool,
+            ),
+          ),
+        );
     }
     const parameter = dataset.matrixParameter;
     if (
@@ -2105,24 +2278,37 @@ document.addEventListener("click", async (event) => {
         control.target.track === track,
     );
     if (control) {
-      matrices[track].cancelStroke();
+      automationMatrices[track]?.cancelStroke();
       automationSweeps.delete(control.id);
-      saveMatrixUndo(track);
+      saveAutomationUndo(track);
       setAutomationValues(control.target, null);
       refreshAutomation(track);
       persist();
     }
   }
-  if (dataset.automationClose === "bass" || dataset.automationClose === "keys")
-    selectMatrixParameter(dataset.automationClose, "pitch");
+  if (
+    dataset.noteAutomationUndo === "bass" ||
+    dataset.noteAutomationUndo === "keys"
+  ) {
+    const track = dataset.noteAutomationUndo,
+      before = automationUndo[track];
+    const control = automationControls.find((entry) => entry.id === before?.id);
+    if (before && control) {
+      automationMatrices[track]?.cancelStroke();
+      automationSweeps.delete(control.id);
+      setAutomationValues(control.target, before.values);
+      automationUndo[track] = null;
+      selectedAutomation[track] = control.id;
+      refreshAutomation(track);
+      persist();
+    }
+  }
   if (dataset.matrixUndo === "bass" || dataset.matrixUndo === "keys") {
     const track = dataset.matrixUndo,
       before = matrixUndo[track];
     if (before) {
       automationSweeps.clear();
       project[track].steps = before.steps;
-      if (before.track === "bass") project.bass.automation = before.automation;
-      else project.keys.automation = before.automation;
       matrixUndo[track] = null;
       button.disabled = true;
       matrices[track].update(before.steps, project.scale, project[track].muted);
@@ -2291,6 +2477,10 @@ function updateControl(id: string, value: number): void {
   if (id === "swing") {
     project.swing = value / 100;
     setOutput(id, `${value}%`);
+    arpPanel.setPosition(currentAbsoluteTick, project.swing);
+    padPanel.setPosition(currentAbsoluteTick, project.swing);
+    vocalPanel.setPosition(currentAbsoluteTick, project.swing);
+    progressionPanel.setPosition(currentAbsoluteTick, project.swing);
   }
   if (id === "drive") {
     project.drive = value / 100;
@@ -2706,20 +2896,58 @@ async function hostTransport(
 }
 const sessionContainer = document.getElementById("session-panel");
 if (!sessionContainer) throw new Error("Session panel is missing.");
+let creatingSession = false;
 const sessionPanel = createSessionPanel(sessionContainer, {
   onCreate: () => {
+    if (creatingSession) return;
     if (sessionStatus.phase === "ended") leaveSession();
     if (sessionClient?.role) {
       sessionClient.reconnect();
       return;
     }
+    creatingSession = true;
+    const createButton =
+      document.querySelector<HTMLButtonElement>("#session-create");
+    if (createButton) {
+      createButton.disabled = true;
+      createButton.textContent = "Preparing session…";
+    }
+    const source = project;
+    const recording = project.vocal.recording;
     void (async () => {
       try {
-        await engine.unlock(project);
-      } catch {
-        toast("Press Play on the host to enable audio.");
+        try {
+          await engine.unlock(project);
+        } catch {
+          toast("Press Play on the host to enable audio.");
+        }
+        const shared = await prepareSharedProject();
+        if (
+          sessionClient?.role ||
+          project !== source ||
+          project.vocal.recording !== recording
+        )
+          throw new Error(
+            "Track changed while preparing the session. Create the session again.",
+          );
+        shared.vocal = { ...project.vocal, recording: shared.vocal.recording };
+        await sessionClient?.create({
+          ...structuredClone(project),
+          vocal: shared.vocal,
+        });
+      } catch (error) {
+        toast(
+          error instanceof Error
+            ? error.message
+            : "Could not prepare the session.",
+        );
+      } finally {
+        creatingSession = false;
+        if (createButton) {
+          createButton.disabled = sessionStatus.phase === "connecting";
+          createButton.textContent = "Create session";
+        }
       }
-      await sessionClient?.create(structuredClone(project));
     })();
   },
   onJoin: (link) => {
@@ -2751,6 +2979,7 @@ const sessionApi =
   (["localhost", "127.0.0.1"].includes(location.hostname)
     ? "http://127.0.0.1:8787"
     : "https://grain-sessions.nf-s.workers.dev");
+configureSampleApi(sessionApi);
 sessionClient = new SessionClient(sessionApi, {
   onState: (state) => {
     sessionStatus = state;
@@ -2764,6 +2993,10 @@ sessionClient = new SessionClient(sessionApi, {
         state.phase !== "connected" ||
         !state.hostConnected ||
         state.supportsVocalMusic,
+      state.role !== "guest" ||
+        state.phase !== "connected" ||
+        !state.hostConnected ||
+        state.supportsComposition,
     );
     cloudPanel.setHostCapability(
       state.role !== "guest" ||
@@ -2787,7 +3020,7 @@ sessionClient = new SessionClient(sessionApi, {
     }
     document
       .querySelectorAll<HTMLElement>(
-        ".preset-section, .studio-grid, .playback, .jam-controls, .mix-controls, .scale-panel, #track-mixer, #global-undo, #global-redo, #share-track, #phone-motion, #export",
+        ".preset-section, .studio-grid, .playback, .jam-controls, .mix-controls, .scale-panel, .project-progression, #track-mixer, #global-undo, #global-redo, #share-track, #phone-motion, #export",
       )
       .forEach((element) => {
         element.inert = blocked;
@@ -2843,10 +3076,29 @@ sessionClient = new SessionClient(sessionApi, {
       const control = automationControls.find(
         (control) => control.id === selectedAutomation[track],
       );
-      matrices[track].rebaseIncoming(
-        next[track].steps,
-        control ? automationValues(control.target, next) : undefined,
-      );
+      matrices[track].rebaseIncoming(next[track].steps);
+      const incomingTiming = automationTiming(next[track]);
+      const currentTiming = automationTiming(project[track]);
+      if (
+        incomingTiming.bars !== currentTiming.bars ||
+        incomingTiming.meter !== currentTiming.meter ||
+        incomingTiming.grid !== currentTiming.grid
+      )
+        automationMatrices[track]?.cancelStroke();
+      else
+        automationMatrices[track]?.rebaseIncoming(
+          Array.from(
+            { length: trackStepCount(incomingTiming) },
+            (_, index) =>
+              next[track].steps[index % next[track].steps.length] ?? {
+                note: 48,
+                on: false,
+                accent: false,
+                slide: false,
+              },
+          ),
+          control ? automationValues(control.target, next) : undefined,
+        );
     }
     drumEditor.rebaseIncoming(next);
     arpPanel.rebaseIncoming(next.arp);

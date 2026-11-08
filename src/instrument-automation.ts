@@ -1,8 +1,8 @@
 import type { BassStep, MusicalScale } from "./model";
 import { NoteMatrix } from "./note-matrix";
 import { PatternControls } from "./pattern-controls";
-import { PPQ, trackPosition, trackStepCount } from "./timing";
-import type { Timing } from "./timing";
+import { PPQ, trackPosition, trackStepCount, automationTiming } from "./timing";
+import type { AutomationBars, Timing } from "./timing";
 import type { MatrixChange, MatrixTool } from "./note-matrix";
 
 export interface InstrumentControl<Parameter extends string> {
@@ -28,6 +28,9 @@ interface AutomationOptions<Parameter extends string> {
   getScale: () => MusicalScale;
   getMuted: () => boolean;
   getTiming: () => Timing;
+  getAutomationBars: () => AutomationBars;
+  onAutomationBarsChange: (bars: AutomationBars) => void;
+  getContextSteps?: (timing: Timing) => ReadonlyArray<BassStep>;
   onTimingChange: (timing: Timing) => void;
   allowedBars?: ReadonlyArray<Timing["bars"]>;
   pagerContainer?: HTMLElement;
@@ -52,26 +55,26 @@ export function createInstrumentAutomation<Parameter extends string>(
   let undo: LaneSnapshot<Parameter> | null = null;
   let queued = false;
   let destroyed = false;
-  let pendingScroll: number | null = null;
-  const cancelScroll = (): void => {
-    if (pendingScroll !== null) window.clearTimeout(pendingScroll);
-    pendingScroll = null;
-  };
   let absoluteTick = -1;
   let swing = 0;
   let timingSignature = "";
   const sweeps = new Map<string, { base: number; values: number[] }>();
   const steps: BassStep[] = [];
   const id = (parameter: Parameter): string => `${options.prefix}-${parameter}`;
+  const getAutomationTiming = (): Timing =>
+    automationTiming({
+      timing: options.getTiming(),
+      automationBars: options.getAutomationBars(),
+    });
   container.classList.add("instrument-automation");
-  container.innerHTML = `${options.pagerContainer ? "" : `<div id="${options.prefix}-pattern-controls" class="instrument-pattern-controls"></div>`}<div class="matrix-toolbar"><div class="instrument-lane-title"><span id="${options.prefix}-lane-label"></span><span id="${options.prefix}-lane-duration"></span></div><div class="automation-view" role="group" aria-label="${options.label} automation view"><button data-automation-view="page" aria-pressed="true">Page</button><button data-automation-view="loop" aria-pressed="false">Whole loop</button></div><div class="matrix-tools"><button data-automation-tool="draw" aria-pressed="true">Draw</button><button data-automation-tool="line" aria-pressed="false">Line</button><button id="${options.prefix}-automation-undo" disabled>Undo</button><button id="${options.prefix}-automation-clear">Clear curve</button></div></div><div class="note-matrix instrument-automation-matrix"><canvas id="${options.prefix}-matrix-canvas" aria-label="Draw ${options.label} automation"></canvas><div class="matrix-access" id="${options.prefix}-matrix-access"></div></div>`;
+  container.innerHTML = `${options.pagerContainer ? "" : `<div id="${options.prefix}-pattern-controls" class="instrument-pattern-controls"></div>`}<div id="${options.prefix}-automation-pattern-controls" class="instrument-pattern-controls"></div><div class="matrix-toolbar"><div class="instrument-lane-title"><span id="${options.prefix}-lane-label"></span><span id="${options.prefix}-lane-duration"></span></div><div class="automation-view" role="group" aria-label="${options.label} automation view"><button data-automation-view="page" aria-pressed="true">Page</button><button data-automation-view="loop" aria-pressed="false">Whole loop</button></div><div class="matrix-tools"><button data-automation-tool="draw" aria-pressed="true">Draw</button><button data-automation-tool="line" aria-pressed="false">Line</button><button id="${options.prefix}-automation-undo" disabled>Undo</button><button id="${options.prefix}-automation-clear">Clear curve</button></div></div><div class="note-matrix instrument-automation-matrix"><canvas id="${options.prefix}-matrix-canvas" aria-label="Draw ${options.label} automation"></canvas><div class="matrix-access" id="${options.prefix}-matrix-access"></div></div>`;
   const canvas = container.querySelector("canvas");
   const access = container.querySelector<HTMLElement>(".matrix-access");
   if (!(canvas instanceof HTMLCanvasElement) || !access)
     throw new Error("Automation matrix is missing.");
 
   const snapshot = (): void => {
-    pager.freezeFollow();
+    automationPager.freezeFollow();
     const values = options.getLane(selected.parameter);
     undo = {
       parameter: selected.parameter,
@@ -105,7 +108,7 @@ export function createInstrumentAutomation<Parameter extends string>(
       if (!control) return;
       const lane =
         options.getLane(control.parameter) ??
-        Array.from({ length: trackStepCount(options.getTiming()) }, () =>
+        Array.from({ length: trackStepCount(getAutomationTiming()) }, () =>
           options.getBase(control.parameter),
         );
       if (
@@ -127,7 +130,6 @@ export function createInstrumentAutomation<Parameter extends string>(
     options.maxNote,
     paint,
     snapshot,
-    true,
   );
 
   const internalPager = container.querySelector<HTMLElement>(
@@ -141,29 +143,59 @@ export function createInstrumentAutomation<Parameter extends string>(
     allowedBars: options.allowedBars,
     onTimingChange: options.onTimingChange,
     onViewportChange: (viewport) => {
-      matrix.setViewport(viewport);
       options.onViewportChange?.(viewport);
     },
+    isBusy: () => matrix.busy,
+  });
+
+  const automationPagerContainer = container.querySelector<HTMLElement>(
+    `#${options.prefix}-automation-pattern-controls`,
+  );
+  if (!automationPagerContainer)
+    throw new Error("Automation timing controls are missing.");
+  const automationPager = new PatternControls(automationPagerContainer, {
+    label: `${options.label} automation`,
+    allowedBars: [1, 2, 4, 8, 16],
+    barsOnly: true,
+    onFollowSequence: () => {
+      matrix.cancelStroke();
+      options.onAutomationBarsChange(null);
+    },
+    onTimingChange: (timing) => {
+      matrix.cancelStroke();
+      options.onAutomationBarsChange(timing.bars);
+    },
+    onViewportChange: (viewport) => matrix.setViewport(viewport),
     isBusy: () => matrix.busy,
   });
 
   function refresh(resetHistory = false): void {
     if (destroyed) return;
     if (resetHistory) {
-      cancelScroll();
       undo = null;
       sweeps.clear();
     }
-    const timing = options.getTiming();
+    const timing = getAutomationTiming();
     const nextSignature = `${timing.bars}:${timing.meter}:${timing.grid}`;
     if (timingSignature !== nextSignature) {
-      cancelScroll();
       matrix.cancelStroke();
       undo = null;
       sweeps.clear();
       timingSignature = nextSignature;
     }
-    const incoming = options.getSteps();
+    const sequence = options.getSteps();
+    const incoming =
+      options.getContextSteps?.(timing) ??
+      Array.from(
+        { length: trackStepCount(timing) },
+        (_, index) =>
+          sequence[index % sequence.length] ?? {
+            on: false,
+            note: options.minNote,
+            accent: false,
+            slide: false,
+          },
+      );
     steps.length = incoming.length;
     incoming.forEach((step, index) => {
       const target = steps[index];
@@ -198,7 +230,8 @@ export function createInstrumentAutomation<Parameter extends string>(
     );
     if (duration)
       duration.textContent = `${trackStepCount(timing)} ${options.prefix === "pad" ? "points" : "steps"}`;
-    pager.update(timing);
+    pager.update(options.getTiming());
+    automationPager.update(timing, options.getAutomationBars() === null);
     const clear = container.querySelector(
       `#${options.prefix}-automation-clear`,
     );
@@ -242,8 +275,9 @@ export function createInstrumentAutomation<Parameter extends string>(
     absoluteTick = tick;
     swing = amount;
     pager.setTick(tick, amount);
+    automationPager.setTick(tick, amount);
     matrix.setStep(
-      tick < 0 ? -1 : trackPosition(options.getTiming(), tick, amount).index,
+      tick < 0 ? -1 : trackPosition(getAutomationTiming(), tick, amount).index,
     );
   }
   function setStep(step: number): void {
@@ -255,8 +289,8 @@ export function createInstrumentAutomation<Parameter extends string>(
     if (!button || !container.contains(button)) return;
     const view = button.dataset.automationView;
     if (view === "page" || view === "loop") {
-      pager.freezeFollow();
-      matrix.setAutomationView(view, options.getTiming().bars);
+      automationPager.freezeFollow();
+      matrix.setAutomationView(view, getAutomationTiming().bars);
       refresh();
     }
     const nextTool = button.dataset.automationTool;
@@ -322,7 +356,7 @@ export function createInstrumentAutomation<Parameter extends string>(
     )
       sweeps.delete(element.dataset.sourceControl ?? element.id);
   };
-  const focusMatrix = (): void => pager.freezeFollow();
+  const focusMatrix = (): void => automationPager.freezeFollow();
   container.addEventListener("click", click);
   access.addEventListener("focusin", focusMatrix);
   access.addEventListener("keydown", keyDown, true);
@@ -340,12 +374,14 @@ export function createInstrumentAutomation<Parameter extends string>(
     rebaseIncoming(
       getLane: (parameter: Parameter) => ReadonlyArray<number> | null,
       timing: Timing,
+      automationBars: AutomationBars = options.getAutomationBars(),
     ): void {
-      const current = options.getTiming();
+      const current = getAutomationTiming();
+      const incomingTiming = automationTiming({ timing, automationBars });
       if (
-        current.bars !== timing.bars ||
-        current.meter !== timing.meter ||
-        current.grid !== timing.grid
+        current.bars !== incomingTiming.bars ||
+        current.meter !== incomingTiming.meter ||
+        current.grid !== incomingTiming.grid
       )
         matrix.cancelStroke();
       else matrix.rebaseIncoming(steps, getLane(selected.parameter));
@@ -359,12 +395,10 @@ export function createInstrumentAutomation<Parameter extends string>(
       if (!control) return false;
       if (selected.parameter !== control.parameter) matrix.cancelStroke();
       selected = control;
-      cancelScroll();
+      const section = container.closest("details");
+      if (section instanceof HTMLDetailsElement) section.open = true;
       refresh();
-      pendingScroll = window.setTimeout(() => {
-        pendingScroll = null;
-        if (!destroyed) container.scrollIntoView({ block: "nearest" });
-      }, 0);
+      container.scrollIntoView({ block: "nearest" });
       return true;
     },
     shiftControl(controlId: string, before: number, after: number): void {
@@ -398,9 +432,9 @@ export function createInstrumentAutomation<Parameter extends string>(
     },
     destroy(): void {
       destroyed = true;
-      cancelScroll();
       matrix.destroy();
       pager.destroy();
+      automationPager.destroy();
       container.removeEventListener("click", click);
       access.removeEventListener("keydown", keyDown, true);
       access.removeEventListener("focusin", focusMatrix);

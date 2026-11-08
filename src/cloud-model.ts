@@ -1,8 +1,13 @@
 import { z } from "zod";
+import type { AutomationBars } from "./timing";
 import { automationLaneSchema, snapNote } from "./model";
 import type { BassStep, MusicalScale } from "./model";
 import {
   createTiming,
+  automationBarsSchema,
+  automationTiming,
+  automationStepCount,
+  automationStepPosition,
   timingSchema,
   trackStepCount,
   resizePattern,
@@ -50,6 +55,7 @@ export const cloudStepSchema = z.object({
 export type CloudStep = z.infer<typeof cloudStepSchema>;
 export const cloudBaseSchema = z.object({
   timing: timingSchema.default(createTiming),
+  automationBars: automationBarsSchema,
   sound: z
     .number()
     .int()
@@ -84,7 +90,7 @@ export const cloudSchema = cloudBaseSchema.superRefine((track, context) => {
   if (
     track.steps.length !== count ||
     Object.values(track.automation).some(
-      (lane) => lane !== null && lane.length !== count,
+      (lane) => lane !== null && lane.length !== automationStepCount(track),
     )
   )
     context.addIssue({
@@ -222,7 +228,7 @@ export function automatedCloud(
 ): CloudTrack {
   const resolved = { ...track };
   if (!Number.isFinite(absoluteStep) || absoluteStep < 0) return resolved;
-  const index = Math.floor(absoluteStep) % trackStepCount(track.timing);
+  const index = Math.floor(automationStepPosition(track, absoluteStep));
   for (const parameter of cloudAutomationSchema.keyof().options) {
     const value = track.automation[parameter]?.[index];
     if (value !== undefined) resolved[parameter] = value;
@@ -257,8 +263,8 @@ export function resizeCloudTrack(
   for (const parameter of cloudAutomationSchema.keyof().options)
     automation[parameter] = resizeAutomationLane(
       track.automation[parameter],
-      track.timing,
-      timing,
+      automationTiming(track),
+      automationTiming({ ...track, timing }),
       track[parameter],
     );
   return {
@@ -285,4 +291,19 @@ export function cloudGrainSeconds(value: number): number {
 }
 export function cloudGrainsPerSecond(value: number): number {
   return 2 + 30 * cloudValueFromNormalized("density", value);
+}
+
+export function resizeCloudAutomation(
+  track: CloudTrack,
+  automationBars: AutomationBars,
+): CloudTrack {
+  const automation = { ...track.automation };
+  for (const parameter of cloudAutomationSchema.keyof().options)
+    automation[parameter] = resizeAutomationLane(
+      track.automation[parameter],
+      automationTiming(track),
+      automationTiming({ ...track, automationBars }),
+      track[parameter],
+    );
+  return { ...track, automationBars, automation };
 }

@@ -176,3 +176,24 @@ describe("Tension model", () => {
     expect(readProject(project)).toEqual(project);
   });
 });
+
+it("keeps tension automation independent of sequence repeats and resizes", async () => {
+  const {
+    createTension,
+    resizeTensionAutomation,
+    resizeTensionTrack,
+    automatedTension,
+  } = await import("./tension-model");
+  const track = resizeTensionAutomation(createTension(), 16);
+  track.automation.decay = Array.from(
+    { length: 256 },
+    (_, index) => index / 255,
+  );
+  const before = structuredClone(track);
+  expect(automatedTension(track, 144).decay).toBe(144 / 255);
+  expect(automatedTension(track, 256).decay).toBe(0);
+  const next = resizeTensionTrack(track, { ...track.timing, bars: 2 });
+  expect(next.automationBars).toBe(16);
+  expect(next.automation.decay).toEqual(before.automation.decay);
+  expect(track).toEqual(before);
+});

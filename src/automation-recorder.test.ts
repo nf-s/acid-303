@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { automationBarsSchema, automationTiming, createTiming } from "./timing";
 import { AutomationRecorder } from "./automation-recorder";
 import type { RecordingLane } from "./automation-recorder";
 
@@ -105,4 +106,26 @@ describe("client-local touch recording", () => {
       expect(lane.values?.[7]).toBe(0.25);
     }
   });
+});
+
+it("records into a later automation bar without wrapping at the short note sequence", () => {
+  const { lane, recorder } = setup();
+  const sequence = {
+    timing: createTiming(),
+    automationBars: automationBarsSchema.parse(8),
+  };
+  lane.timing = automationTiming(sequence);
+  recorder.arm(true);
+  recorder.frame(true, 96, 0);
+  recorder.begin("tone");
+  recorder.capture("tone", 0.8);
+  recorder.frame(true, 108, 0);
+  expect(lane.values).toHaveLength(128);
+  expect(lane.values?.slice(0, 16)).toEqual(Array(16).fill(0.25));
+  expect(lane.values?.slice(16, 19)).toEqual([0.8, 0.8, 0.8]);
+  recorder.end("tone");
+  recorder.frame(true, 768, 0);
+  recorder.capture("tone", 0.6);
+  expect(lane.values?.[0]).toBe(0.6);
+  expect(lane.values?.[16]).toBe(0.8);
 });

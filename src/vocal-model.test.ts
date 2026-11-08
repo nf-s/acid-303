@@ -60,7 +60,7 @@ describe("vocal patterns", () => {
     expect(vocal.muted).toBe(true);
     const migrated = readProject({ ...previous, version: 3 });
     expect(migrated).toEqual(original);
-    expect(migrated?.version).toBe(5);
+    expect(migrated?.version).toBe(6);
     expect(projectSchema.safeParse(migrated).success).toBe(true);
   });
   it("validates sample bounds, ordered notes, loop bounds, trim and automation", () => {
@@ -185,4 +185,47 @@ describe("vocal patterns", () => {
     });
     expect(exportPlan(project).ticks).toBeGreaterThanOrEqual(1536);
   });
+});
+
+it("keeps vocal automation independent of sequence repeats and resizes", async () => {
+  const {
+    createVocal,
+    resizeVocalAutomation,
+    resizeVocalTrack,
+    automatedVocal,
+  } = await import("./vocal-model");
+  const track = resizeVocalAutomation(createVocal(), 16);
+  track.automation.tone = Array.from(
+    { length: 256 },
+    (_, index) => index / 255,
+  );
+  const before = structuredClone(track);
+  expect(automatedVocal(track, 144).tone).toBe(144 / 255);
+  expect(automatedVocal(track, 256).tone).toBe(0);
+  const next = resizeVocalTrack(track, { ...track.timing, bars: 2 });
+  expect(next.automationBars).toBe(16);
+  expect(next.automation.tone).toEqual(before.automation.tone);
+  expect(track).toEqual(before);
+});
+
+it("moves vocal onsets by signed scale degrees relative to the first chord", async () => {
+  const { vocalProgressionNote } = await import("./vocal-model");
+  const { createProgression } = await import("./progression-model");
+  const progression = createProgression();
+  progression.timing.bars = 2;
+  progression.chords = [
+    { degree: 3, inversion: 2 },
+    { degree: 1, inversion: 3 },
+    { degree: 5, inversion: 0 },
+    { degree: 3, inversion: 0 },
+  ];
+  expect(vocalProgressionNote(69, scale, progression, 0)).toBe(69);
+  expect(vocalProgressionNote(69, scale, progression, 48)).toBe(65);
+  expect(vocalProgressionNote(69, scale, progression, 96)).toBe(72);
+  expect(vocalProgressionNote(84, scale, progression, 96)).toBeLessThanOrEqual(
+    84,
+  );
+  expect(
+    vocalProgressionNote(36, scale, progression, 48),
+  ).toBeGreaterThanOrEqual(36);
 });

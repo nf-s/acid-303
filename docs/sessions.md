@@ -22,7 +22,7 @@ both credentials. Local projects and snapshot Share links remain independent.
   and `expiresAt`. Creation also normalizes scale-locked pitches.
 - `GET /sessions/:roomId?clientId=<id>` upgrades to a WebSocket. The browser sends
   protocols `["grain-session-v5", token]`. The response selects only
-  the requested compatible version (`grain-session-v5`, `grain-session-v4` or `grain-session-v3`); credentials are never put in an API URL or echoed as the
+  the requested compatible version (`grain-session-v6`, `grain-session-v5`, `grain-session-v4` or `grain-session-v3`); credentials are never put in an API URL or echoed as the
   selected protocol. The server derives the role from the token.
 - Only token SHA-256 hashes are stored. Comparison uses the Workers
   constant-time comparison API. Guest links contain only the guest token in the
@@ -168,10 +168,36 @@ the accepted edit. The final 20 workerd tests cover all three protocol versions,
 hibernation, hidden-state preservation, highest sample indices and measured
 maximum-snapshot row costs.
 
+## Composition compatibility (v6)
+
+Project and wire protocol version 6 add the shared progression, each track's
+independent automation length, follower switches and custom recording references.
+Existing room snapshots migrate through the same project boundary; the
+SessionRoom namespace, credentials, expiry and ordered revision history remain.
+Local-only recording references are rejected at room creation and patch boundaries.
+Audio bytes never enter room snapshots or patches; see [recording storage](recordings.md).
+
+Clients on v3–v5 receive projections in their supported format. New metadata is
+omitted, automation is projected to their visible sequence length, and a following
+Pad receives the shared chord progression. Custom vocals and Arp/Vocal followers
+are masked where the older engine cannot play them. The canonical room retains
+the full curves and sources. Legacy whole-track and sparse drum replacements merge
+with hidden state; ambiguous edits to an independent curve or its timing are
+rejected rather than truncating it. Legacy Pad chord edits map to shared Chords.
+A current guest warns when the host cannot play the new composition features;
+existing clients are not forcibly reloaded or disconnected for this upgrade.
+
+Each legacy patch can include a complete projected changed track/root. This costs
+bounded serialization and outbound bytes, with no additional database query or
+write. The decoded project and message boundary remains 1 MiB. Schema, projection,
+sparse replacement, hibernation and host capability tests cover the new fields.
+The pre-existing reserved-close-code handling is retained: the runtime replies to
+close events, so application code does not echo reserved codes such as 1005/1006.
+
 ## Sound catalog compatibility
 
 The expanded sound catalog introduced wire protocol v3 with Project
-version 3. The current release supports those clients alongside v4 and v5. Instrument timing, controls and saved patterns are unchanged. Hats
+version 3. The current release supports those clients alongside v4, v5 and v6. Instrument timing, controls and saved patterns are unchanged. Hats
 have eight rebuilt sounds; the other drums have seven, Bass eleven, Texture
 eight, Arp eight and Pads eight. Each drum's boundary validates its own catalog;
 index 7 is valid for hats and rejected for the other drums.

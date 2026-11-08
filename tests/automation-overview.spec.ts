@@ -94,7 +94,9 @@ async function coordinates(canvas: Locator, fraction: number, value: number) {
   };
 }
 async function drawLoop(page: Page, track: string) {
-  const canvas = page.locator(`#${track}-matrix-canvas`);
+  const canvas = page.locator(
+    `#${track}-${track === "bass" || track === "keys" ? "automation" : "matrix"}-canvas`,
+  );
   const start = await coordinates(canvas, 0, 0.1);
   const end = await coordinates(canvas, 0.99999, 0.9);
   await page.mouse.move(start.x, start.y);
@@ -103,6 +105,16 @@ async function drawLoop(page: Page, track: string) {
   await page.mouse.up();
 }
 async function wholeLoop(page: Page, label: string) {
+  const group = page.getByRole("group", {
+    name: `${label} automation view`,
+    exact: true,
+    includeHidden: true,
+  });
+  if (!(await group.isVisible()))
+    await group
+      .locator("xpath=ancestor::details[1]")
+      .locator(":scope > summary")
+      .click();
   await page
     .getByRole("group", { name: `${label} automation view`, exact: true })
     .getByRole("button", { name: "Whole loop", exact: true })
@@ -192,6 +204,9 @@ test("whole-loop keyboard navigation preserves the chosen page and Arp gate edit
   await controls.locator('[data-pattern-action="pages"]').click();
   await controls.locator('[data-pattern-page="23"]').click();
   await page.locator("#arp-tone").press("Enter");
+  const automationControls = page.locator("#arp-automation-pattern-controls");
+  await automationControls.locator('[data-pattern-action="pages"]').click();
+  await automationControls.locator('[data-pattern-page="23"]').click();
   await wholeLoop(page, "Arpeggiator");
   const access = page.locator("#arp-matrix-access [role=slider]");
   await expect(access).toHaveCount(1);
@@ -211,6 +226,9 @@ test("whole-loop keyboard navigation preserves the chosen page and Arp gate edit
   await expect(
     page.locator('#arp-matrix-access [data-matrix-step="239"]'),
   ).toBeAttached();
+  await expect(controls.locator('[data-pattern-action="pages"]')).toHaveText(
+    "Page 24/24",
+  );
   const gate = page.locator('[data-arp-step="239"]');
   const before = await gate.getAttribute("aria-pressed");
   await gate.click();
@@ -220,7 +238,7 @@ test("whole-loop keyboard navigation preserves the chosen page and Arp gate edit
   );
 });
 
-test("all drum curves use Whole loop while Gates returns to the selected page", async ({
+test("all drum curves use Whole loop while the independent gate editor retains its page", async ({
   page,
 }) => {
   const original = await loadProject(page);
@@ -231,13 +249,15 @@ test("all drum curves use Whole loop while Gates returns to the selected page", 
   });
   await controls.click();
   await page
-    .locator(
-      '.drum-detail[aria-label="Kick automation"] [data-pattern-page="23"]',
-    )
+    .locator('#kick-sequence-pattern-controls [data-pattern-page="23"]')
     .click();
+  await page.locator("#kick-pitch").press("Enter");
+  const automationControls = page.locator("#kick-automation-pattern-controls");
+  await automationControls.locator('[data-pattern-action="pages"]').click();
+  await automationControls.locator('[data-pattern-page="23"]').click();
   await wholeLoop(page, "Kick");
   const knobs = page.locator(
-    '.drum-detail[aria-label="Kick automation"] .gesture-control',
+    '.drum-detail[aria-label="Kick editor"] .gesture-control',
   );
   for (let index = 0; index < 8; index++) {
     await knobs.nth(index).press("Enter");
@@ -260,17 +280,20 @@ test("all drum curves use Whole loop while Gates returns to the selected page", 
   expect(kick.steps).toEqual(
     original.drums.find((track) => track.id === "kick")?.steps,
   );
-  await page.locator('[data-drum-gates="kick"]').click();
-  await expect(
-    page.getByRole("group", { name: "Kick automation view", exact: true }),
-  ).toBeHidden();
-  await expect(page.locator("#kick-matrix-canvas")).toHaveAttribute(
+  await expect(page.locator("#kick-sequence-canvas")).toHaveAttribute(
     "data-automation-view",
     "page",
   );
   await expect(
-    page.locator('#kick-matrix-access [data-matrix-step="239"]'),
+    page.locator('#kick-sequence-access [data-matrix-step="239"]'),
   ).toBeAttached();
+  await expect(
+    page.locator("#kick-sequence-pattern-controls [data-pattern-action=pages]"),
+  ).toHaveText("Page 24/24");
+  await expect(page.locator("#kick-matrix-canvas")).toHaveAttribute(
+    "data-automation-view",
+    "loop",
+  );
   await page.locator("#kick-tone").press("Enter");
   await expect(page.locator("#kick-matrix-canvas")).toHaveAttribute(
     "data-automation-view",
@@ -326,6 +349,9 @@ test("Bass and Texture whole-loop automation leaves the paged pitch editor intac
     await expect(
       page.locator(`#${target.track}-matrix-access [role=slider]`),
     ).toHaveCount(12);
+    await expect(
+      page.locator(`#${target.track}-automation-canvas`),
+    ).toHaveAttribute("data-automation-view", "loop");
   }
 });
 

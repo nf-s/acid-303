@@ -1,7 +1,19 @@
-import { automatedVocal, resolveVocalTrim } from "./vocal-model";
+import type { Progression } from "./progression-model";
+import type { MusicalScale } from "./model";
+import {
+  automatedVocal,
+  resolveVocalTrim,
+  vocalProgressionNote,
+} from "./vocal-model";
 import type { VocalNote, VocalTrack } from "./vocal-model";
 import type { LoadedVocalSample } from "./vocal-samples";
-import { ticksPerStep, trackStepCount, tickSpanSeconds } from "./timing";
+import {
+  swungTick,
+  automationStepCount,
+  ticksPerStep,
+  trackStepCount,
+  tickSpanSeconds,
+} from "./timing";
 
 export function vocalReleaseSeconds(track: VocalTrack): number {
   return 0.008 + track.release ** 2 * 1.6;
@@ -9,7 +21,7 @@ export function vocalReleaseSeconds(track: VocalTrack): number {
 export function vocalTailDuration(track: VocalTrack, bpm: number): number {
   if (track.muted || !track.notes.length) return 0;
   let longest = 0;
-  for (let index = 0; index < trackStepCount(track.timing); index++) {
+  for (let index = 0; index < automationStepCount(track); index++) {
     const resolved = automatedVocal(track, index);
     if (resolved.volume > 0)
       longest = Math.max(
@@ -234,6 +246,7 @@ export class VocalInstrument {
   private readonly voices = new Set<VocalVoice>();
   private current: VocalVoice | null = null;
   private currentStart = -1;
+  private currentPitch = 60;
   private stopped = false;
   constructor(
     private readonly context: BaseAudioContext,
@@ -250,13 +263,15 @@ export class VocalInstrument {
     time: number,
     bpm: number,
     swing: number,
+    scale?: MusicalScale,
+    progression?: Progression,
   ): void {
     if (this.stopped) return;
     const stepTicks = ticksPerStep(track.timing),
       count = trackStepCount(track.timing);
     const absoluteStep = Math.floor(logicalTick / stepTicks),
       index = absoluteStep % count;
-    const resolved = automatedVocal(track, index);
+    const resolved = automatedVocal(track, absoluteStep);
     this.level.gain.setTargetAtTime(
       track.muted ? 0 : resolved.volume * 0.6,
       time,
@@ -283,8 +298,23 @@ export class VocalInstrument {
       time +
       tickSpanSeconds(logicalTick, endTick, bpm, swing, track.timing.grid);
     if (this.current && this.currentStart === start)
-      this.current.update(resolved, note, time, end);
+      this.current.update(
+        resolved,
+        { ...note, note: track.followChords ? this.currentPitch : note.note },
+        time,
+        end,
+      );
     else if (index === note.start) {
+      this.currentPitch =
+        track.followChords && scale && progression
+          ? vocalProgressionNote(
+              note.note,
+              scale,
+              progression,
+              swungTick(logicalTick, swing, track.timing.grid),
+              swing,
+            )
+          : note.note;
       this.current?.release(time, 0.008);
       let voice: VocalVoice;
       voice = new VocalVoice(
@@ -292,7 +322,7 @@ export class VocalInstrument {
         this.level,
         this.loaded,
         resolved,
-        note,
+        { ...note, note: this.currentPitch },
         time,
         end,
         bpm,

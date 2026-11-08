@@ -1653,6 +1653,7 @@ export function createPreset(id: string): Project {
     );
   });
   project.bass = {
+    automationBars: null,
     timing: createTiming(),
     pulse: 0.5,
     shape: preset.bass.shape,
@@ -1669,6 +1670,7 @@ export function createPreset(id: string): Project {
     steps: noteSteps(preset.bass),
   };
   project.keys = {
+    automationBars: null,
     timing: createTiming(),
     width: 0.5,
     attack: 0,
@@ -1731,5 +1733,9 @@ export function createPreset(id: string): Project {
       hat.automation.pan = curve(palette.hatPan);
     }
   }
+  project.progression = {
+    timing: { ...project.pad.timing },
+    chords: project.pad.chords.map((chord) => ({ ...chord })),
+  };
   return withScale(project, preset.scale);
 }

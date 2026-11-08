@@ -240,3 +240,20 @@ describe("chord progression model", () => {
     expect(padTailDuration(pad, 60)).toBe(0);
   });
 });
+
+it("keeps pad automation independent of sequence repeats and resizes", async () => {
+  const { createPad, resizePadAutomation, resizePadTrack, automatedPad } =
+    await import("./pad-model");
+  const track = resizePadAutomation(createPad(), 16);
+  track.automation.tone = Array.from(
+    { length: 256 },
+    (_, index) => index / 255,
+  );
+  const before = structuredClone(track);
+  expect(automatedPad(track, 144).tone).toBe(144 / 255);
+  expect(automatedPad(track, 256).tone).toBe(0);
+  const next = resizePadTrack(track, { ...track.timing, bars: 2 });
+  expect(next.automationBars).toBe(16);
+  expect(next.automation.tone).toEqual(before.automation.tone);
+  expect(track).toEqual(before);
+});

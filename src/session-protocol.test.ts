@@ -5,6 +5,7 @@ import {
   resizeBassTrack,
   resizeKeysTrack,
 } from "./model";
+import { resizeBassAutomation, resizeDrumAutomation } from "./model";
 import { resizeCloudTrack } from "./cloud-model";
 import { resizeTensionTrack } from "./tension-model";
 import {
@@ -17,6 +18,7 @@ import {
   sessionCanChange,
   versionThreeProject,
   versionFourProject,
+  versionFiveProject,
   MAX_PROJECT_CHANGES,
   applySessionProjectChanges,
 } from "./session-protocol";
@@ -93,7 +95,13 @@ describe("collaborative project patches", () => {
       expect(previous).not.toHaveProperty("cloud");
       expect(previous).not.toHaveProperty("tension");
     }
-    expect(versionFourProject(project).vocal).toEqual(project.vocal);
+    const {
+      automationBars: _bars,
+      followChords: _follow,
+      recording: _recording,
+      ...legacyVocal
+    } = project.vocal;
+    expect(versionFourProject(project).vocal).toEqual(legacyVocal);
     const patch = serverMessageSchema.parse({
       type: "patch",
       revision: 42,
@@ -358,5 +366,133 @@ describe("collaborative project patches", () => {
       "supportsVocal",
       true,
     );
+  });
+});
+
+describe("composition compatibility", () => {
+  it("projects independent loops to valid legacy tracks without exposing v6 fields", () => {
+    const project = createProject();
+    project.bass = resizeBassAutomation(project.bass, 8);
+    project.bass.automation.cutoff = Array.from(
+      { length: 128 },
+      (_, index) => index / 128,
+    );
+    const old = versionFiveProject(project);
+    expect(old.version).toBe(5);
+    expect(old).not.toHaveProperty("progression");
+    expect(old.bass).not.toHaveProperty("automationBars");
+    expect(old.bass.automation.cutoff).toHaveLength(16);
+    const edited = applySessionProjectChanges(
+      project,
+      [{ path: ["bass"], value: { ...old.bass, volume: 0.27 } }],
+      5,
+    );
+    expect(edited?.bass.automationBars).toBe(8);
+    expect(edited?.bass.automation).toEqual(project.bass.automation);
+    expect(edited?.bass.volume).toBe(0.27);
+    expect(
+      applySessionProjectChanges(
+        project,
+        [{ path: ["bass", "automation", "cutoff", 0], value: 0.5 }],
+        5,
+      ),
+    ).toBeNull();
+    expect(
+      applySessionProjectChanges(
+        project,
+        [{ path: ["bass", "automationBars"], value: 1 }],
+        5,
+      ),
+    ).toBeNull();
+  });
+  it("preserves hidden drum automation in sparse legacy track replacements", () => {
+    const project = createProject();
+    project.drums = project.drums.map((track) =>
+      resizeDrumAutomation(track, 8),
+    );
+    const kick = project.drums[0];
+    if (!kick) throw new Error("Kick missing");
+    kick.automation.tone = Array.from(
+      { length: 128 },
+      (_, index) => index / 128,
+    );
+    const old = versionFiveProject(project).drums[0];
+    if (!old) throw new Error("Projected kick missing");
+    const edited = applySessionProjectChanges(
+      project,
+      [{ path: ["drums"], entries: [[0, { ...old, volume: 0.3 }]] }],
+      5,
+    );
+    expect(edited?.drums[0]?.volume).toBe(0.3);
+    expect(edited?.drums[0]?.automationBars).toBe(8);
+    expect(edited?.drums[0]?.automation).toEqual(kick.automation);
+    const extended = {
+      path: ["drums"],
+      entries: [[0, { ...old, automationBars: 1 }]],
+    };
+    const parsed = clientMessageSchema.parse({
+      type: "patch",
+      clientId: "legacy-client-0001",
+      sequence: 1,
+      changes: [extended],
+    });
+    if (parsed.type !== "patch") throw new Error("Patch missing");
+    expect(applySessionProjectChanges(project, parsed.changes, 5)).toBeNull();
+  });
+  it("maps old Pad chord edits into the shared progression without erasing local voicings", () => {
+    const project = createProject();
+    project.progression.chords[0] = { degree: 3, inversion: 1 };
+    const old = versionFiveProject(project);
+    expect(old.pad.chords).toEqual(project.progression.chords);
+    const edited = applySessionProjectChanges(
+      project,
+      [{ path: ["pad", "chords", 0, "degree"], value: 4 }],
+      5,
+    );
+    expect(edited?.progression.chords[0]?.degree).toBe(4);
+    expect(edited?.pad.chords).toEqual(project.pad.chords);
+    const replaced = applySessionProjectChanges(
+      project,
+      [{ path: ["pad"], value: { ...old.pad, tone: 0.7 } }],
+      5,
+    );
+    expect(replaced?.pad.chords).toEqual(project.pad.chords);
+    expect(replaced?.pad.tone).toBe(0.7);
+  });
+  it("keeps private sample references out of legacy clients and blocks local-only sources in sessions", () => {
+    const project = createProject();
+    const recording = {
+      kind: "shared",
+      id: "a".repeat(32),
+      sha256: "b".repeat(64),
+      name: "Recording",
+      duration: 1,
+      rootNote: 60,
+      peaks: Array(128).fill(0.1),
+      readToken: "c".repeat(43),
+    };
+    const shared = applyProjectChanges(project, [
+      { path: ["vocal", "recording"], value: recording },
+      { path: ["vocal", "muted"], value: false },
+    ]);
+    if (!shared) throw new Error("Recording fixture invalid");
+    const old = versionFiveProject(shared);
+    expect(old.vocal).not.toHaveProperty("recording");
+    expect(old.vocal).toMatchObject({ sound: 0, muted: true });
+    const edited = applySessionProjectChanges(
+      shared,
+      [{ path: ["vocal"], value: { ...old.vocal, tone: 0.3 } }],
+      5,
+    );
+    expect(edited?.vocal.recording).toEqual(recording);
+    expect(edited?.vocal.muted).toBe(false);
+    const { readToken: _token, ...local } = recording;
+    expect(
+      applySessionProjectChanges(
+        project,
+        [{ path: ["vocal", "recording"], value: { ...local, kind: "local" } }],
+        6,
+      ),
+    ).toBeNull();
   });
 });

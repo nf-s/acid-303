@@ -38,7 +38,17 @@ async function presetHash(id: string): Promise<string> {
   };
   const bytes = new TextEncoder().encode(
     JSON.stringify({ ...project, version: 2, pad: oldPad }, (key, value) =>
-      ["timing", "fx", "vocal", "cloud", "tension"].includes(key)
+      [
+        "timing",
+        "fx",
+        "vocal",
+        "cloud",
+        "tension",
+        "automationBars",
+        "followChords",
+        "recording",
+        "progression",
+      ].includes(key)
         ? undefined
         : value,
     ),
@@ -70,7 +80,19 @@ describe("genre examples", () => {
     const saved: unknown = JSON.parse(JSON.stringify(project));
     expect(readProject(saved)).toEqual(project);
     const arrangement = JSON.stringify(project, (key, value: unknown) => {
-      if (["version", "name", "vocal", "cloud", "tension"].includes(key))
+      if (
+        [
+          "version",
+          "name",
+          "vocal",
+          "cloud",
+          "tension",
+          "automationBars",
+          "followChords",
+          "recording",
+          "progression",
+        ].includes(key)
+      )
         return undefined;
       if (value !== null && typeof value === "object" && !Array.isArray(value))
         return Object.fromEntries(
@@ -351,7 +373,18 @@ describe("genre examples", () => {
       // Only newly revised muted factory tracks are omitted; all pre-existing state is frozen.
       const digest = await crypto.subtle.digest(
         "SHA-256",
-        new TextEncoder().encode(JSON.stringify(project)),
+        new TextEncoder().encode(
+          JSON.stringify({ ...project, version: 5 }, (key, value) =>
+            [
+              "automationBars",
+              "followChords",
+              "recording",
+              "progression",
+            ].includes(key)
+              ? undefined
+              : value,
+          ),
+        ),
       );
       const fingerprint = Array.from(new Uint8Array(digest), (value) =>
         value.toString(16).padStart(2, "0"),

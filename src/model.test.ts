@@ -47,7 +47,11 @@ describe("Arp and Pad project integration", () => {
     for (const bars of [2, 4, 8, 16]) {
       const valid = projectSchema.parse({
         ...project,
-        pad: { ...project.pad, timing: { ...project.pad.timing, bars } },
+        pad: {
+          ...project.pad,
+          followChords: false,
+          timing: { ...project.pad.timing, bars },
+        },
       });
       expect(projectBars(valid)).toBe(bars);
       valid.pad.volume = 0;
@@ -303,7 +307,7 @@ describe("saved project migration", () => {
       },
     };
     const upgraded = readProject(legacy);
-    expect(upgraded?.version).toBe(5);
+    expect(upgraded?.version).toBe(6);
     expect(upgraded?.bpm).toBe(139);
     expect(upgraded?.drums.find((track) => track.id === "rim")?.pitch).toBe(-4);
     expect(upgraded?.drums.map((track) => track.steps)).toEqual(
@@ -602,7 +606,7 @@ describe("instrument automation", () => {
     expect(highKeys.decay).toBe(2);
     expect(highKeys.space).toBe(1);
     expect(project).toEqual(original);
-    expect(automatedBass(project.bass, 16).cutoff).toBe(original.bass.cutoff);
+    expect(automatedBass(project.bass, 16).cutoff).toBe(80);
     expect(automatedKeys(project.keys, -1).decay).toBe(original.keys.decay);
     project.bass.automation = emptyBassAutomation();
     project.keys.automation = emptyKeysAutomation();
@@ -696,7 +700,7 @@ describe("independent timing migration", () => {
     };
     const restored = readProject(legacy);
     if (!restored) throw new Error("Legacy timing migration failed");
-    expect(restored.version).toBe(5);
+    expect(restored.version).toBe(6);
     expect(restored.drums).toEqual(project.drums);
     expect(restored.bass).toEqual(project.bass);
     expect(restored.keys).toEqual(project.keys);
@@ -765,6 +769,7 @@ describe("independent timing migration", () => {
     );
     project.pad.muted = false;
     project.pad.timing.bars = 16;
+    project.pad.followChords = false;
     const plan = exportPlan(project);
     expect(plan.completeCycle).toBe(false);
     expect(plan.ticks).toBeLessThanOrEqual(3072);
@@ -814,5 +819,132 @@ describe("expanded sound catalogs", () => {
     project.bass.sound = 10;
     project.keys.sound = 7;
     expect(readProject(JSON.parse(JSON.stringify(project)))).toEqual(project);
+  });
+});
+
+describe("independent sequence and automation loops", () => {
+  it("migrates version five without changing curve samples or musical state", () => {
+    const current = createProject();
+    current.bass.automation.cutoff = Array.from(
+      { length: 16 },
+      (_, i) => i / 15,
+    );
+    const previous: unknown = JSON.parse(
+      JSON.stringify({ ...current, version: 5 }, (key, value) =>
+        key === "automationBars" ? undefined : value,
+      ),
+    );
+    expect(readProject(previous)).toEqual(current);
+    expect(current.bass.automationBars).toBeNull();
+  });
+  it("keeps an eight-bar curve running across one-bar bass notes and bounds export", async () => {
+    const {
+      resizeBassAutomation,
+      resizeBassTrack,
+      resolvedAutomationValue,
+      exportPlan,
+    } = await import("./model");
+    const project = createProject();
+    project.bass = resizeBassAutomation(project.bass, 8);
+    project.bass.automation.volume = Array.from(
+      { length: 128 },
+      (_, i) => i / 127,
+    );
+    const before = structuredClone(project.bass);
+    expect(automatedBass(project.bass, 16).volume).toBe(16 / 127);
+    expect(automatedBass(project.bass, 127).volume).toBe(1);
+    expect(automatedBass(project.bass, 128).volume).toBe(0);
+    expect(
+      resolvedAutomationValue(
+        project,
+        { instrument: "bass", parameter: "volume" },
+        96,
+      ).value,
+    ).toBe(16 / 127);
+    expect(exportPlan(project).ticks).toBe(768);
+    const resized = resizeBassTrack(project.bass, {
+      ...project.bass.timing,
+      bars: 2,
+    });
+    expect(resized.steps).toHaveLength(32);
+    expect(resized.automation.volume).toEqual(before.automation.volume);
+    expect(resized.automationBars).toBe(8);
+    expect(project.bass).toEqual(before);
+    const linked = resizeBassAutomation(resized, null);
+    expect(linked.automation.volume).toEqual(
+      before.automation.volume?.slice(0, 32),
+    );
+    expect(linked.steps).toEqual(resized.steps);
+    project.bass = linked;
+    expect(readProject(project)).toEqual(project);
+    project.bass.automationBars = 8;
+    expect(readProject(project)).toBeNull();
+  });
+  it("repeats and crops automation by beat time while notes remain intact", async () => {
+    const { resizeDrumAutomation, resizeDrumTrack, resizeKeysAutomation } =
+      await import("./model");
+    const project = createProject(),
+      drum = project.drums[0];
+    if (!drum) throw new Error("Missing drum");
+    drum.automation.volume = Array.from({ length: 16 }, (_, i) => i / 16);
+    const long = resizeDrumAutomation(drum, 4);
+    expect(long.steps).toEqual(drum.steps);
+    expect(long.automation.volume?.slice(48)).toEqual(drum.automation.volume);
+    expect(automatedDrum(long, 18, project.scale).volume).toBe(2 / 16);
+    const triplet = resizeDrumTrack(long, {
+      bars: 1,
+      meter: "4/4",
+      grid: "triplet",
+    });
+    expect(triplet.automation.volume).toHaveLength(96);
+    expect(triplet.automation.volume?.[3]).toBe(2 / 16);
+    const keys = resizeKeysAutomation(project.keys, 8);
+    keys.automation.decay = Array.from({ length: 128 }, (_, i) =>
+      i === 127 ? 1 : 0,
+    );
+    expect(automatedKeys(keys, 127).decay).toBe(2);
+    expect(automatedKeys(keys, 128).decay).toBe(0.08);
+  });
+});
+
+describe("shared progression migration", () => {
+  it("copies the final saved pad progression and preserves every old curve", () => {
+    const old = createProject();
+    old.pad.timing = { bars: 4, meter: "7/8", grid: "triplet" };
+    old.pad.chords = [
+      { degree: 3, inversion: 2 },
+      { degree: 1, inversion: 0 },
+      { degree: 5, inversion: 1 },
+      { degree: 2, inversion: 3 },
+    ];
+    const { progression, ...saved } = old;
+    expect(progression.timing.bars).toBe(8);
+    const restored = readProject({ ...saved, version: 5 });
+    expect(restored?.progression).toEqual({
+      timing: old.pad.timing,
+      chords: old.pad.chords,
+    });
+    expect(restored?.pad.followChords).toBe(true);
+    expect(restored?.arp.followChords).toBe(false);
+    expect(restored?.vocal.followChords).toBe(false);
+    expect(restored?.pad).toEqual(old.pad);
+  });
+  it("includes shared harmony only when a follower is enabled", async () => {
+    const { exportPlan } = await import("./model");
+    const project = createProject();
+    project.progression.timing.bars = 16;
+    expect(exportPlan(project).ticks).toBe(192);
+    project.pad.muted = false;
+    project.pad.timing.bars = 2;
+    expect(exportPlan(project).ticks).toBe(1536);
+    project.pad.followChords = false;
+    expect(exportPlan(project).ticks).toBe(192);
+    project.arp.muted = false;
+    project.arp.followChords = true;
+    expect(exportPlan(project).ticks).toBe(1536);
+    project.arp.muted = true;
+    project.vocal.muted = false;
+    project.vocal.followChords = true;
+    expect(exportPlan(project).ticks).toBe(1536);
   });
 });

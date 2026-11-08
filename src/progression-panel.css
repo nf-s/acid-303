@@ -1,0 +1,165 @@
+.project-progression {
+  min-width: 0;
+  scroll-margin-top: calc(var(--transport-height, 110px) + 20px);
+}
+.project-progression .chords-disclosure {
+  margin: 0;
+}
+.chords-disclosure {
+  border: 1px solid var(--line);
+  margin: 10px 0;
+  background: #1a1c1f;
+}
+.chords-disclosure > summary {
+  cursor: pointer;
+  padding: 12px;
+  font-size: 11px;
+}
+.progression-position {
+  margin-left: 12px;
+  color: #b5b9be;
+  font-size: 10px;
+}
+.progression-editor {
+  min-width: 0;
+}
+.progression-timing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px;
+}
+.progression-timing > div,
+.progression-degrees,
+.progression-inversions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.progression-editor button,
+.follow-chord-controls button {
+  border: 1px solid #727980;
+  background: #272c31;
+  padding: 8px 10px;
+  font-size: 10px;
+}
+.progression-editor button[aria-pressed="true"],
+.follow-chord-controls button[aria-pressed="true"] {
+  background: #d5d8db;
+  color: #17191b;
+}
+.progression-presets {
+  margin: 12px;
+}
+.progression-presets > summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font-size: 11px;
+}
+.progression-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  padding: 4px 0;
+}
+.progression-composition {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 0.45fr);
+  gap: 14px;
+  padding: 0 12px 12px;
+}
+.progression-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+.progression-cards button {
+  min-width: 0;
+  padding: 10px 8px;
+  text-align: left;
+}
+.progression-cards button.current {
+  box-shadow: inset 0 -4px currentColor;
+}
+.progression-cards strong,
+.progression-cards small,
+.progression-cards span {
+  display: block;
+}
+.progression-cards strong {
+  font-size: 16px;
+  margin: 8px 0;
+}
+.progression-cards small,
+.progression-duration,
+.progression-number {
+  font-size: 9px;
+  line-height: 1.5;
+}
+.progression-duration {
+  margin-top: 8px;
+}
+.progression-note-editor h3 {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.progression-edit-group + .progression-edit-group {
+  margin-top: 10px;
+}
+.progression-edit-group > span {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 10px;
+}
+.follow-chord-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px;
+}
+.follow-chord-context {
+  color: #b5b9be;
+  font-size: 10px;
+}
+.follow-chord-context[hidden],
+.follow-chord-controls button[hidden],
+.progression-editor[hidden],
+.arp-manual-notes[hidden] {
+  display: none;
+}
+@media (max-width: 850px) {
+  .progression-composition {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .progression-note-editor {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 10px 18px;
+  }
+  .progression-note-editor h3 {
+    width: 100%;
+    margin: 0;
+  }
+  .progression-edit-group + .progression-edit-group {
+    margin-top: 0;
+  }
+}
+@media (max-width: 520px) {
+  .progression-cards,
+  .progression-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .progression-cards button {
+    min-height: 100px;
+  }
+  .progression-timing,
+  .follow-chord-controls {
+    margin: 10px 9px;
+  }
+  .progression-composition {
+    padding: 0 9px 10px;
+  }
+}

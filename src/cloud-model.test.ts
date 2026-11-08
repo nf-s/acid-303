@@ -176,3 +176,24 @@ describe("Cloud model", () => {
     expect(readProject(project)).toEqual(project);
   });
 });
+
+it("keeps cloud automation independent of sequence repeats and resizes", async () => {
+  const {
+    createCloud,
+    resizeCloudAutomation,
+    resizeCloudTrack,
+    automatedCloud,
+  } = await import("./cloud-model");
+  const track = resizeCloudAutomation(createCloud(), 16);
+  track.automation.scan = Array.from(
+    { length: 256 },
+    (_, index) => index / 255,
+  );
+  const before = structuredClone(track);
+  expect(automatedCloud(track, 144).scan).toBe(144 / 255);
+  expect(automatedCloud(track, 256).scan).toBe(0);
+  const next = resizeCloudTrack(track, { ...track.timing, bars: 2 });
+  expect(next.automationBars).toBe(16);
+  expect(next.automation.scan).toEqual(before.automation.scan);
+  expect(track).toEqual(before);
+});

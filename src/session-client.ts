@@ -33,6 +33,7 @@ export interface SessionStatus {
   supportsVocalMusic: boolean;
   supportsCloud: boolean;
   supportsTension: boolean;
+  supportsComposition: boolean;
   inviteLink: string | null;
   message: string;
 }
@@ -92,6 +93,7 @@ export class SessionClient {
     supportsVocalMusic: false,
     supportsCloud: false,
     supportsTension: false,
+    supportsComposition: false,
     inviteLink: null,
     message: "",
   };
@@ -111,6 +113,7 @@ export class SessionClient {
           supportsVocalMusic: false,
           supportsCloud: false,
           supportsTension: false,
+          supportsComposition: false,
           message: "Offline. Waiting to reconnect…",
         });
         this.callbacks.onClock(false, 0);
@@ -143,6 +146,7 @@ export class SessionClient {
         supportsVocalMusic: false,
         supportsCloud: false,
         supportsTension: false,
+        supportsComposition: false,
       };
     this.status = { ...this.status, ...update };
     this.callbacks.onState({ ...this.status });
@@ -263,6 +267,7 @@ export class SessionClient {
       supportsVocalMusic: false,
       supportsCloud: false,
       supportsTension: false,
+      supportsComposition: false,
       inviteLink: link.href,
       message: "Connecting…",
     });
@@ -382,6 +387,7 @@ export class SessionClient {
         supportsVocalMusic: false,
         supportsCloud: false,
         supportsTension: false,
+        supportsComposition: false,
         message: "Reconnecting…",
       });
       this.callbacks.onClock(false, 0);
@@ -437,6 +443,7 @@ export class SessionClient {
         supportsVocalMusic: message.supportsVocalMusic,
         supportsCloud: message.supportsCloud,
         supportsTension: message.supportsTension,
+        supportsComposition: message.supportsComposition,
         participants: message.participants,
         message: kept ? "" : "Some unsynced edits could not be restored.",
       });
@@ -481,6 +488,7 @@ export class SessionClient {
         supportsVocalMusic: message.supportsVocalMusic,
         supportsCloud: message.supportsCloud,
         supportsTension: message.supportsTension,
+        supportsComposition: message.supportsComposition,
         participants: message.participants,
       });
       this.callbacks.onClock(message.playing, message.absoluteTick);
@@ -500,6 +508,7 @@ export class SessionClient {
         supportsVocalMusic: false,
         supportsCloud: false,
         supportsTension: false,
+        supportsComposition: false,
         message:
           message.reason === "expired"
             ? "Session expired."
@@ -624,6 +633,7 @@ export class SessionClient {
       supportsVocalMusic: false,
       supportsCloud: false,
       supportsTension: false,
+      supportsComposition: false,
       inviteLink: null,
       message: "",
     });

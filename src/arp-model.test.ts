@@ -257,3 +257,50 @@ describe("arpeggiator model", () => {
     expect(arpTailDuration(track, 60)).toBeLessThan(2);
   });
 });
+
+it("keeps arp automation independent of sequence repeats and resizes", async () => {
+  const { createArp, resizeArpAutomation, resizeArpTrack, automatedArp } =
+    await import("./arp-model");
+  const track = resizeArpAutomation(createArp(), 16);
+  track.automation.tone = Array.from(
+    { length: 256 },
+    (_, index) => index / 255,
+  );
+  const before = structuredClone(track);
+  expect(automatedArp(track, 144).tone).toBe(144 / 255);
+  expect(automatedArp(track, 256).tone).toBe(0);
+  const next = resizeArpTrack(track, { ...track.timing, bars: 2 });
+  expect(next.automationBars).toBe(16);
+  expect(next.automation.tone).toEqual(before.automation.tone);
+  expect(track).toEqual(before);
+});
+
+it("follows shared chord voicing without changing the saved note order or rhythm", async () => {
+  const { createProgression, progressionChordNotes } =
+    await import("./progression-model");
+  const { arpEventsAtTick } = await import("./arp-model");
+  const track = activeTrack();
+  track.followChords = true;
+  track.direction = "played";
+  track.octaves = 1;
+  const progression = createProgression();
+  progression.timing.bars = 2;
+  const before = structuredClone(track);
+  expect(arpNotePool(track, scale, progression, 0)).toEqual(
+    progressionChordNotes(progression, scale, 0),
+  );
+  expect(arpNotePool(track, scale, progression, 48)).not.toEqual(
+    arpNotePool(track, scale, progression, 0),
+  );
+  expect(arpEventsAtTick(track, scale, 48, progression)[0]?.note).toBe(
+    arpNotePool(track, scale, progression, 48)[0],
+  );
+  track.steps[8] = false;
+  expect(arpEventsAtTick(track, scale, 48, progression)).toEqual([]);
+  expect(track.notes).toEqual(before.notes);
+  expect(track.accents).toEqual(before.accents);
+  track.followChords = false;
+  expect(arpNotePool(track, scale, progression, 48)).toEqual(
+    arpNotePool(track, scale),
+  );
+});

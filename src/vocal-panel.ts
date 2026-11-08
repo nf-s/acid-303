@@ -2,7 +2,13 @@ import { noteName, snapNote } from "./model";
 import type { MusicalScale } from "./model";
 import { createInstrumentAutomation } from "./instrument-automation";
 import type { InstrumentControl } from "./instrument-automation";
-import { PPQ, timingSchema, trackStepCount } from "./timing";
+import {
+  PPQ,
+  timingSchema,
+  trackStepCount,
+  swungTick,
+  ticksPerStep,
+} from "./timing";
 import {
   VOCAL_BANKS,
   VOCAL_SOUNDS,
@@ -10,18 +16,41 @@ import {
   withVocalPattern,
   normalizedVocalValue,
   resizeVocalTrack,
+  resizeVocalAutomation,
   setVocalValue,
   vocalStepNotes,
+  vocalProgressionNote,
 } from "./vocal-model";
 import type { VocalParameter, VocalTrack } from "./vocal-model";
-import { loadVocalCatalog } from "./vocal-samples";
+import { loadVocalCatalog, vocalSourceKey } from "./vocal-samples";
 import type { VocalCatalog, VocalSampleStatus } from "./vocal-samples";
 import { VocalRoll } from "./vocal-roll";
+import { createSampleRecorder } from "./sample-recorder";
+import type { RecordingStatus } from "./sample-recorder";
+import { normalizeImportedWav } from "./recording-wav";
+import {
+  deleteLocalRecording,
+  listRecordings,
+  storeCapturedRecording,
+  subscribeRecordings,
+} from "./custom-sample-store";
+import type { StoredRecording } from "./custom-sample-store";
+import type { CustomSample } from "./custom-sample-schema";
+import { deleteSharedRecording } from "./custom-samples";
+import {
+  progressionChordAtTick,
+  progressionChordLabel,
+} from "./progression-model";
+import type { Progression } from "./progression-model";
 import "./vocal-panel.css";
 
 interface VocalPanelOptions {
   getTrack: () => VocalTrack;
   getScale: () => MusicalScale;
+  getProgression: () => Progression;
+  onProgressionEdit?: () => void;
+  getSessionActive?: () => boolean;
+  onUseRecording?: (sample: CustomSample) => Promise<void>;
   onChange: () => void;
   onPreview: (note: number) => void;
   onTrimGesture: (
@@ -74,12 +103,21 @@ export function createVocalPanel(
   let destroyed = false;
   let hostSupportsVocal = true;
   let hostSupportsMusic = true;
+  let hostSupportsComposition = true;
+  let recordings: StoredRecording[] = [];
+  let recordingStatus: RecordingStatus = { phase: "idle", seconds: 0 };
+  let recordingMessage = "";
+  let recordingBusy = false;
+  let captureTarget: { track: VocalTrack; key: string } | null = null;
+  let currentTick = -1,
+    currentSwing = 0;
   const controller = new AbortController();
   const held = new Set<"start" | "end">();
   container.innerHTML = `
     <div class="section-header"><div class="section-title"><span class="section-number">06</span><h2 id="vocal-title">Vocals</h2></div><div class="bass-actions"><button id="vocal-preview">Preview</button><button id="vocal-mute" class="mute-button" aria-label="Mute Vocals">M</button></div></div>
     <p id="vocal-host-capability" class="vocal-status" hidden>Host must reload Grain to play vocals.</p>
     <div class="vocal-sample-picker"><div class="waveform-switch vocal-banks" role="group" aria-label="Vocal voice">${VOCAL_BANKS.map((item) => `<button data-vocal-bank="${item.id}">${item.label}</button>`).join("")}</div><div class="waveform-switch vocal-sounds" role="group" aria-label="Vocal sample"></div></div>
+    <details class="vocal-recordings instrument-section"><summary>Recordings</summary><div class="vocal-recording-actions"><button id="vocal-record-mic">Record mic</button><button id="vocal-import-wav">Import WAV</button><input id="vocal-import-file" type="file" accept=".wav,audio/wav" aria-label="Import short PCM WAV" hidden><button id="vocal-record-stop" hidden>Stop recording</button><button id="vocal-record-cancel" hidden>Cancel</button><output id="vocal-record-time"></output></div><p class="vocal-recording-limit">On this device until shared · 10 seconds maximum. WAV imports: mono or stereo, 16-bit PCM, 24/44.1/48 kHz, up to 2 MiB.</p><p class="vocal-recording-limit">Sharing uploads audio. Anyone with the track or session link can hear it. Shared copies expire after 30 days without access.</p><output id="vocal-record-message" role="status"></output><div id="vocal-recording-list"></div></details>
     <div class="vocal-waveform" aria-label="Vocal sample waveform"><svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"><path id="vocal-waveform-path"/><rect class="vocal-trim-shade" id="vocal-trim-before" y="0" height="100"/><rect class="vocal-trim-shade" id="vocal-trim-after" y="0" height="100"/><line class="vocal-trim-line" id="vocal-trim-start-line" y1="0" y2="100"/><line class="vocal-trim-line" id="vocal-trim-end-line" y1="0" y2="100"/></svg><label class="vocal-trim vocal-trim-start"><span>Start</span><input id="vocal-trim-start" data-source-control="vocal-start" type="range" min="0" max="100" step="0.1" aria-label="Vocal sample start"/></label><label class="vocal-trim vocal-trim-end"><span>End</span><input id="vocal-trim-end" data-source-control="vocal-end" type="range" min="0" max="100" step="0.1" aria-label="Vocal sample end"/></label></div>
     <div class="vocal-waveform-info"><span id="vocal-pitch-reference"></span><output id="vocal-trim-duration"></output><button id="vocal-loop" aria-pressed="false">Sustain</button></div>
     <div class="vocal-status-row"><span id="vocal-sample-status" class="vocal-status" role="status"></span><button id="vocal-retry" hidden>Retry sample</button></div>
@@ -96,11 +134,11 @@ export function createVocalPanel(
         `Vocal ${control.label.toLowerCase()}`,
       );
     }).join("")}</div>
-    <div class="vocal-rhythms waveform-switch" role="group" aria-label="Vocal rhythm">${VOCAL_PATTERNS.map((item) => `<button data-vocal-pattern="${item.id}">${item.label}</button>`).join("")}</div>
+    <details class="instrument-section instrument-sequence-section" open><summary>Sequence</summary><div class="follow-chord-controls"><button id="vocal-follow-chords" aria-pressed="false">Follow chords</button><output class="follow-chord-context" id="vocal-chord-context"></output><button id="vocal-edit-chords">Edit chords</button></div><div class="vocal-rhythms waveform-switch" role="group" aria-label="Vocal rhythm">${VOCAL_PATTERNS.map((item) => `<button data-vocal-pattern="${item.id}">${item.label}</button>`).join("")}</div>
     <div id="vocal-pattern-controls" class="instrument-pattern-controls"></div>
     <div class="vocal-roll-tools"><div class="vocal-octaves" role="group" aria-label="Vocal pitch view"><button data-vocal-octave="-1" aria-label="Lower vocal pitch view">−</button><output id="vocal-octave-label"></output><button data-vocal-octave="1" aria-label="Raise vocal pitch view">+</button></div><output id="vocal-selected-note">Select a note</output><div class="vocal-note-actions" role="group" aria-label="Selected vocal note"><button data-vocal-note-action="shorter" aria-label="Shorten selected vocal note">− length</button><button data-vocal-note-action="longer" aria-label="Lengthen selected vocal note">+ length</button><button data-vocal-note-action="accent" aria-pressed="false">Accent</button><button data-vocal-note-action="join">Join</button><button data-vocal-note-action="delete">Delete</button></div></div>
     <div class="vocal-roll"><canvas id="vocal-roll-canvas" aria-label="Draw vocal notes and lengths"></canvas><div id="vocal-roll-access" class="matrix-access"></div></div>
-    <div class="section-footer"><span>Draw notes · Drag right edge for length</span></div><div id="vocal-automation"></div>`;
+    <div class="section-footer"><span>Draw notes · Drag right edge for length</span></div></details><details class="instrument-section instrument-automation-section"><summary>Automation</summary><div id="vocal-automation"></div></details>`;
   const canvas = container.querySelector("#vocal-roll-canvas"),
     access = container.querySelector<HTMLElement>("#vocal-roll-access"),
     automationContainer =
@@ -128,7 +166,9 @@ export function createVocalPanel(
   const preview = (
     note: number = roll.selectedNote?.note ??
       snapNote(
-        catalog?.samples[options.getTrack().sound]?.rootNote ?? 60,
+        options.getTrack().recording?.rootNote ??
+          catalog?.samples[options.getTrack().sound]?.rootNote ??
+          60,
         options.getScale(),
         36,
         84,
@@ -161,7 +201,49 @@ export function createVocalPanel(
     getScale: options.getScale,
     getMuted: () => options.getTrack().muted,
     getTiming: () => options.getTrack().timing,
+    getAutomationBars: () => options.getTrack().automationBars,
+    onAutomationBarsChange: (bars) => {
+      Object.assign(
+        options.getTrack(),
+        resizeVocalAutomation(options.getTrack(), bars),
+      );
+      render();
+      options.onChange();
+    },
     getSteps: () => vocalStepNotes(options.getTrack()),
+    getContextSteps: (timing) => {
+      const track = options.getTrack(),
+        count = trackStepCount(track.timing),
+        steps = vocalStepNotes(track);
+      return Array.from({ length: trackStepCount(timing) }, (_, index) => {
+        const local = index % count,
+          step = steps[local] ?? {
+            note: 60,
+            on: false,
+            accent: false,
+            slide: false,
+          };
+        const held = track.notes.find(
+          (note) => local >= note.start && local < note.start + note.length,
+        );
+        if (!track.followChords || !held) return step;
+        const onset = index - local + held.start;
+        return {
+          ...step,
+          note: vocalProgressionNote(
+            held.note,
+            options.getScale(),
+            options.getProgression(),
+            swungTick(
+              onset * ticksPerStep(track.timing),
+              currentSwing,
+              track.timing.grid,
+            ),
+            currentSwing,
+          ),
+        };
+      });
+    },
     onTimingChange: (timing) => {
       const parsed = timingSchema.safeParse(timing);
       if (!parsed.success) return;
@@ -177,6 +259,230 @@ export function createVocalPanel(
     pagerContainer,
     onViewportChange: (viewport) => roll.setViewport(viewport),
     onChange: options.onChange,
+  });
+  function renderChordContext(): void {
+    const output = container.querySelector<HTMLElement>("#vocal-chord-context");
+    if (!output) return;
+    output.hidden = !options.getTrack().followChords;
+    const progression = options.getProgression();
+    output.textContent = progressionChordLabel(
+      progression,
+      options.getScale(),
+      progressionChordAtTick(
+        progression,
+        Math.max(0, currentTick),
+        currentSwing,
+      ),
+    );
+  }
+  function renderRecordingControls(): void {
+    if (destroyed) return;
+    const record =
+        container.querySelector<HTMLButtonElement>("#vocal-record-mic"),
+      stop = container.querySelector<HTMLButtonElement>("#vocal-record-stop"),
+      cancel = container.querySelector<HTMLButtonElement>(
+        "#vocal-record-cancel",
+      ),
+      time = container.querySelector("#vocal-record-time"),
+      message = container.querySelector("#vocal-record-message"),
+      list = container.querySelector("#vocal-recording-list");
+    const active = recordingStatus.phase !== "idle";
+    if (record) {
+      record.hidden = active;
+      record.disabled = recordingBusy;
+    }
+    const importer =
+      container.querySelector<HTMLButtonElement>("#vocal-import-wav");
+    if (importer) importer.disabled = recordingBusy || active;
+    if (stop) stop.hidden = recordingStatus.phase !== "recording";
+    if (cancel) cancel.hidden = !active;
+    if (time)
+      time.textContent =
+        recordingStatus.phase === "requesting"
+          ? "Allow microphone access"
+          : recordingStatus.phase === "processing"
+            ? "Saving…"
+            : recordingStatus.phase === "recording"
+              ? `${recordingStatus.seconds.toFixed(1)} / 10 s`
+              : "";
+    if (message) message.textContent = recordingMessage;
+    if (!list) return;
+    list.replaceChildren();
+    for (const entry of recordings) {
+      const row = document.createElement("div");
+      row.className = "vocal-recording-row";
+      const name = document.createElement("span");
+      name.textContent = `${entry.sample.name} · ${entry.sample.duration.toFixed(1)} s`;
+      row.append(name);
+      for (const [action, label] of [
+        ["use", options.getSessionActive?.() ? "Use in session" : "Use"],
+        ["download", "Download"],
+        ["delete", "Delete from device"],
+        ...(entry.upload ? [["unshare", "Delete shared copy"]] : []),
+      ]) {
+        if (!action || !label) continue;
+        const button = document.createElement("button");
+        button.dataset.recordingAction = action;
+        button.dataset.recordingId = entry.sample.id;
+        button.textContent = label;
+        button.disabled = recordingBusy || active;
+        if (action === "use")
+          button.setAttribute(
+            "aria-pressed",
+            String(
+              options.getTrack().recording?.sha256 === entry.sample.sha256,
+            ),
+          );
+        row.append(button);
+      }
+      list.append(row);
+    }
+  }
+  async function refreshRecordings(): Promise<void> {
+    try {
+      const next = await listRecordings();
+      if (!destroyed) recordings = next;
+    } catch (error) {
+      if (!destroyed)
+        recordingMessage =
+          error instanceof Error
+            ? error.message
+            : "Recordings could not be read.";
+    }
+    renderRecordingControls();
+  }
+  async function useRecording(sample: CustomSample): Promise<void> {
+    if (options.onUseRecording) await options.onUseRecording(sample);
+    else if (options.getSessionActive?.())
+      throw new Error("Leave the session before using a local recording.");
+    else {
+      const track = options.getTrack();
+      track.recording = sample;
+      track.muted = false;
+      options.onChange();
+    }
+    if (!destroyed) render();
+  }
+  async function recordingAction(action: string, id: string): Promise<void> {
+    if (recordingBusy || recordingStatus.phase !== "idle") return;
+    const record = recordings.find((entry) => entry.sample.id === id);
+    if (!record) return;
+    recordingBusy = true;
+    recordingMessage =
+      action === "use" && options.getSessionActive?.()
+        ? "Uploading recording…"
+        : "";
+    renderRecordingControls();
+    try {
+      if (action === "use") await useRecording(record.sample);
+      else if (action === "download") {
+        const url = URL.createObjectURL(record.blob),
+          link = document.createElement("a");
+        link.href = url;
+        link.download = `${record.sample.name.replace(/[^a-zA-Z0-9_-]/g, "-")}.wav`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } else if (action === "delete") {
+        await deleteLocalRecording(id);
+        const track = options.getTrack();
+        if (track.recording?.kind === "local" && track.recording.id === id) {
+          track.recording = null;
+          track.muted = true;
+          options.onChange();
+        }
+      } else if (action === "unshare") {
+        await deleteSharedRecording(record, controller.signal);
+        recordingMessage =
+          "Shared copy deleted. Downloaded copies remain on their devices.";
+      }
+      if (action !== "unshare") recordingMessage = "";
+      await refreshRecordings();
+    } catch (error) {
+      if (!destroyed)
+        recordingMessage =
+          error instanceof Error
+            ? error.message
+            : "The recording could not be changed.";
+    } finally {
+      recordingBusy = false;
+      if (!destroyed) render();
+    }
+  }
+  async function acceptRecording(
+    blob: Blob,
+    name: string,
+    signal?: AbortSignal,
+    target = captureTarget,
+  ): Promise<void> {
+    const sample = await storeCapturedRecording(blob, name);
+    if (signal?.aborted) {
+      await deleteLocalRecording(sample.id);
+      return;
+    }
+    if (destroyed) return;
+    recordingMessage = options.getSessionActive?.()
+      ? "Saved on this device. Use in session uploads this recording."
+      : "Saved on this device.";
+    await refreshRecordings();
+    const track = options.getTrack();
+    if (
+      !signal?.aborted &&
+      !options.getSessionActive?.() &&
+      target?.track === track &&
+      target.key === vocalSourceKey(track.sound, track.recording)
+    )
+      await useRecording(sample);
+  }
+  async function importFile(): Promise<void> {
+    const input = container.querySelector("#vocal-import-file");
+    if (
+      !(input instanceof HTMLInputElement) ||
+      !input.files?.[0] ||
+      recordingBusy
+    )
+      return;
+    const file = input.files[0];
+    input.value = "";
+    recordingBusy = true;
+    renderRecordingControls();
+    const track = options.getTrack(),
+      target = { track, key: vocalSourceKey(track.sound, track.recording) };
+    try {
+      await acceptRecording(
+        await normalizeImportedWav(file),
+        file.name
+          .replace(/\.wav$/i, "")
+          .trim()
+          .slice(0, 40) || "Recording",
+        controller.signal,
+        target,
+      );
+    } catch (error) {
+      if (!destroyed)
+        recordingMessage =
+          error instanceof Error
+            ? error.message
+            : "Use a mono 24 kHz, 16-bit PCM WAV between 0.05 and 10 seconds.";
+    } finally {
+      recordingBusy = false;
+      renderRecordingControls();
+    }
+  }
+  const recorder = createSampleRecorder({
+    onState: (status) => {
+      recordingStatus = status;
+      if (status.phase === "idle") captureTarget = null;
+      renderRecordingControls();
+    },
+    onError: (message) => {
+      recordingMessage = message;
+      renderRecordingControls();
+    },
+    onComplete: (blob, signal) =>
+      acceptRecording(blob, `Recording ${recordings.length + 1}`, signal),
+  });
+  const unsubscribeRecordings = subscribeRecordings(() => {
+    void refreshRecordings();
   });
   function updateSelection(): void {
     const selected = roll.selectedNote,
@@ -238,7 +544,10 @@ export function createVocalPanel(
     for (const button of sounds.querySelectorAll<HTMLButtonElement>("button"))
       button.setAttribute(
         "aria-pressed",
-        String(Number(button.dataset.vocalSound) === options.getTrack().sound),
+        String(
+          !options.getTrack().recording &&
+            Number(button.dataset.vocalSound) === options.getTrack().sound,
+        ),
       );
   }
   function displayControl(control: InstrumentControl<VocalParameter>): void {
@@ -254,7 +563,7 @@ export function createVocalPanel(
   }
   function renderWaveform(): void {
     const track = options.getTrack(),
-      sample = catalog?.samples[track.sound];
+      sample = track.recording ?? catalog?.samples[track.sound];
     if (!held.has("start")) trimStart.value = String(track.start * 100);
     if (!held.has("end")) trimEnd.value = String(track.end * 100);
     const start = Number(trimStart.value) / 100,
@@ -273,7 +582,8 @@ export function createVocalPanel(
     if (
       path &&
       sample &&
-      path.getAttribute("data-sound") !== String(track.sound)
+      path.getAttribute("data-source-key") !==
+        vocalSourceKey(track.sound, track.recording)
     ) {
       const upper = sample.peaks
         .map(
@@ -289,7 +599,16 @@ export function createVocalPanel(
         )
         .join(" L ");
       path.setAttribute("d", `M ${upper} L ${lower} Z`);
-      path.setAttribute("data-sound", String(track.sound));
+      path.setAttribute(
+        "data-sound",
+        track.recording
+          ? `recording:${track.recording.id}`
+          : String(track.sound),
+      );
+      path.setAttribute(
+        "data-source-key",
+        vocalSourceKey(track.sound, track.recording),
+      );
     }
     container
       .querySelector("#vocal-trim-before")
@@ -311,9 +630,9 @@ export function createVocalPanel(
     const reference = container.querySelector("#vocal-pitch-reference");
     if (reference)
       reference.textContent = sample
-        ? sample.pitch?.kind === "tuned-chop"
+        ? "pitch" in sample && sample.pitch?.kind === "tuned-chop"
           ? `Tuned ${noteName(sample.rootNote)}`
-          : sample.pitch?.kind === "source-key"
+          : "pitch" in sample && sample.pitch?.kind === "source-key"
             ? `Phrase key ${noteName(sample.rootNote).replace(/-?\d+$/, "")} · original melody`
             : `${noteName(sample.rootNote)} = original speed · unpitched`
         : "";
@@ -326,14 +645,21 @@ export function createVocalPanel(
   function renderStatus(): void {
     const output = container.querySelector<HTMLElement>("#vocal-sample-status"),
       retry = container.querySelector<HTMLButtonElement>("#vocal-retry");
-    const current = status?.sound === options.getTrack().sound ? status : null;
+    const track = options.getTrack();
+    const current = status?.sourceKey
+      ? status.sourceKey === vocalSourceKey(track.sound, track.recording)
+        ? status
+        : null
+      : !track.recording && status?.sound === track.sound
+        ? status
+        : null;
     const message =
-      catalogError ||
+      (!track.recording ? catalogError : "") ||
       (current?.phase === "loading"
         ? "Loading sample…"
         : current?.phase === "error"
           ? current.message
-          : !catalog
+          : !catalog && !track.recording
             ? "Loading waveform…"
             : "");
     if (output) output.textContent = message;
@@ -362,12 +688,18 @@ export function createVocalPanel(
       "#vocal-host-capability",
     );
     if (!warning) return;
-    const newSound = options.getTrack().sound >= 24;
-    warning.hidden = hostSupportsVocal && (!newSound || hostSupportsMusic);
+    const track = options.getTrack(),
+      newSound = track.sound >= 24;
+    warning.hidden =
+      hostSupportsVocal &&
+      (!newSound || hostSupportsMusic) &&
+      (!track.recording || hostSupportsComposition);
     warning.textContent =
-      newSound && !hostSupportsMusic
-        ? "The host needs updated Grain to play these vocal samples."
-        : "The host needs updated Grain to play vocals.";
+      track.recording && !hostSupportsComposition
+        ? "The host needs updated Grain to play recordings."
+        : newSound && !hostSupportsMusic
+          ? "The host needs updated Grain to play these vocal samples."
+          : "The host needs updated Grain to play vocals.";
   }
   function render(): void {
     if (destroyed) return;
@@ -386,12 +718,17 @@ export function createVocalPanel(
     CONTROLS.forEach(displayControl);
     renderWaveform();
     renderStatus();
+    renderRecordingControls();
+    renderChordContext();
     container
       .querySelector("#vocal-mute")
       ?.setAttribute("aria-pressed", String(track.muted));
     container
       .querySelector("#vocal-loop")
       ?.setAttribute("aria-pressed", String(track.loop));
+    container
+      .querySelector("#vocal-follow-chords")
+      ?.setAttribute("aria-pressed", String(track.followChords));
     roll.refresh();
     automation.refresh(true);
   }
@@ -437,6 +774,7 @@ export function createVocalPanel(
       VOCAL_SOUNDS[sound] !== undefined
     ) {
       options.getTrack().sound = sound;
+      options.getTrack().recording = null;
       options.getTrack().muted = false;
       render();
       options.onChange();
@@ -452,7 +790,7 @@ export function createVocalPanel(
     }
     if (button.dataset.vocalPattern) {
       const track = options.getTrack();
-      const sample = catalog?.samples[track.sound];
+      const sample = track.recording ?? catalog?.samples[track.sound];
       Object.assign(
         track,
         withVocalPattern(
@@ -469,6 +807,46 @@ export function createVocalPanel(
     }
     if (button.id === "vocal-preview") {
       preview();
+      return;
+    }
+    if (button.id === "vocal-follow-chords") {
+      options.getTrack().followChords = !options.getTrack().followChords;
+      render();
+      options.onChange();
+      return;
+    }
+    if (button.id === "vocal-edit-chords") {
+      options.onProgressionEdit?.();
+      return;
+    }
+    if (button.id === "vocal-record-mic") {
+      recordingMessage = "";
+      const track = options.getTrack();
+      captureTarget = {
+        track,
+        key: vocalSourceKey(track.sound, track.recording),
+      };
+      void recorder.start();
+      return;
+    }
+    if (button.id === "vocal-import-wav") {
+      const input = container.querySelector("#vocal-import-file");
+      if (input instanceof HTMLInputElement) input.click();
+      return;
+    }
+    if (button.id === "vocal-record-stop") {
+      recorder.stop();
+      return;
+    }
+    if (button.id === "vocal-record-cancel") {
+      recorder.cancel();
+      return;
+    }
+    if (button.dataset.recordingAction && button.dataset.recordingId) {
+      void recordingAction(
+        button.dataset.recordingAction,
+        button.dataset.recordingId,
+      );
       return;
     }
     if (button.id === "vocal-retry") {
@@ -547,6 +925,9 @@ export function createVocalPanel(
     renderWaveform();
   }
   container.addEventListener("click", click);
+  container
+    .querySelector("#vocal-import-file")
+    ?.addEventListener("change", importFile);
   for (const input of [trimStart, trimEnd]) {
     input.addEventListener("pointerdown", beginTrim);
     input.addEventListener("keydown", beginTrim);
@@ -562,6 +943,7 @@ export function createVocalPanel(
   });
   render();
   void loadCatalog();
+  void refreshRecordings();
   return {
     render,
     refreshAutomation: () => {
@@ -569,11 +951,17 @@ export function createVocalPanel(
       renderWaveform();
     },
     setPosition: (tick: number, swing: number) => {
+      currentTick = tick;
+      currentSwing = swing;
+      renderChordContext();
       roll.setPosition(tick, swing);
       automation.setPosition(tick, swing);
     },
     setStep: (step: number) => {
       const tick = step < 0 ? -1 : (step * PPQ) / 4;
+      currentTick = tick;
+      currentSwing = 0;
+      renderChordContext();
       roll.setPosition(tick, 0);
       automation.setPosition(tick, 0);
     },
@@ -584,24 +972,35 @@ export function createVocalPanel(
       automation.rebaseIncoming(
         (parameter) => next.automation[parameter],
         next.timing,
+        next.automationBars,
       );
     },
     setSampleStatus: (next: VocalSampleStatus) => {
       status = next;
       renderStatus();
     },
-    setHostCapability: (supported: boolean, music = supported) => {
+    setHostCapability: (
+      supported: boolean,
+      music = supported,
+      composition = music,
+    ) => {
       hostSupportsVocal = supported;
       hostSupportsMusic = music;
+      hostSupportsComposition = composition;
       renderHostCapability();
     },
     destroy: () => {
       endTrim();
       destroyed = true;
       controller.abort();
+      recorder.destroy();
+      unsubscribeRecordings();
       roll.destroy();
       automation.destroy();
       container.removeEventListener("click", click);
+      container
+        .querySelector("#vocal-import-file")
+        ?.removeEventListener("change", importFile);
       for (const input of [trimStart, trimEnd]) {
         input.removeEventListener("pointerdown", beginTrim);
         input.removeEventListener("keydown", beginTrim);

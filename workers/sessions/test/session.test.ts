@@ -175,7 +175,11 @@ describe("session rooms in the Workers runtime", () => {
     peers.push(old);
     const initial = nextLegacyMessage(old, "welcome");
     old.accept();
-    await initial;
+    const legacy = z
+      .object({
+        project: z.object({ vocal: z.record(z.string(), z.unknown()) }),
+      })
+      .parse(await initial);
     const guest = await connect(room, room.guestToken);
     const welcome = await guest.next("welcome");
     expect(welcome).toMatchObject({
@@ -199,7 +203,7 @@ describe("session rooms in the Workers runtime", () => {
     });
     await guest.next("patch");
     const masked = {
-      ...welcome.project.vocal,
+      ...legacy.project.vocal,
       sound: 0,
       muted: true,
       tone: 0.77,
@@ -308,7 +312,7 @@ describe("session rooms in the Workers runtime", () => {
     });
     guest.send({ type: "sync" });
     expect(await guest.next("welcome")).toMatchObject({
-      project: { version: 5, cloud: { scan: 0.81 }, tension: { pick: 0.23 } },
+      project: { version: 6, cloud: { scan: 0.81 }, tension: { pick: 0.23 } },
       supportsCloud: false,
     });
     const closed = closeCode(old),
@@ -382,7 +386,7 @@ describe("session rooms in the Workers runtime", () => {
     expect(await guest.next("welcome")).toMatchObject({
       supportsVocal: false,
       revision: 2,
-      project: { version: 5, vocal: { volume: 0.71 } },
+      project: { version: 6, vocal: { volume: 0.71 } },
     });
     const closed = closeCode(old);
     const modernHost = await connect(room, room.hostToken, id);
@@ -495,7 +499,7 @@ describe("session rooms in the Workers runtime", () => {
       role: "host",
       hostConnected: true,
     });
-    expect(restored.project.version).toBe(5);
+    expect(restored.project.version).toBe(6);
     expect(restored.project.pad.timing.bars).toBe(8);
     expect(restored.project.bass.timing).toEqual({
       bars: 1,
@@ -725,6 +729,41 @@ describe("session rooms in the Workers runtime", () => {
       playing: false,
     });
   });
+  it.each([1005, 1006, 1015])(
+    "clears host presence without echoing reserved close code %i",
+    async (code) => {
+      const room = await create();
+      const host = await connect(room, room.hostToken),
+        guest = await connect(room, room.guestToken);
+      await host.next("welcome");
+      await guest.next("welcome");
+      host.send({ type: "clock", playing: true, absoluteTick: 82 });
+      await guest.next("clock");
+      const stub = env.ROOMS.getByName(room.roomId);
+      await evictDurableObject(stub);
+      await runInDurableObject(stub, (instance, state) => {
+        const socket = state.getWebSockets().find((peer) => {
+          const data = peer.deserializeAttachment();
+          return data?.clientId === host.clientId;
+        });
+        if (!socket) throw new Error("Missing host socket");
+        // Reserved codes describe runtime events and cannot be sent by close().
+        if (!instance.webSocketClose) throw new Error("Missing close handler");
+        instance.webSocketClose(socket, code, "", false);
+        expect(socket.deserializeAttachment()).toMatchObject({
+          active: false,
+          playing: false,
+        });
+      });
+      let presence = await guest.next("presence");
+      while (presence.hostConnected) presence = await guest.next("presence");
+      expect(presence).toMatchObject({
+        hostConnected: false,
+        playing: false,
+        participants: 1,
+      });
+    },
+  );
   it("replaces a host with a nonretryable close and never lets a guest steal its identity", async () => {
     const room = await create(),
       clientId = crypto.randomUUID();

@@ -1,6 +1,10 @@
+import { progressionChordBounds } from "./progression-model";
+import type { Progression } from "./progression-model";
 import {
+  swungTick,
+  unswungTick,
+  tickSeconds,
   trackCycleTicks,
-  trackStepCount,
   ticksPerStep,
   tickSpanSeconds,
 } from "./timing";
@@ -513,8 +517,12 @@ export class PadInstrument {
     time: number,
     bpm: number,
     swing: number,
+    progression?: Progression,
+    audibleTick = swungTick(logicalTick, swing, track.timing.grid),
   ): void {
-    const absoluteStep = logicalTick / ticksPerStep(track.timing);
+    const absoluteStep =
+      unswungTick(audibleTick, swing, track.timing.grid) /
+      ticksPerStep(track.timing);
     const duration = tickSpanSeconds(
       logicalTick,
       logicalTick + ticksPerStep(track.timing),
@@ -530,11 +538,12 @@ export class PadInstrument {
       bpm <= 0
     )
       return;
-    track = automatedPad(track, absoluteStep % trackStepCount(track.timing));
-    const span = trackCycleTicks(track.timing) / 4;
-    const slot = Math.floor(logicalTick / span) % 4;
-    const notes = padChordNotes(track, scale, slot);
-    const signature = `${slot}:${trackCycleTicks(track.timing)}:${track.sound}:${notes.join(",")}`;
+    track = automatedPad(track, absoluteStep);
+    const harmony = track.followChords && progression ? progression : track;
+    const bounds = progressionChordBounds(harmony, audibleTick, swing);
+    const slot = bounds.slot;
+    const notes = padChordNotes(harmony, scale, slot);
+    const signature = `${slot}:${trackCycleTicks(harmony.timing)}:${track.sound}:${notes.join(",")}`;
     this.level.gain.setTargetAtTime(
       track.muted ? 0 : track.volume * 1.25,
       time,
@@ -564,16 +573,13 @@ export class PadInstrument {
       this.lastStep = absoluteStep;
       return;
     }
-    const boundary = logicalTick % span === 0;
+    const boundary = Math.abs(audibleTick - bounds.startTick) < 1e-8;
     const newChord =
       signature !== this.signature ||
       !this.current ||
       this.current.finished ||
       (boundary && absoluteStep !== this.lastStep);
-    const remainingEnd = (Math.floor(logicalTick / span) + 1) * span;
-    const end =
-      time +
-      tickSpanSeconds(logicalTick, remainingEnd, bpm, swing, track.timing.grid);
+    const end = time + tickSeconds(bounds.endTick - audibleTick, bpm);
     if (newChord) {
       if (this.current && time < this.current.endsAt)
         this.current.release(time, padReleaseSeconds(track));

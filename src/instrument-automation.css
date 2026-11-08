@@ -4,6 +4,21 @@
   flex-shrink: 0;
   gap: 2px;
 }
+.automation-strip {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.automation-strip .matrix-tools {
+  flex-wrap: wrap;
+}
+@media (max-width: 650px) {
+  .automation-strip .matrix-tools {
+    flex: 1 1 100%;
+  }
+  .automation-strip .matrix-tools button {
+    flex: 1;
+  }
+}
 .automation-view[hidden] {
   display: none;
 }
@@ -287,5 +302,43 @@
   .pad-instrument .pad-controls,
   .arp-controls {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.instrument-section {
+  min-width: 0;
+  margin: 0 14px 12px;
+  border: 1px solid #515c65;
+}
+.instrument-section > summary {
+  min-height: 36px;
+  padding: 8px 10px;
+  color: #dbe3eb;
+  background: #20292f;
+  font-size: 11px;
+  line-height: 20px;
+  cursor: pointer;
+  user-select: none;
+}
+.instrument-section > summary:focus-visible {
+  outline: 2px solid #e4edf5;
+  outline-offset: 2px;
+}
+.instrument-section > .instrument-pattern-controls {
+  margin: 10px;
+}
+.pattern-follow-sequence {
+  width: 100%;
+  min-height: 36px;
+  margin-bottom: 10px;
+}
+.pattern-follow-sequence[aria-pressed="true"] {
+  color: #16191c;
+  background: #d5dbe1;
+}
+@media (max-width: 650px) {
+  .instrument-section {
+    margin-left: 9px;
+    margin-right: 9px;
   }
 }

@@ -1,3 +1,8 @@
+import {
+  progressionSchema,
+  createProgression,
+  retuneProgression,
+} from "./progression-model";
 import { z } from "zod";
 import {
   cloudSchema,
@@ -43,6 +48,11 @@ import {
 } from "./pad-model";
 import {
   createTiming,
+  automationBarsSchema,
+  automationTiming,
+  automationStepCount,
+  automationStepPosition,
+  automationPosition,
   sequenceTimingSchema,
   trackStepCount,
   trackCycleTicks,
@@ -53,7 +63,7 @@ import {
   tickSeconds,
   MAX_TRACK_STEPS,
 } from "./timing";
-import type { SequenceTiming, TrackPosition } from "./timing";
+import type { AutomationBars, SequenceTiming, TrackPosition } from "./timing";
 import type { ArpParameter } from "./arp-model";
 import type { PadParameter } from "./pad-model";
 
@@ -92,6 +102,7 @@ export const drumIdSchema = z.enum(["kick", "snare", "hat", "clap", "rim"]);
 export type DrumId = z.infer<typeof drumIdSchema>;
 const drumBaseSchema = z.object({
   timing: sequenceTimingSchema.default(createTiming),
+  automationBars: automationBarsSchema,
   pan: z.number().min(-1).max(1).default(0),
   attack: z.number().min(0).max(1).default(0),
   space: z.number().min(0).max(1).default(0),
@@ -168,6 +179,7 @@ export function emptyKeysAutomation(): KeysAutomation {
 }
 export const bassSchema = z.object({
   timing: sequenceTimingSchema.default(createTiming),
+  automationBars: automationBarsSchema,
   pulse: z.number().min(0).max(1).default(0.5),
   shape: z.number().min(0).max(1).default(0.5),
   drive: z.number().min(0).max(1).default(0),
@@ -204,6 +216,7 @@ export const keysStepSchema = z.object({
 });
 export const keysSchema = z.object({
   timing: sequenceTimingSchema.default(createTiming),
+  automationBars: automationBarsSchema,
   width: z.number().min(0).max(1).default(0.5),
   attack: z.number().min(0).max(1).default(0),
   grit: z.number().min(0).max(1).default(0),
@@ -244,6 +257,7 @@ export function automatedDrum(
   index: number,
   scale: MusicalScale,
 ): DrumTrack {
+  index = Math.floor(automationStepPosition(track, index));
   const resolved = { ...track };
   for (const parameter of drumAutomationSchema.keyof().options) {
     const value = track.automation[parameter]?.[index];
@@ -253,6 +267,7 @@ export function automatedDrum(
   return resolved;
 }
 export function automatedBass(track: BassTrack, index: number): BassTrack {
+  index = Math.floor(automationStepPosition(track, index));
   const { cutoff, resonance, envelope, decay, volume, shape, drive } =
     track.automation;
   const cutoffValue = cutoff?.[index],
@@ -274,6 +289,7 @@ export function automatedBass(track: BassTrack, index: number): BassTrack {
   };
 }
 export function automatedKeys(track: KeysTrack, index: number): KeysTrack {
+  index = Math.floor(automationStepPosition(track, index));
   const { tone, decay, space, volume, grit, motion } = track.automation;
   const decayValue = decay?.[index];
   return {
@@ -332,6 +348,7 @@ export function createKeys(preset = 0): KeysTrack {
   const intervals = [0, 0, 7, 0, 0, 12, 0, 3, 0, 7, 0, 0, 12, 0, 3, 7];
   return {
     timing: createTiming(),
+    automationBars: null,
     sound: 0,
     width: 0.5,
     attack: 0,
@@ -402,7 +419,8 @@ export function snapNote(
   return nearest;
 }
 const baseProjectSchema = z.object({
-  version: z.literal(5),
+  version: z.literal(6),
+  progression: z.lazy(() => progressionSchema).default(createProgression),
   fx: z
     .object({
       sweep: z.number().min(-1).max(1),
@@ -449,7 +467,7 @@ export const projectSchema = baseProjectSchema.superRefine(
         ("steps" in track && track.steps.length !== count) ||
         ("accents" in track && track.accents.length !== count) ||
         Object.values(track.automation).some(
-          (lane) => lane !== null && lane.length !== count,
+          (lane) => lane !== null && lane.length !== automationStepCount(track),
         )
       )
         context.addIssue({
@@ -468,6 +486,7 @@ export function withScale(project: Project, scale: MusicalScale): Project {
   next.scale = { ...scale };
   next.arp = retuneArp(next.arp, scale);
   next.pad = retunePad(next.pad, scale);
+  next.progression = retuneProgression(next.progression, scale);
   next.vocal = retuneVocal(next.vocal, scale);
   next.cloud = retuneCloud(next.cloud, scale);
   next.tension = retuneTension(next.tension, scale);
@@ -580,7 +599,8 @@ export function createProject(preset = 0): Project {
   const scale: MusicalScale = { root: preset === 2 ? 0 : 9, mode: "minor" };
   return withScale(
     {
-      version: 5,
+      version: 6,
+      progression: createProgression(),
       fx: { sweep: 0, space: 0, echo: 0 },
       scale,
       name:
@@ -591,6 +611,7 @@ export function createProject(preset = 0): Project {
       volume: 0.65,
       drums: ids.map((id, index) => ({
         timing: createTiming(),
+        automationBars: null,
         id,
         pan: 0,
         attack: 0,
@@ -613,6 +634,7 @@ export function createProject(preset = 0): Project {
       tension: createTension(),
       bass: {
         timing: createTiming(),
+        automationBars: null,
         pulse: 0.5,
         shape: 0.5,
         drive: 0,
@@ -682,19 +704,36 @@ const legacyProjectSchema = legacyBase.omit({ keys: true }).extend({
     .refine((drums) => new Set(drums.map((drum) => drum.id)).size === 5),
 });
 const versionThreeSchema = baseProjectSchema
-  .omit({ vocal: true, cloud: true, tension: true })
+  .omit({ vocal: true, cloud: true, tension: true, progression: true })
   .extend({ version: z.literal(3) });
 const versionFourSchema = baseProjectSchema
-  .omit({ cloud: true, tension: true })
+  .omit({ cloud: true, tension: true, progression: true })
   .extend({ version: z.literal(4) });
+const versionFiveSchema = baseProjectSchema
+  .omit({ progression: true })
+  .extend({ version: z.literal(5) });
 export function readProject(value: unknown): Project | null {
   const current = projectSchema.safeParse(value);
   if (current.success) return withScale(current.data, current.data.scale);
+  const modern = versionFiveSchema.safeParse(value);
+  if (modern.success)
+    return readProject({
+      ...modern.data,
+      version: 6,
+      progression: {
+        timing: modern.data.pad.timing,
+        chords: modern.data.pad.chords,
+      },
+    });
   const recent = versionFourSchema.safeParse(value);
   if (recent.success)
     return readProject({
       ...recent.data,
-      version: 5,
+      version: 6,
+      progression: {
+        timing: recent.data.pad.timing,
+        chords: recent.data.pad.chords,
+      },
       cloud: createCloud(),
       tension: createTension(),
     });
@@ -702,7 +741,11 @@ export function readProject(value: unknown): Project | null {
   if (previous.success)
     return readProject({
       ...previous.data,
-      version: 5,
+      version: 6,
+      progression: {
+        timing: previous.data.pad.timing,
+        chords: previous.data.pad.chords,
+      },
       vocal: createVocal(),
       cloud: createCloud(),
       tension: createTension(),
@@ -750,16 +793,18 @@ export function readProject(value: unknown): Project | null {
     }
     const upgraded = projectSchema.safeParse({
       ...original,
-      version: 5,
+      version: 6,
       fx: { sweep: 0, space: 0, echo: 0 },
       drums: original.drums.map((track) => ({
         ...track,
         timing: createTiming(),
+        automationBars: null,
       })),
       bass: { ...original.bass, timing: createTiming() },
       keys: { ...original.keys, timing: createTiming() },
       arp: { ...original.arp, timing: createTiming() },
       pad: { ...pad, timing: parsedTiming.data, automation },
+      progression: { timing: parsedTiming.data, chords: pad.chords },
     });
     return upgraded.success
       ? withScale(upgraded.data, upgraded.data.scale)
@@ -862,8 +907,8 @@ export function resizeDrumTrack(
   for (const parameter of drumAutomationSchema.keyof().options)
     automation[parameter] = resizeAutomationLane(
       track.automation[parameter],
-      track.timing,
-      timing,
+      automationTiming(track),
+      automationTiming({ ...track, timing }),
       normalizedDrumValue(track, parameter),
     );
   return {
@@ -887,8 +932,8 @@ export function resizeBassTrack(
   for (const parameter of bassAutomationSchema.keyof().options)
     automation[parameter] = resizeAutomationLane(
       track.automation[parameter],
-      track.timing,
-      timing,
+      automationTiming(track),
+      automationTiming({ ...track, timing }),
       normalizedBassValue(track, parameter),
     );
   return {
@@ -917,8 +962,8 @@ export function resizeKeysTrack(
   for (const parameter of keysAutomationSchema.keyof().options)
     automation[parameter] = resizeAutomationLane(
       track.automation[parameter],
-      track.timing,
-      timing,
+      automationTiming(track),
+      automationTiming({ ...track, timing }),
       normalizedKeysValue(track, parameter),
     );
   return {
@@ -991,11 +1036,7 @@ export function resolvedAutomationValue(
   if (target.instrument === "drum") {
     const track = project.drums.find((drum) => drum.id === target.drum);
     if (!track) return { base: 0, value: 0, automated: false };
-    const index = trackPosition(
-      track.timing,
-      absoluteTick,
-      project.swing,
-    ).index;
+    const index = automationPosition(track, absoluteTick, project.swing).index;
     return {
       base: normalizedDrumValue(track, target.parameter),
       value: normalizedDrumValue(
@@ -1006,7 +1047,8 @@ export function resolvedAutomationValue(
     };
   }
   const track = project[target.instrument];
-  const index = trackPosition(track.timing, absoluteTick, project.swing).index;
+  const position = automationPosition(track, absoluteTick, project.swing);
+  const index = position.index;
   if (target.instrument === "bass")
     return {
       base: normalizedBassValue(project.bass, target.parameter),
@@ -1064,7 +1106,7 @@ export function resolvedAutomationValue(
   return {
     base: normalizedPadValue(project.pad, target.parameter),
     value: normalizedPadValue(
-      automatedPad(project.pad, index),
+      automatedPad(project.pad, index + position.phase),
       target.parameter,
     ),
     automated: project.pad.automation[target.parameter] !== null,
@@ -1087,9 +1129,26 @@ export function exportPlan(project: Project): ExportPlan {
     project.tension,
   ]
     .filter((track) => !track.muted)
-    .map((track) => trackCycleTicks(track.timing));
+    .flatMap((track) => [
+      ...(track === project.pad && project.pad.followChords
+        ? []
+        : [trackCycleTicks(track.timing)]),
+      ...(Object.values(track.automation).some((lane) => lane !== null)
+        ? [trackCycleTicks(automationTiming(track))]
+        : []),
+    ]);
+  if (
+    (!project.pad.muted && project.pad.followChords) ||
+    (!project.arp.muted && project.arp.followChords) ||
+    (!project.vocal.muted && project.vocal.followChords)
+  )
+    cycles.push(trackCycleTicks(project.progression.timing));
   if (!project.arp.muted && project.arp.direction !== "random") {
-    const count = arpNotePool(project.arp, project.scale).length;
+    const count = arpNotePool(
+      project.arp,
+      project.scale,
+      project.progression,
+    ).length;
     if (count > 0)
       cycles.push(Math.round(count * arpInterval(project.arp.rate) * 6));
   }
@@ -1115,4 +1174,49 @@ export function exportPlan(project: Project): ExportPlan {
       complete <= 3072 &&
       (project.arp.muted || project.arp.direction !== "random"),
   };
+}
+
+export function resizeDrumAutomation(
+  track: DrumTrack,
+  automationBars: AutomationBars,
+): DrumTrack {
+  const automation = { ...track.automation };
+  for (const parameter of drumAutomationSchema.keyof().options)
+    automation[parameter] = resizeAutomationLane(
+      track.automation[parameter],
+      automationTiming(track),
+      automationTiming({ ...track, automationBars }),
+      normalizedDrumValue(track, parameter),
+    );
+  return { ...track, automationBars, automation };
+}
+
+export function resizeBassAutomation(
+  track: BassTrack,
+  automationBars: AutomationBars,
+): BassTrack {
+  const automation = { ...track.automation };
+  for (const parameter of bassAutomationSchema.keyof().options)
+    automation[parameter] = resizeAutomationLane(
+      track.automation[parameter],
+      automationTiming(track),
+      automationTiming({ ...track, automationBars }),
+      normalizedBassValue(track, parameter),
+    );
+  return { ...track, automationBars, automation };
+}
+
+export function resizeKeysAutomation(
+  track: KeysTrack,
+  automationBars: AutomationBars,
+): KeysTrack {
+  const automation = { ...track.automation };
+  for (const parameter of keysAutomationSchema.keyof().options)
+    automation[parameter] = resizeAutomationLane(
+      track.automation[parameter],
+      automationTiming(track),
+      automationTiming({ ...track, automationBars }),
+      normalizedKeysValue(track, parameter),
+    );
+  return { ...track, automationBars, automation };
 }

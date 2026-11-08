@@ -1,5 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { z } from "zod";
+import { handleSampleRequest, SampleStore } from "./sample-store";
+export { SampleStore } from "./sample-store";
 import type { Project } from "../../../src/model";
 import { readProject } from "../../../src/model";
 import {
@@ -24,8 +26,9 @@ import type {
   ServerMessage,
 } from "../../../src/session-protocol";
 
-type SessionEnv = Omit<Env, "ROOMS"> & {
+type SessionEnv = Omit<Env, "ROOMS" | "SAMPLES"> & {
   ROOMS: DurableObjectNamespace<SessionRoom>;
+  SAMPLES: DurableObjectNamespace<SampleStore>;
 };
 
 const roleSchema = z.enum(["host", "guest"]);
@@ -58,6 +61,7 @@ const attachmentSchema = z.object({
       z.literal(3),
       z.literal(4),
       z.literal(5),
+      z.literal(6),
     ])
     .default(1),
   window: z.number(),
@@ -195,6 +199,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
     supportsVocalMusic: boolean;
     supportsCloud: boolean;
     supportsTension: boolean;
+    supportsComposition: boolean;
     playing: boolean;
     absoluteTick: number;
     participants: number;
@@ -207,6 +212,7 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       supportsVocalMusic: (host?.data.protocol ?? 0) >= 5,
       supportsCloud: (host?.data.protocol ?? 0) >= 5,
       supportsTension: (host?.data.protocol ?? 0) >= 5,
+      supportsComposition: (host?.data.protocol ?? 0) >= 6,
       playing: host?.data.playing ?? false,
       absoluteTick: host?.data.absoluteTick ?? 0,
       participants: sockets.length,
@@ -249,7 +255,8 @@ export class SessionRoom extends DurableObject<SessionEnv> {
         protocols[0] !== "grain-session-v1" &&
         protocols[0] !== "grain-session-v2" &&
         protocols[0] !== "grain-session-v3" &&
-        protocols[0] !== "grain-session-v4") ||
+        protocols[0] !== "grain-session-v4" &&
+        protocols[0] !== "grain-session-v5") ||
       !token.success
     )
       return new Response("Invalid connection", { status: 400 });
@@ -333,7 +340,9 @@ export class SessionRoom extends DurableObject<SessionEnv> {
           ? 3
           : protocols[0] === "grain-session-v4"
             ? 4
-            : 5,
+            : protocols[0] === "grain-session-v5"
+              ? 5
+              : 6,
       playing: false,
       absoluteTick: 0,
       window: Date.now(),
@@ -515,11 +524,12 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       changes,
     });
   }
-  webSocketClose(socket: WebSocket, code: number, reason: string): void {
+  webSocketClose(socket: WebSocket, _code: number, _reason: string): void {
     const data = attachment(socket);
     if (data)
       socket.serializeAttachment({ ...data, active: false, playing: false });
-    socket.close(code, reason);
+    // Our compatibility date enables automatic close replies. Do not echo
+    // reserved event codes (such as 1005/1006), which close() rejects.
     if (!this.closing) this.broadcast({ type: "presence", ...this.presence() });
   }
   webSocketError(socket: WebSocket): void {
@@ -630,6 +640,12 @@ async function createSession(
     return response({ error: "Invalid project" }, 400, origin);
   const project = readProject(parsed.data.project);
   if (!project) return response({ error: "Invalid project" }, 400, origin);
+  if (project.vocal.recording?.kind === "local")
+    return response(
+      { error: "Share the recording before creating a session" },
+      400,
+      origin,
+    );
   const roomId = randomToken(16),
     hostToken = randomToken(32),
     guestToken = randomToken(32);
@@ -655,6 +671,8 @@ export default {
       return response({ ok: true }, 200);
     const origin = allowedOrigin(request, env);
     if (!origin) return response({ error: "Origin not allowed" }, 403);
+    const sampleResponse = await handleSampleRequest(request, env, origin);
+    if (sampleResponse) return sampleResponse;
     if (request.method === "OPTIONS" && url.pathname === "/sessions")
       return new Response(null, {
         status: 204,

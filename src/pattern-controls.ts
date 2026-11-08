@@ -18,6 +18,8 @@ interface PatternOptions {
   onViewportChange: (viewport: PatternViewport) => void;
   isBusy: () => boolean;
   allowedBars?: ReadonlyArray<Timing["bars"]>;
+  barsOnly?: boolean;
+  onFollowSequence?: () => void;
 }
 
 let nextDialogId = 0;
@@ -28,6 +30,7 @@ export class PatternControls {
   private pages: TrackPage[] = trackPages(this.timing);
   private page = 0;
   private following = true;
+  private linked = false;
   private initialized = false;
   private tick = -1;
   private swing = 0;
@@ -91,7 +94,17 @@ export class PatternControls {
       },
       { name: "Grid", key: "grid", values: ["straight", "triplet"] },
     ];
+    if (options.onFollowSequence) {
+      const followSequence = this.button(
+        "Follow sequence",
+        "follow-sequence",
+        `${options.label} follow sequence length`,
+      );
+      followSequence.className = "pattern-follow-sequence";
+      this.settings.append(followSequence);
+    }
     for (const group of groups) {
+      if (options.barsOnly && group.key !== "bars") continue;
       const row = document.createElement("div");
       row.className = "pattern-setting";
       row.setAttribute("role", "group");
@@ -184,14 +197,19 @@ export class PatternControls {
       ? { start: page.start, count: page.count, groupSize }
       : { start: 0, count: 1 };
   }
-  update(timing: Timing): void {
+  update(timing: Timing, linked = false): void {
     this.restoreModal();
+    const linkChanged = this.linked !== linked;
+    this.linked = linked;
     const changed =
       !this.initialized ||
       this.timing.bars !== timing.bars ||
       this.timing.meter !== timing.meter ||
       this.timing.grid !== timing.grid;
-    if (!changed) return;
+    if (!changed) {
+      if (linkChanged) this.renderState();
+      return;
+    }
     this.initialized = true;
     this.timing = { ...timing };
     this.pages = trackPages(timing);
@@ -300,7 +318,12 @@ export class PatternControls {
   }
   private renderState(): void {
     const timing = `${this.timing.bars} ${this.timing.bars === 1 ? "bar" : "bars"} · ${this.timing.meter} · ${this.timing.grid === "triplet" ? "1/16T" : "1/16"}`;
-    this.summary.textContent = timing;
+    this.summary.textContent = this.options.barsOnly
+      ? `${this.linked ? "Follow sequence · " : ""}${this.timing.bars} ${this.timing.bars === 1 ? "bar" : "bars"}`
+      : timing;
+    this.container
+      .querySelector('[data-pattern-action="follow-sequence"]')
+      ?.setAttribute("aria-pressed", String(this.linked));
     this.pageTrigger.textContent = `Page ${this.page + 1}/${this.pages.length}`;
     this.pageTrigger.setAttribute(
       "aria-description",
@@ -329,7 +352,10 @@ export class PatternControls {
               : this.timing.grid;
         button.setAttribute(
           "aria-pressed",
-          String(button.dataset.patternValue === String(selected)),
+          String(
+            (key !== "bars" || !this.linked) &&
+              button.dataset.patternValue === String(selected),
+          ),
         );
       });
   }
@@ -494,6 +520,10 @@ export class PatternControls {
     )
       return;
     const action = button.dataset.patternAction;
+    if (action === "follow-sequence") {
+      if (!this.options.isBusy()) this.options.onFollowSequence?.();
+      return;
+    }
     if (action === "open") {
       this.open();
       return;
@@ -540,6 +570,7 @@ export class PatternControls {
     )
       return;
     if (
+      !(this.options.barsOnly && this.linked) &&
       result.data.bars === this.timing.bars &&
       result.data.meter === this.timing.meter &&
       result.data.grid === this.timing.grid

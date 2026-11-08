@@ -15,6 +15,7 @@ import {
   sequenceTimingSchema,
   padTimingSchema,
   trackStepCount,
+  automationStepCount,
   MAX_PROJECT_BYTES,
 } from "./timing";
 import { encodeTrack, decodeTrack } from "./share";
@@ -77,14 +78,17 @@ describe("track links", () => {
       track.vocal,
       track.cloud,
       track.tension,
-    ])
-      fill(instrument.automation, trackStepCount(instrument.timing));
+    ]) {
+      instrument.automationBars = 16;
+      fill(instrument.automation, automationStepCount(instrument));
+    }
     projectSchema.parse(track);
     expect(
       new TextEncoder().encode(JSON.stringify(track)).byteLength,
     ).toBeLessThan(MAX_PROJECT_BYTES);
     const link = await encodeTrack(track);
-    expect(link.length).toBeLessThan(500000);
+    expect(link.length).toBeGreaterThan(500000);
+    expect(link.length).toBeLessThan(600000);
     expect(await decodeTrack(link)).toEqual(track);
   });
   it("bounds decompressed data before parsing", async () => {
@@ -132,4 +136,42 @@ describe("track links", () => {
       ),
     ).toBeNull();
   });
+});
+
+it("keeps local recordings in saved projects but never transfers them through track links", async () => {
+  const { readProject } = await import("./model");
+  const project = createProject();
+  project.vocal.recording = {
+    kind: "local",
+    id: "a".repeat(32),
+    sha256: "b".repeat(64),
+    name: "Recorded hit",
+    rootNote: 60,
+    duration: 0.5,
+    peaks: Array(128).fill(0.2),
+  };
+  expect(readProject(project)?.vocal.recording).toEqual(
+    project.vocal.recording,
+  );
+  await expect(encodeTrack(project)).rejects.toThrow("Upload this recording");
+  const bytes = new Uint8Array(
+    await new Response(
+      new Blob([JSON.stringify(project)])
+        .stream()
+        .pipeThrough(new CompressionStream("gzip")),
+    ).arrayBuffer(),
+  );
+  const encoded =
+    "v1." +
+    btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""))
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replaceAll("=", "");
+  expect(await decodeTrack(encoded)).toBeNull();
+  project.vocal.recording = {
+    ...project.vocal.recording,
+    kind: "shared",
+    readToken: "c".repeat(43),
+  };
+  expect(await decodeTrack(await encodeTrack(project))).toEqual(project);
 });

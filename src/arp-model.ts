@@ -1,6 +1,16 @@
+import {
+  progressionChordAtTick,
+  progressionChordNotes,
+} from "./progression-model";
+import type { Progression } from "./progression-model";
 import { z } from "zod";
+import type { AutomationBars } from "./timing";
 import {
   createTiming,
+  automationBarsSchema,
+  automationTiming,
+  automationStepCount,
+  automationStepPosition,
   sequenceTimingSchema,
   trackStepCount,
   resizePattern,
@@ -63,6 +73,8 @@ export function emptyArpAutomation(): ArpAutomation {
 }
 export const arpBaseSchema = z.object({
   timing: sequenceTimingSchema.default(createTiming),
+  automationBars: automationBarsSchema,
+  followChords: z.boolean().default(false),
   automation: arpAutomationSchema.default(emptyArpAutomation),
   sound: z
     .number()
@@ -105,7 +117,7 @@ export const arpSchema = arpBaseSchema.superRefine((track, context) => {
     track.steps.length !== count ||
     track.accents.length !== count ||
     Object.values(track.automation).some(
-      (lane) => lane !== null && lane.length !== count,
+      (lane) => lane !== null && lane.length !== automationStepCount(track),
     )
   )
     context.addIssue({
@@ -150,7 +162,7 @@ export function arpValueFromNormalized(
 export function automatedArp(track: ArpTrack, absoluteStep: number): ArpTrack {
   const resolved = { ...track };
   if (!Number.isFinite(absoluteStep) || absoluteStep < 0) return resolved;
-  const index = Math.floor(absoluteStep) % trackStepCount(track.timing);
+  const index = Math.floor(automationStepPosition(track, absoluteStep));
   for (const parameter of arpAutomationSchema.keyof().options) {
     const value = track.automation[parameter]?.[index];
     if (value !== undefined)
@@ -172,8 +184,33 @@ export function arpNoteChoices(scale: MusicalScale): number[] {
   return scaleNotes(scale, 48, 84);
 }
 
-export function arpNotePool(track: ArpTrack, scale: MusicalScale): number[] {
-  const selected = retuneArp(track, scale).notes;
+export function arpNotePool(
+  track: ArpTrack,
+  scale: MusicalScale,
+  progression?: Progression,
+  absoluteTick = 0,
+  swing = 0,
+): number[] {
+  let selected = retuneArp(track, scale).notes;
+  if (track.followChords && progression) {
+    const voiced = progressionChordNotes(
+      progression,
+      scale,
+      progressionChordAtTick(progression, absoluteTick, swing),
+    );
+    const first = voiced[0];
+    if (first !== undefined) {
+      const anchor = Math.min(...(selected.length ? selected : [57]));
+      const octaves = Math.max(
+        Math.ceil((48 - first) / 12),
+        Math.min(
+          Math.floor((84 - (voiced.at(-1) ?? first)) / 12),
+          Math.round((anchor - first) / 12),
+        ),
+      );
+      selected = voiced.map((note) => note + octaves * 12);
+    }
+  }
   const notes: number[] = [];
   for (let octave = 0; octave < track.octaves; octave++)
     for (const note of selected) {
@@ -246,8 +283,8 @@ export function resizeArpTrack(
   for (const parameter of arpAutomationSchema.keyof().options)
     automation[parameter] = resizeAutomationLane(
       track.automation[parameter],
-      track.timing,
-      timing,
+      automationTiming(track),
+      automationTiming({ ...track, timing }),
       normalizedArpValue(track, parameter),
     );
   return {
@@ -278,6 +315,9 @@ export function arpEventsAtTick(
   track: ArpTrack,
   scale: MusicalScale,
   logicalTick: number,
+  progression?: Progression,
+  absoluteTick = logicalTick,
+  swing = 0,
 ): ArpEvent[] {
   const interval = arpRateTicks(track.rate);
   if (
@@ -290,7 +330,7 @@ export function arpEventsAtTick(
   const cell =
     Math.floor(logicalTick / ticksPerStep(track.timing)) % track.steps.length;
   if (!track.steps[cell]) return [];
-  const pool = arpNotePool(track, scale);
+  const pool = arpNotePool(track, scale, progression, absoluteTick, swing);
   if (!pool.length) return [];
   const eventIndex = logicalTick / interval;
   const index =
@@ -309,4 +349,19 @@ export function arpEventsAtTick(
           accent: track.accents[cell] ?? false,
         },
       ];
+}
+
+export function resizeArpAutomation(
+  track: ArpTrack,
+  automationBars: AutomationBars,
+): ArpTrack {
+  const automation = { ...track.automation };
+  for (const parameter of arpAutomationSchema.keyof().options)
+    automation[parameter] = resizeAutomationLane(
+      track.automation[parameter],
+      automationTiming(track),
+      automationTiming({ ...track, automationBars }),
+      normalizedArpValue(track, parameter),
+    );
+  return { ...track, automationBars, automation };
 }

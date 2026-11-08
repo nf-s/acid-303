@@ -11,6 +11,7 @@ import {
   normalizedCloudValue,
   cloudValueFromNormalized,
   resizeCloudTrack,
+  resizeCloudAutomation,
   cloudStepNotes,
   cloudGrainSeconds,
   cloudGrainsPerSecond,
@@ -107,8 +108,8 @@ export function createCloudPanel(
         );
       },
     ).join("")}</div></details>
-    <details class="material-sequence" open><summary>Sequence</summary><div id="cloud-pattern-controls" class="instrument-pattern-controls"></div><div class="matrix-toolbar material-note-tools"><div role="group" aria-label="Cloud note attribute">${["pitch", "gate", "velocity"].map((item) => `<button data-cloud-attribute="${item}" aria-pressed="${item === "pitch"}">${item[0]?.toUpperCase()}${item.slice(1)}</button>`).join("")}</div><div class="matrix-tools" role="group" aria-label="Cloud note drawing tool"><button data-cloud-tool="draw" aria-pressed="true">Draw</button><button data-cloud-tool="line" aria-pressed="false">Line</button><button id="cloud-clear-notes">Clear notes</button></div></div><div class="note-matrix material-note-matrix"><canvas id="cloud-notes-canvas" aria-label="Draw Cloud notes"></canvas><div class="matrix-access" id="cloud-notes-access"></div></div></details>
-    <details class="material-automation-details"><summary>Automation</summary><div id="cloud-automation"></div></details>`;
+    <details class="material-sequence instrument-section instrument-sequence" open><summary>Sequence</summary><div id="cloud-pattern-controls" class="instrument-pattern-controls"></div><div class="matrix-toolbar material-note-tools"><div role="group" aria-label="Cloud note attribute">${["pitch", "gate", "velocity"].map((item) => `<button data-cloud-attribute="${item}" aria-pressed="${item === "pitch"}">${item[0]?.toUpperCase()}${item.slice(1)}</button>`).join("")}</div><div class="matrix-tools" role="group" aria-label="Cloud note drawing tool"><button data-cloud-tool="draw" aria-pressed="true">Draw</button><button data-cloud-tool="line" aria-pressed="false">Line</button><button id="cloud-clear-notes">Clear notes</button></div></div><div class="note-matrix material-note-matrix"><canvas id="cloud-notes-canvas" aria-label="Draw Cloud notes"></canvas><div class="matrix-access" id="cloud-notes-access"></div></div></details>
+    <details class="material-automation-details instrument-section instrument-automation-section"><summary>Automation</summary><div id="cloud-automation"></div></details>`;
   const surfaceCanvas = container.querySelector("#cloud-surface"),
     noteCanvas = container.querySelector("#cloud-notes-canvas"),
     access = container.querySelector<HTMLElement>("#cloud-notes-access"),
@@ -157,6 +158,15 @@ export function createCloudPanel(
     getScale: options.getScale,
     getMuted: () => options.getTrack().muted,
     getTiming: () => options.getTrack().timing,
+    getAutomationBars: () => options.getTrack().automationBars,
+    onAutomationBarsChange: (bars) => {
+      Object.assign(
+        options.getTrack(),
+        resizeCloudAutomation(options.getTrack(), bars),
+      );
+      render();
+      options.onChange();
+    },
     getSteps: () => cloudStepNotes(options.getTrack()),
     onTimingChange: (timing) => {
       const parsed = timingSchema.safeParse(timing);
@@ -429,7 +439,11 @@ export function createCloudPanel(
           cloudStepNotes(next),
           next.steps.map((step) => step.velocity),
         );
-      automation.rebaseIncoming((key) => next.automation[key], next.timing);
+      automation.rebaseIncoming(
+        (key) => next.automation[key],
+        next.timing,
+        next.automationBars,
+      );
     },
     setHostCapability: (supported: boolean) => {
       const message = container.querySelector<HTMLElement>(

@@ -7,11 +7,26 @@ export default defineConfig(({ mode }) => ({
     entrypoint: "src/index.ts",
     compatibilityDate: "2026-11-07",
     compatibilityFlags: ["nodejs_compat"],
-    exports: { SessionRoom: exports.durableObject({ storage: "sqlite" }) },
+    exports: {
+      SessionRoom: exports.durableObject({ storage: "sqlite" }),
+      SampleStore: exports.durableObject({ storage: "sqlite" }),
+    },
     env: {
       ROOMS: bindings.durableObject({
         worker: "grain-sessions",
         exportName: "SessionRoom",
+      }),
+      SAMPLES: bindings.durableObject({
+        worker: "grain-sessions",
+        exportName: "SampleStore",
+      }),
+      SAMPLE_UPLOAD_LIMIT: bindings.rateLimit({
+        namespace: "1226289104",
+        simple: { limit: 6, period: 60 },
+      }),
+      SAMPLE_READ_LIMIT: bindings.rateLimit({
+        namespace: "1226289105",
+        simple: { limit: 60, period: 60 },
       }),
       ALLOWED_ORIGIN: bindings.text("https://acid-303.pages.dev"),
       ALLOW_LOCALHOST: bindings.text(mode === "development" ? "true" : "false"),

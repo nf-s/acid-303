@@ -9,6 +9,7 @@ import {
   ticksPerStep,
   trackPosition,
   unswungTick,
+  swungTick,
 } from "./timing";
 import {
   ARP_DIRECTIONS,
@@ -17,11 +18,20 @@ import {
   arpEventsAtTick,
   arpRateTicks,
   resizeArpTrack,
+  resizeArpAutomation,
   arpNoteChoices,
   normalizedArpValue,
   retuneArp,
 } from "./arp-model";
 import type { ArpParameter, ArpTrack } from "./arp-model";
+import type { Progression } from "./progression-model";
+import {
+  progressionChordAtTick,
+  progressionChordLabel,
+} from "./progression-model";
+import type { Timing } from "./timing";
+import { trackStepCount } from "./timing";
+import "./progression-panel.css";
 
 type RenderControl = (
   id: string,
@@ -37,6 +47,8 @@ type RenderControl = (
 export interface ArpPanelOptions {
   getTrack: () => ArpTrack;
   getScale: () => MusicalScale;
+  getProgression: () => Progression;
+  onProgressionEdit: () => void;
   onChange: () => void;
   renderControl: RenderControl;
 }
@@ -139,7 +151,32 @@ export function createArpPanel(
     const eventTick =
       Math.floor(logical / arpRateTicks(track.rate)) * arpRateTicks(track.rate);
     const events =
-      current >= 0 ? arpEventsAtTick(track, options.getScale(), eventTick) : [];
+      current >= 0
+        ? arpEventsAtTick(
+            track,
+            options.getScale(),
+            eventTick,
+            options.getProgression(),
+            swungTick(eventTick, swing, track.timing.grid),
+            swing,
+          )
+        : [];
+    const chordContext =
+      container.querySelector<HTMLElement>("#arp-chord-context");
+    if (chordContext) {
+      chordContext.hidden = !track.followChords;
+      const progression = options.getProgression();
+      const slot = progressionChordAtTick(
+        progression,
+        Math.max(0, current),
+        swing,
+      );
+      chordContext.textContent = progressionChordLabel(
+        progression,
+        options.getScale(),
+        slot,
+      );
+    }
     const position =
       current >= 0 ? trackPosition(track.timing, current, swing) : null;
     const playing = events.map((event) => event.note);
@@ -185,31 +222,32 @@ export function createArpPanel(
           `Arpeggiator ${control.label.toLowerCase()}`,
         );
       }).join("")}</div>
+      <details class="instrument-section instrument-sequence" open><summary>Sequence</summary>
+      <div class="follow-chord-controls"><button id="arp-follow-chords" aria-pressed="${track.followChords}">Follow chords</button><output class="follow-chord-context" id="arp-chord-context"></output><button id="arp-edit-chords">Edit chords</button></div>
       <div class="arp-settings"><div class="arp-setting"><span>Order</span><div class="waveform-switch" role="group" aria-label="Arpeggiator order">${ARP_DIRECTIONS.map((direction) => `<button data-arp-direction="${direction.id}" aria-pressed="${track.direction === direction.id}" class="${track.direction === direction.id ? "active" : ""}">${direction.label}</button>`).join("")}</div></div><div class="arp-setting"><span>Rate</span><div class="waveform-switch" role="group" aria-label="Arpeggiator rate">${ARP_RATES.map((rate) => `<button data-arp-rate="${rate}" aria-pressed="${track.rate === rate}" class="${track.rate === rate ? "active" : ""}">${rate}</button>`).join("")}</div></div><div class="arp-setting"><span>Octaves</span><div class="waveform-switch" role="group" aria-label="Arpeggiator octaves">${[1, 2, 3].map((octaves) => `<button data-arp-octaves="${octaves}" aria-pressed="${track.octaves === octaves}" class="${track.octaves === octaves ? "active" : ""}">${octaves}</button>`).join("")}</div></div></div>
-      <div class="arp-note-header"><span>Notes</span><button class="text-button" data-arp-clear="notes">Clear</button></div><div class="arp-note-options" role="group" aria-label="Arpeggiator notes">${arpNoteChoices(
+      <div class="arp-manual-notes"><div class="arp-note-header"><span>Notes</span><button class="text-button" data-arp-clear="notes">Clear</button></div><div class="arp-note-options" role="group" aria-label="Arpeggiator notes">${arpNoteChoices(
         scale,
       )
         .map((note) => {
           const selected = notes.indexOf(note);
           return `<button data-arp-note="${note}" aria-label="Arpeggiator note ${noteName(note)}" aria-pressed="${selected >= 0}"><span>${noteName(note)}</span><small>${selected >= 0 ? selected + 1 : ""}</small></button>`;
         })
-        .join("")}</div>
+        .join("")}</div></div>
       <div class="arp-rhythm"><span>Steps</span><div class="arp-step-row" role="group" aria-label="Arpeggiator steps"></div><span>Accent</span><div class="arp-step-row" role="group" aria-label="Arpeggiator accents"></div></div>
-      <div class="section-footer"><span>${notes.length ? "Tap notes to add or remove · Numbers show played order" : "Select notes to hear the arpeggiator"}</span><span>${track.muted ? "Muted" : `${notes.length} notes`}</span></div>`;
+      <div class="section-footer"><span>${notes.length ? "Tap notes to add or remove · Numbers show played order" : "Select notes to hear the arpeggiator"}</span><span>${track.muted ? "Muted" : `${notes.length} notes`}</span></div></details><details class="instrument-section instrument-automation-section"><summary>Automation</summary><div id="arp-automation"></div></details>`;
     updatePlayback();
   };
 
   initialRender();
-  const automationContainer = document.createElement("div");
+  const automationContainer =
+    container.querySelector<HTMLElement>("#arp-automation");
   const pagerContainer = document.createElement("div");
   pagerContainer.id = "arp-pattern-controls";
   pagerContainer.className = "instrument-pattern-controls";
   const rhythm = container.querySelector(".arp-rhythm");
-  container.querySelector(".arp-controls")?.after(pagerContainer);
-  if (rhythm) {
-    pagerContainer.after(rhythm);
-    rhythm.after(automationContainer);
-  } else pagerContainer.after(automationContainer);
+  if (!automationContainer || !rhythm)
+    throw new Error("Arpeggiator controls are missing.");
+  rhythm.before(pagerContainer);
   const renderRhythm = (viewport: { start: number; count: number }): void => {
     const track = options.getTrack();
     const perBar = stepsPerBar(track.timing);
@@ -247,6 +285,34 @@ export function createArpPanel(
     }
     updatePlayback();
   };
+  const contextSteps = (timing: Timing) => {
+    const track = options.getTrack();
+    return Array.from({ length: trackStepCount(timing) }, (_, index) => {
+      const logicalTick = index * ticksPerStep(timing);
+      const cell =
+        Math.floor(logicalTick / ticksPerStep(track.timing)) %
+        track.steps.length;
+      const eventTick =
+        Math.floor(logicalTick / arpRateTicks(track.rate)) *
+        arpRateTicks(track.rate);
+      return {
+        on: track.steps[cell] ?? false,
+        note:
+          arpEventsAtTick(
+            { ...track, muted: false },
+            options.getScale(),
+            eventTick,
+            options.getProgression(),
+            swungTick(eventTick, swing, track.timing.grid),
+            swing,
+          )[0]?.note ??
+          track.notes[0] ??
+          60,
+        accent: false,
+        slide: false,
+      };
+    });
+  };
   const automation = createInstrumentAutomation(automationContainer, {
     prefix: "arp",
     label: "Arpeggiator",
@@ -262,6 +328,15 @@ export function createArpPanel(
     getScale: options.getScale,
     getMuted: () => options.getTrack().muted,
     getTiming: () => options.getTrack().timing,
+    getAutomationBars: () => options.getTrack().automationBars,
+    onAutomationBarsChange: (bars) => {
+      Object.assign(
+        options.getTrack(),
+        resizeArpAutomation(options.getTrack(), bars),
+      );
+      render();
+      options.onChange();
+    },
     onTimingChange: (timing) => {
       const parsed = sequenceTimingSchema.safeParse(timing);
       if (!parsed.success) return;
@@ -274,24 +349,8 @@ export function createArpPanel(
     },
     pagerContainer,
     onViewportChange: renderRhythm,
-    getSteps: () => {
-      const track = options.getTrack();
-      return track.steps.map((on, index) => ({
-        on,
-        note:
-          arpEventsAtTick(
-            { ...track, muted: false },
-            options.getScale(),
-            Math.floor(
-              (index * ticksPerStep(track.timing)) / arpRateTicks(track.rate),
-            ) * arpRateTicks(track.rate),
-          )[0]?.note ??
-          track.notes[0] ??
-          60,
-        accent: false,
-        slide: false,
-      }));
-    },
+    getSteps: () => contextSteps(options.getTrack().timing),
+    getContextSteps: contextSteps,
     onChange: options.onChange,
   });
   const displayControl = (control: Control): void => {
@@ -329,6 +388,14 @@ export function createArpPanel(
     }
     const scale = options.getScale();
     const notes = retuneArp(track, scale).notes;
+    container
+      .querySelector("#arp-follow-chords")
+      ?.setAttribute("aria-pressed", String(track.followChords));
+    const manual = container.querySelector<HTMLElement>(".arp-manual-notes");
+    const shortcut =
+      container.querySelector<HTMLButtonElement>("#arp-edit-chords");
+    if (manual) manual.hidden = track.followChords;
+    if (shortcut) shortcut.hidden = !track.followChords;
     const noteOptions = container.querySelector(".arp-note-options");
     const signature = `${scale.root}:${scale.mode}`;
     if (noteOptions && signature !== noteSignature) {
@@ -350,8 +417,10 @@ export function createArpPanel(
     }
     renderRhythm(automation.viewport);
     const footer = container.querySelector(".section-footer");
-    if (footer)
+    if (footer instanceof HTMLElement) {
+      footer.hidden = track.followChords;
       footer.innerHTML = `<span>${notes.length ? "Tap notes to add or remove · Numbers show played order" : "Select notes to hear the arpeggiator"}</span><span>${track.muted ? "Muted" : `${notes.length} notes`}</span>`;
+    }
     CONTROLS.forEach(displayControl);
     automation.refresh(true);
     updatePlayback();
@@ -365,6 +434,14 @@ export function createArpPanel(
     const track = options.getTrack();
     const { dataset } = button;
     let changed = false;
+    if (button.id === "arp-edit-chords") {
+      options.onProgressionEdit();
+      return;
+    }
+    if (button.id === "arp-follow-chords") {
+      track.followChords = !track.followChords;
+      changed = true;
+    }
     if (button.id === "arp-mute") {
       track.muted = !track.muted;
       changed = true;
@@ -396,7 +473,7 @@ export function createArpPanel(
         changed = true;
       }
     }
-    if (dataset.arpNote !== undefined) {
+    if (!track.followChords && dataset.arpNote !== undefined) {
       const note = Number(dataset.arpNote);
       if (arpNoteChoices(options.getScale()).includes(note)) {
         track.notes = retuneArp(track, options.getScale()).notes;
@@ -407,7 +484,7 @@ export function createArpPanel(
         changed = true;
       }
     }
-    if (dataset.arpClear === "notes") {
+    if (!track.followChords && dataset.arpClear === "notes") {
       track.notes = [];
       changed = true;
     }
@@ -461,15 +538,19 @@ export function createArpPanel(
     render,
     refreshAutomation: () => automation.refresh(),
     setPosition: (absoluteTick, amount) => {
+      const swingChanged = swing !== amount;
       current = absoluteTick;
       swing = amount;
       updatePlayback();
+      if (swingChanged) automation.refresh();
       automation.setPosition(absoluteTick, amount);
     },
     setStep: (absoluteStep) => {
+      const swingChanged = swing !== 0;
       current = absoluteStep < 0 ? -1 : (absoluteStep * PPQ) / 4;
       swing = 0;
       updatePlayback();
+      if (swingChanged) automation.refresh();
       automation.setPosition(current, 0);
     },
     updateControl,
@@ -478,6 +559,7 @@ export function createArpPanel(
       automation.rebaseIncoming(
         (parameter) => next.automation[parameter],
         next.timing,
+        next.automationBars,
       ),
     destroy: () => {
       automation.destroy();

@@ -2,9 +2,11 @@ import { readProject } from "./model";
 import type { Project } from "./model";
 import { MAX_PROJECT_BYTES } from "./timing";
 
-const MAX_ENCODED_LENGTH = 500000;
+const MAX_ENCODED_LENGTH = 600000;
 
 export async function encodeTrack(project: Project): Promise<string> {
+  if (project.vocal.recording?.kind === "local")
+    throw new Error("Upload this recording before sharing the track.");
   const data = new TextEncoder().encode(JSON.stringify(project));
   if (data.byteLength > MAX_PROJECT_BYTES)
     throw new Error("Track exceeds the share limit.");
@@ -55,7 +57,8 @@ export async function decodeTrack(encoded: string): Promise<Project | null> {
       offset += chunk.length;
     }
     const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    return readProject(parsed);
+    const project = readProject(parsed);
+    return project?.vocal.recording?.kind === "local" ? null : project;
   } catch {
     return null;
   }

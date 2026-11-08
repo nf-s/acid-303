@@ -12,6 +12,9 @@ const barsSchema = z.union([
   z.literal(8),
   z.literal(16),
 ]);
+export const automationBarsSchema = barsSchema.nullable().default(null);
+export type AutomationBars = z.infer<typeof automationBarsSchema>;
+
 export const timingSchema = z.object({
   bars: barsSchema,
   meter: meterSchema,
@@ -26,6 +29,34 @@ export const padTimingSchema = timingSchema.extend({
 export type Timing = z.infer<typeof timingSchema>;
 export type SequenceTiming = z.infer<typeof sequenceTimingSchema>;
 export type PadTiming = z.infer<typeof padTimingSchema>;
+export interface AutomationTimingTrack {
+  timing: Timing;
+  automationBars: AutomationBars;
+}
+/** Curves share the sequence meter and grid, with an optional independent bar count. */
+export function automationTiming(track: AutomationTimingTrack): Timing {
+  return { ...track.timing, bars: track.automationBars ?? track.timing.bars };
+}
+export function automationStepCount(track: AutomationTimingTrack): number {
+  return trackStepCount(automationTiming(track));
+}
+/** Accept an unwrapped logical grid position; only the automation loop wraps here. */
+export function automationStepPosition(
+  track: AutomationTimingTrack,
+  absoluteStep: number,
+): number {
+  return Number.isFinite(absoluteStep) && absoluteStep >= 0
+    ? absoluteStep % automationStepCount(track)
+    : -1;
+}
+export function automationPosition(
+  track: AutomationTimingTrack,
+  absoluteTick: number,
+  swing = 0,
+): TrackPosition {
+  return trackPosition(automationTiming(track), absoluteTick, swing);
+}
+
 export interface TrackPage {
   start: number;
   count: number;

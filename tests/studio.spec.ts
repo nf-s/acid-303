@@ -345,8 +345,13 @@ async function matrixPoint(
   track: string,
   step: number,
   height: number,
+  automation = false,
 ) {
-  const canvas = page.locator(`#${track}-matrix-canvas`);
+  const canvas = page.locator(
+    automation && (track === "bass" || track === "keys")
+      ? `#${track}-automation-canvas`
+      : `#${track}-matrix-canvas`,
+  );
   await canvas.scrollIntoViewIfNeeded();
   const box = await canvas.boundingBox();
   if (!box) throw new Error("Matrix missing.");
@@ -362,13 +367,45 @@ async function matrixStroke(
   last: number,
   y1: number,
   y2 = y1,
+  automation = false,
 ) {
-  const start = await matrixPoint(page, track, first, y1);
-  const end = await matrixPoint(page, track, last, y2);
+  const start = await matrixPoint(page, track, first, y1, automation);
+  const end = await matrixPoint(page, track, last, y2, automation);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   await page.mouse.move(end.x, end.y, { steps: 8 });
   await page.mouse.up();
+}
+
+async function automationPoint(
+  page: Page,
+  track: string,
+  step: number,
+  height: number,
+) {
+  return matrixPoint(page, track, step, height, true);
+}
+async function automationStroke(
+  page: Page,
+  track: string,
+  first: number,
+  last: number,
+  y1: number,
+  y2 = y1,
+) {
+  await matrixStroke(page, track, first, last, y1, y2, true);
+}
+async function openChords(page: Page): Promise<Locator> {
+  await page.locator("#pad-edit-chords").click();
+  return page.locator("#progression-controls .project-chord-editor");
+}
+async function setPadBars(page: Page, bars: number): Promise<void> {
+  await changeTiming(
+    page.locator("#pad-pattern-controls"),
+    bars,
+    "4/4",
+    "straight",
+  );
 }
 
 test("draws a scale-locked pitch line across all steps and undoes the complete stroke", async ({
@@ -1017,12 +1054,12 @@ test("automation lines retract, undo and clear without changing notes", async ({
   ).toBeDisabled();
   const original = createProject();
   await page
-    .getByRole("group", { name: "Bass drawing tool", exact: true })
+    .getByRole("group", { name: "Bass automation drawing tool", exact: true })
     .getByRole("button", { name: "Line", exact: true })
     .click();
-  const start = await matrixPoint(page, "bass", 2, 0.8);
-  const far = await matrixPoint(page, "bass", 10, 0.1);
-  const end = await matrixPoint(page, "bass", 3, 0.2);
+  const start = await automationPoint(page, "bass", 2, 0.8);
+  const far = await automationPoint(page, "bass", 10, 0.1);
+  const end = await automationPoint(page, "bass", 3, 0.2);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   await page.mouse.move(far.x, far.y, { steps: 4 });
@@ -1036,12 +1073,12 @@ test("automation lines retract, undo and clear without changing notes", async ({
   const base = Math.log(original.bass.cutoff / 80) / Math.log(100);
   expect(drawn.bass.automation.cutoff?.slice(4)).toEqual(Array(12).fill(base));
   await page
-    .getByRole("button", { name: "Undo Bass drawing", exact: true })
+    .getByRole("button", { name: "Undo Bass automation", exact: true })
     .click();
   await expect
     .poll(async () => (await savedProject(page)).bass.automation.cutoff)
     .toBeNull();
-  await matrixStroke(page, "bass", 0, 15, 0.9, 0.1);
+  await automationStroke(page, "bass", 0, 15, 0.9, 0.1);
   await expect
     .poll(async () => (await savedProject(page)).bass.automation.cutoff?.[15])
     .toBeCloseTo(0.9, 1);
@@ -1053,7 +1090,7 @@ test("automation lines retract, undo and clear without changing notes", async ({
     .poll(async () => (await savedProject(page)).bass.automation.cutoff)
     .toBeNull();
   await page
-    .getByRole("button", { name: "Undo Bass drawing", exact: true })
+    .getByRole("button", { name: "Undo Bass automation", exact: true })
     .click();
   await expect
     .poll(async () => (await savedProject(page)).bass.automation.cutoff)
@@ -1096,7 +1133,7 @@ test("every Bass and Texture knob opens editable automation and manual changes s
   for (const control of controls) {
     await page.locator(`#${control.id}`).press("Enter");
     const step = page
-      .locator(`#${control.track}-matrix-access [role=slider]`)
+      .locator(`#${control.track}-automation-access [role=slider]`)
       .first();
     await step.press("End");
     await expect(step).toHaveAttribute("aria-valuenow", "100");
@@ -1119,7 +1156,7 @@ test("every Bass and Texture knob opens editable automation and manual changes s
   expect(before.bass.steps).toEqual(createProject().bass.steps);
   expect(before.keys.steps).toEqual(createProject().keys.steps);
   await page.locator("#keys-motion").press("Enter");
-  await matrixStroke(page, "keys", 0, 15, 0.8, 0.4);
+  await automationStroke(page, "keys", 0, 15, 0.8, 0.4);
   await expect
     .poll(async () => (await savedProject(page)).keys.automation.motion?.[15])
     .toBeCloseTo(0.6, 1);
@@ -1167,7 +1204,10 @@ test("phone sound selection, expression controls and tap automation persist with
   await expect(page.locator("#bass-automation-label")).toHaveText(
     "Shape automation",
   );
-  await page.locator("#bass-matrix-access [role=slider]").first().press("End");
+  await page
+    .locator("#bass-automation-access [role=slider]")
+    .first()
+    .press("End");
   await page.locator("#kick-tone").press("End");
   await page.locator("#kick-drive").press("PageUp");
   await expect
@@ -1200,7 +1240,7 @@ test("reversing a knob sweep restores the curve after hitting its limits", async
   const cutoff = page.locator("#cutoff");
   await cutoff.press("Home");
   await cutoff.press("Enter");
-  await matrixStroke(page, "bass", 0, 15, 0.8, 0.2);
+  await automationStroke(page, "bass", 0, 15, 0.8, 0.2);
   await expect
     .poll(async () => (await savedProject(page)).bass.automation.cutoff?.[15])
     .toBeCloseTo(0.8, 1);
@@ -1324,12 +1364,12 @@ test("clearing a curve cancels a held line before it can restore old values", as
   const page = await context.newPage();
   await page.goto("/");
   await page.locator("#cutoff").press("Enter");
-  await matrixStroke(page, "bass", 0, 15, 0.8, 0.2);
+  await automationStroke(page, "bass", 0, 15, 0.8, 0.2);
   await page
-    .getByRole("group", { name: "Bass drawing tool", exact: true })
+    .getByRole("group", { name: "Bass automation drawing tool", exact: true })
     .getByRole("button", { name: "Line", exact: true })
     .click();
-  const point = await matrixPoint(page, "bass", 4, 0.1);
+  const point = await automationPoint(page, "bass", 4, 0.1);
   const session = await context.newCDPSession(page);
   await session.send("Input.dispatchTouchEvent", {
     type: "touchStart",
@@ -1453,12 +1493,12 @@ test("share link loads the full track into a fresh browser context", async ({
   await page.goto("/");
   await page.locator("#kick-tone").press("End");
   await page.locator("#cutoff").press("Enter");
-  await matrixStroke(page, "bass", 0, 15, 0.8, 0.2);
+  await automationStroke(page, "bass", 0, 15, 0.8, 0.2);
   await expect
     .poll(async () => (await savedProject(page)).bass.automation.cutoff?.[15])
     .toBeCloseTo(0.8, 1);
   await page.locator('[data-arp-sound="2"]').click();
-  await page.locator('[data-pad-bars="16"]').click();
+  await setPadBars(page, 16);
   await page
     .getByRole("button", { name: "Enable chord pads", exact: true })
     .click();
@@ -1466,9 +1506,9 @@ test("share link loads the full track into a fresh browser context", async ({
     .poll(async () => (await savedProject(page)).pad.muted)
     .toBe(false);
   await page.locator("#arp-tone").press("Enter");
-  await matrixStroke(page, "arp", 0, 15, 0.7, 0.3);
+  await automationStroke(page, "arp", 0, 15, 0.7, 0.3);
   await page.locator("#pad-tone").press("Enter");
-  await matrixStroke(page, "pad", 0, 15, 0.8, 0.2);
+  await automationStroke(page, "pad", 0, 15, 0.8, 0.2);
   await expect
     .poll(async () => (await savedProject(page)).pad.automation.tone?.[15])
     .toBeCloseTo(0.8, 1);
@@ -1587,7 +1627,7 @@ test("arpeggiator notes, order, rhythm and all eight controls persist with globa
   await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
 });
 
-test("pad progression length, chord edits and play position work across bars", async ({
+test("shared progression length, chord edits and Pad play position work across bars", async ({
   page,
 }) => {
   await page.goto("/");
@@ -1600,44 +1640,29 @@ test("pad progression length, chord edits and play position work across bars", a
   await page
     .getByRole("button", { name: "Enable chord pads", exact: true })
     .click();
-  await page.getByRole("button", { name: "2 bars", exact: true }).click();
-  await page.locator("[data-pad-presets]").click();
-  await page.locator("[data-pad-progression=descent]").click();
-  await page.locator('[data-pad-slot="1"]').click();
-  await page.locator('[data-pad-degree="3"]').click();
-  await page.locator('[data-pad-inversion="2"]').click();
+  const chords = await openChords(page);
+  await chords.locator('[data-chord-bars="2"]').click();
+  await chords.locator(".progression-presets summary").click();
+  await chords.locator('[data-chord-progression="descent"]').click();
+  await chords.locator('[data-chord-slot="1"]').click();
+  await chords.locator('[data-chord-degree="3"]').click();
+  await chords.locator('[data-chord-inversion="2"]').click();
   await page.locator("#pad-tone").press("End");
   await expect.poll(async () => (await savedProject(page)).pad.tone).toBe(1);
-  const pad = (await savedProject(page)).pad;
-  expect(pad.chords[1]).toEqual({ degree: 3, inversion: 2 });
-  expect(pad.timing.bars).toBe(2);
-  expect(pad.muted).toBe(false);
+  const before = await savedProject(page);
+  expect(before.progression.chords[1]).toEqual({ degree: 3, inversion: 2 });
+  expect(before.progression.timing.bars).toBe(2);
+  expect(before.pad.muted).toBe(false);
   await openTrackControls(page);
   await page.locator("#bpm").press("End");
   await page.getByRole("button", { name: "Play pattern", exact: true }).click();
   await expect
     .poll(() => page.locator(".pad-position").textContent())
     .toBe("Bar 2 / 2");
-  const barPosition = await page.evaluate(() => {
-    const before = document.querySelector("#bar-position")?.textContent;
-    document
-      .querySelector("#pad-tone")
-      ?.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "End", bubbles: true }),
-      );
-    return {
-      before,
-      after: document.querySelector("#bar-position")?.textContent,
-    };
-  });
-  expect(barPosition.before).toMatch(/^Beat [5-8]$/);
-  expect(barPosition.after).toBe(barPosition.before);
-  await expect(page.locator("[data-pad-slot].current")).toHaveCount(1);
+  await expect(chords.locator("[data-chord-slot].current")).toHaveCount(1);
   await page.getByRole("button", { name: "Stop pattern", exact: true }).click();
   await page.reload();
-  await expect(
-    page.getByRole("button", { name: "2 bars", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
+  expect((await savedProject(page)).progression).toEqual(before.progression);
   await expect(page.locator("#pad-tone")).toHaveAttribute(
     "aria-valuenow",
     "100",
@@ -1654,7 +1679,8 @@ test("WAV export includes all eight progression bars and release tails", async (
   await page
     .getByRole("button", { name: "Enable chord pads", exact: true })
     .click();
-  await page.getByRole("button", { name: "8 bars", exact: true }).click();
+  await (await openChords(page)).locator('[data-chord-bars="8"]').click();
+  await openTrackControls(page);
   const downloaded = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export WAV", exact: true }).click();
   const path = await (await downloaded).path();
@@ -1706,7 +1732,7 @@ test("every Arp and Pad knob opens drawable automation with clear and undo", asy
       .poll(async () => (await savedProject(page))[track].automation.tone)
       .toEqual(curve);
   }
-  await page.getByRole("button", { name: "16 bars", exact: true }).click();
+  await setPadBars(page, 16);
   await expect(page.locator("#pad-lane-duration")).toHaveText("256 points");
   await page.reload();
   await expect(page.locator("#arp-tone")).toHaveAttribute(
@@ -1768,6 +1794,7 @@ test("long triplet Arp and Pad patterns edit the final partial page and survive 
     (await finalArpGate.getAttribute("aria-pressed")) === "true";
   await finalArpGate.click();
   await page.locator("#arp-tone").press("Enter");
+  await choosePatternPage(page.locator("#arp-automation-pattern-controls"), 23);
   await page
     .locator('#arp-matrix-access [data-matrix-step="239"]')
     .press("End");
@@ -1787,6 +1814,7 @@ test("long triplet Arp and Pad patterns edit the final partial page and survive 
   await changeTiming(padPages, 16, "5/4", "triplet");
   await choosePatternPage(padPages, 47);
   await page.locator("#pad-tone").press("Enter");
+  await choosePatternPage(page.locator("#pad-automation-pattern-controls"), 47);
   await expect(page.locator("#pad-matrix-access [role=slider]")).toHaveCount(6);
   await page
     .locator('#pad-matrix-access [data-matrix-step="479"]')
@@ -1809,6 +1837,7 @@ test("long triplet Arp and Pad patterns edit the final partial page and survive 
   await expect.poll(async () => (await savedProject(page)).pad).toEqual(pad);
   await choosePatternPage(padPages, 47);
   await page.locator("#pad-tone").press("Enter");
+  await choosePatternPage(page.locator("#pad-automation-pattern-controls"), 47);
   await expect(
     page.locator('#pad-matrix-access [data-matrix-step="479"]'),
   ).toHaveAttribute("aria-valuenow", "100");
@@ -1819,7 +1848,9 @@ test("drum and bass timing stays independent while later bars remain editable", 
 }) => {
   await page.goto("/");
   const kickPages = page
-    .locator("#drum-editors .pattern-controls")
+    .locator(
+      "#drum-simple-pattern .pattern-controls, #drum-simple-pattern.pattern-controls",
+    )
     .filter({ has: page.locator('button[aria-label="Kick timing"]') });
   await changeTiming(kickPages, 2, "3/4", "straight");
   await choosePatternPage(kickPages, 1);
@@ -1966,7 +1997,7 @@ for (const width of [320, 375]) {
     await expect(page.locator("#pad-title")).toBeInViewport();
     await expect(page.locator("#play")).toBeInViewport();
     await expect(page.locator("#fx-sweep")).toBeInViewport();
-    await page.locator('[data-pad-bars="16"]').click();
+    await setPadBars(page, 16);
     const pages = page.locator("#pad-pattern-controls");
     await choosePatternPage(pages, 15);
     await expect(pages.locator('[data-pattern-page="15"]')).toHaveAttribute(
@@ -1974,6 +2005,10 @@ for (const width of [320, 375]) {
       "true",
     );
     await page.locator("#pad-tone").press("Enter");
+    await choosePatternPage(
+      page.locator("#pad-automation-pattern-controls"),
+      15,
+    );
     await expect(
       page.locator('#pad-matrix-access [data-matrix-step="255"]'),
     ).toHaveCount(1);
@@ -1997,44 +2032,25 @@ for (const width of [320, 375]) {
   });
 }
 
-test("phone progression choices open above their button and close with selection or Escape", async ({
+test("phone shared progression choices stay inline with descriptions and close on selection", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/");
-  await page.locator('[data-instrument-jump="pad-panel"]').click();
-  const trigger = page.locator("[data-pad-presets]");
-  const menu = page.locator("#pad-progressions");
-  await trigger.click();
-  await expect(menu).toBeVisible();
-  const buttonBounds = await trigger.boundingBox();
-  const menuBounds = await menu.boundingBox();
-  if (!buttonBounds || !menuBounds)
-    throw new Error("Progression picker is missing.");
-  expect(menuBounds.y + menuBounds.height).toBeLessThanOrEqual(buttonBounds.y);
-  expect(buttonBounds.y - menuBounds.y - menuBounds.height).toBeLessThan(12);
-  expect(menuBounds.x).toBeGreaterThanOrEqual(0);
-  expect(menuBounds.x + menuBounds.width).toBeLessThanOrEqual(375);
-  expect(menuBounds.y).toBeGreaterThanOrEqual(0);
-  await page.keyboard.press("Escape");
-  await expect(menu).toBeHidden();
-  await expect(trigger).toBeFocused();
-  await trigger.press("ArrowDown");
-  const first = menu.locator("[data-pad-progression]").first();
-  await expect(first).toBeFocused();
-  await expect(first.locator('[role="tooltip"]')).toBeVisible();
-  const description = await menu
-    .locator('[data-pad-progression="descent"] [role="tooltip"]')
-    .textContent();
-  await menu.locator('[data-pad-progression="descent"]').click();
-  await expect(menu).toBeHidden();
-  await expect(trigger).toBeFocused();
-  await expect(page.locator("#pad-progression-description")).toHaveText(
-    description ?? "",
-  );
-  await trigger.click();
-  await page.locator('[data-pad-bars="4"]').click();
-  await expect(menu).toBeHidden();
+  const chords = await openChords(page);
+  const picker = chords.locator(".progression-presets");
+  await picker.locator("summary").click();
+  const choice = picker.locator('[data-chord-progression="descent"]');
+  await expect(choice).toHaveAttribute("title", /.+/);
+  const bounds = await picker.boundingBox();
+  if (!bounds) throw new Error("Progression choices missing.");
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(375);
+  await choice.click();
+  await expect(picker).not.toHaveAttribute("open");
+  expect(
+    (await savedProject(page)).progression.chords.map((chord) => chord.degree),
+  ).toHaveLength(4);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     375,
   );
@@ -2104,6 +2120,10 @@ for (const width of [320, 375]) {
     await expect(pageTrigger).toBeFocused();
     await expect(page.locator("[data-arp-step]")).toHaveCount(6);
     await page.locator("#arp-tone").press("Enter");
+    await choosePatternPage(
+      page.locator("#arp-automation-pattern-controls"),
+      23,
+    );
     await page
       .locator('#arp-matrix-access [data-matrix-step="239"]')
       .press("End");
@@ -2191,10 +2211,12 @@ test("touch page selection returns to the selected automation bar", async ({
     .tap();
   await expect(controls.locator(".pattern-dialog")).toBeVisible();
   await controls.locator('[data-pattern-action="done"]').tap();
-  await controls.locator('[data-pattern-action="pages"]').tap();
-  await controls.locator('[data-pattern-page="3"]').tap();
+
   await expect(controls.locator(".pattern-dialog")).toBeHidden();
   await page.locator("#arp-tone").tap();
+  const automationControls = page.locator("#arp-automation-pattern-controls");
+  await automationControls.locator('[data-pattern-action="pages"]').tap();
+  await automationControls.locator('[data-pattern-page="3"]').tap();
   await expect(controls.locator(".pattern-dialog")).toBeHidden();
   await expect(page.locator(".track-mixer")).not.toHaveAttribute("open", "");
   const cell = await matrixPoint(page, "arp", 0, 0.1);

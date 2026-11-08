@@ -294,3 +294,75 @@ describe("independent tick scheduling", () => {
     expect(performanceFxTail(project)).toBeLessThan(8);
   });
 });
+
+it("schedules repeating notes with unwrapped automation and includes late long releases", async () => {
+  const { resizeBassAutomation, resizeKeysAutomation, resizeDrumAutomation } =
+    await import("./model");
+  const { projectEventsAtTick } = await import("./audio");
+  const { resizeVocalAutomation } = await import("./vocal-model");
+  const { resizeTensionAutomation } = await import("./tension-model");
+  const { vocalTailDuration } = await import("./vocal-audio");
+  const { tensionTailDuration } = await import("./tension-audio");
+  const project = createProject();
+  project.bass = resizeBassAutomation(project.bass, 8);
+  project.keys = resizeKeysAutomation(project.keys, 8);
+  project.keys.automation.decay = Array(128).fill(0);
+  project.keys.automation.decay[127] = 1;
+  expect(
+    projectEventsAtTick(project, 96).find(
+      (event) => event.instrument === "bass",
+    ),
+  ).toMatchObject({ index: 0, absoluteStep: 16 });
+  expect(exportTailDuration(project)).toBeGreaterThan(2);
+  project.keys.muted = true;
+  const kick = project.drums[0];
+  if (!kick) throw new Error("Missing kick");
+  project.drums[0] = resizeDrumAutomation(kick, 8);
+  project.drums[0].automation.decay = Array(128).fill(0);
+  project.drums[0].automation.decay[127] = 1;
+  expect(exportTailDuration(project)).toBeGreaterThan(1.5);
+  project.vocal = resizeVocalAutomation(project.vocal, 8);
+  project.vocal.muted = false;
+  project.vocal.automation.release = Array(128).fill(0);
+  project.vocal.automation.release[127] = 1;
+  expect(vocalTailDuration(project.vocal, 120)).toBeGreaterThan(1.6);
+  project.tension = resizeTensionAutomation(project.tension, 8);
+  project.tension.muted = false;
+  project.tension.automation.decay = Array(128).fill(0);
+  project.tension.automation.decay[127] = 1;
+  expect(tensionTailDuration(project.tension)).toBeGreaterThan(6);
+});
+
+it("schedules a following pad at shared chord boundaries across different swing grids", async () => {
+  const { projectEventsAtTick } = await import("./audio");
+  const project = createProject();
+  project.swing = 0.5;
+  project.progression.timing = { bars: 2, meter: "7/8", grid: "triplet" };
+  project.pad.timing = { bars: 8, meter: "4/4", grid: "straight" };
+  const events = [42, 43, 44, 45]
+    .flatMap((tick) => projectEventsAtTick(project, tick))
+    .filter((event) => event.instrument === "pad");
+  expect(events.map((event) => event.audibleTick)).toEqual([42, 45]);
+  project.pad.followChords = false;
+  expect(
+    projectEventsAtTick(project, 42).filter(
+      (event) => event.instrument === "pad",
+    ),
+  ).toEqual([]);
+  expect(
+    projectEventsAtTick(project, 45)
+      .filter((event) => event.instrument === "pad")
+      .map((event) => event.audibleTick),
+  ).toEqual([45]);
+  project.pad.followChords = true;
+  project.pad.timing.grid = "triplet";
+  project.progression.timing.grid = "straight";
+  const reverse = Array.from({ length: 168 }, (_, tick) =>
+    projectEventsAtTick(project, tick),
+  )
+    .flat()
+    .filter((event) => event.instrument === "pad")
+    .map((event) => event.audibleTick);
+  expect(reverse).toEqual([...reverse].sort((a, b) => a - b));
+  expect(reverse).toContain(45);
+});

@@ -142,9 +142,9 @@ export class CloudInstrument {
     scale: MusicalScale,
   ): void {
     if (this.stopped || this.preview) return;
-    const index =
-      Math.floor(logicalTick / ticksPerStep(track.timing)) % track.steps.length;
-    const resolved = automatedCloud(track, index),
+    const absoluteStep = Math.floor(logicalTick / ticksPerStep(track.timing));
+    const index = absoluteStep % track.steps.length;
+    const resolved = automatedCloud(track, absoluteStep),
       step = track.steps[index];
     if (resolved.muted || !step?.on || step.velocity <= 0) {
       this.nextGrain = -1;

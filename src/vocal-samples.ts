@@ -1,8 +1,12 @@
 import { z } from "zod";
 import { VOCAL_BANKS, VOCAL_SOUNDS } from "./vocal-model";
+import { sampleSourceKey } from "./custom-sample-schema";
+import type { CustomSample } from "./custom-sample-schema";
+import { loadCustomSampleBytes } from "./custom-samples";
 
 export interface VocalSampleStatus {
   sound: number;
+  sourceKey?: string;
   phase: "idle" | "loading" | "ready" | "error";
   message: string;
 }
@@ -44,7 +48,16 @@ const catalogSchema = z.object({
       ),
     ),
 });
-export type VocalSample = z.infer<typeof sampleSchema>;
+export type VocalSample =
+  | z.infer<typeof sampleSchema>
+  | (CustomSample & {
+      voice: "recording";
+      url: string;
+      tonal: false;
+      pitch: { kind: "playback-reference" };
+      peak: number;
+      rms: number;
+    });
 export type VocalCatalog = z.infer<typeof catalogSchema>;
 export interface LoadedVocalSample {
   sample: VocalSample;
@@ -53,11 +66,24 @@ export interface LoadedVocalSample {
 const MAX_DOWNLOAD_BYTES = 256 * 1024;
 const TIMEOUT_MS = 8000;
 let catalog: VocalCatalog | null = null;
-const encodedSamples = new Map<number, ArrayBuffer>();
+const encodedSamples = new Map<string, ArrayBuffer>();
 const decodedSamples = new WeakMap<
   BaseAudioContext,
-  Map<number, LoadedVocalSample>
+  Map<string, LoadedVocalSample>
 >();
+function rememberSample<T>(cache: Map<string, T>, key: string, value: T): void {
+  cache.set(key, value);
+  const recordings = [...cache.keys()].filter(
+    (entry) => !entry.startsWith("builtin:"),
+  );
+  for (const oldest of recordings.slice(0, -8)) cache.delete(oldest);
+}
+export function vocalSourceKey(
+  sound: number,
+  recording?: CustomSample | null,
+): string {
+  return recording ? sampleSourceKey(recording) : `builtin:${sound}`;
+}
 
 function cancelled(signal?: AbortSignal): void {
   if (signal?.aborted)
@@ -149,26 +175,42 @@ export async function loadVocalCatalog(
 export function cachedVocalSample(
   context: BaseAudioContext,
   sound: number,
+  recording?: CustomSample | null,
 ): LoadedVocalSample | null {
-  return decodedSamples.get(context)?.get(sound) ?? null;
+  return (
+    decodedSamples.get(context)?.get(vocalSourceKey(sound, recording)) ?? null
+  );
 }
 export async function loadVocalSample(
   context: BaseAudioContext,
   sound: number,
   signal?: AbortSignal,
+  recording?: CustomSample | null,
 ): Promise<LoadedVocalSample> {
   cancelled(signal);
   if (!Number.isInteger(sound) || sound < 0 || sound >= VOCAL_SOUNDS.length)
     throw new Error("Choose an available vocal sample.");
-  const cached = cachedVocalSample(context, sound);
+  const key = vocalSourceKey(sound, recording);
+  const cached = cachedVocalSample(context, sound, recording);
   if (cached) return cached;
-  const metadata = await loadVocalCatalog(signal);
-  const sample = metadata.samples[sound];
+  const sample: VocalSample | undefined = recording
+    ? {
+        ...recording,
+        voice: "recording",
+        url: "",
+        tonal: false,
+        pitch: { kind: "playback-reference" },
+        peak: Math.max(...recording.peaks),
+        rms: 0,
+      }
+    : (await loadVocalCatalog(signal)).samples[sound];
   if (!sample) throw new Error("Choose an available vocal sample.");
-  let bytes = encodedSamples.get(sound);
+  let bytes = encodedSamples.get(key);
   if (!bytes) {
-    bytes = await download(sample.url, signal);
-    encodedSamples.set(sound, bytes);
+    bytes = recording
+      ? await loadCustomSampleBytes(recording, signal)
+      : await download(sample.url, signal);
+    rememberSample(encodedSamples, key, bytes);
   }
   cancelled(signal);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -196,15 +238,15 @@ export async function loadVocalSample(
       throw new Error("The vocal sample has an invalid format.");
     const loaded = { sample, buffer };
     const cache =
-      decodedSamples.get(context) ?? new Map<number, LoadedVocalSample>();
-    cache.set(sound, loaded);
+      decodedSamples.get(context) ?? new Map<string, LoadedVocalSample>();
+    rememberSample(cache, key, loaded);
     decodedSamples.set(context, cache);
     return loaded;
   } catch (error) {
     cancelled(signal);
     if (error instanceof Error && error.message.includes("timed out"))
       throw error;
-    encodedSamples.delete(sound);
+    encodedSamples.delete(key);
     throw new Error("The vocal sample could not be decoded. Try again.");
   } finally {
     clearTimeout(timer);

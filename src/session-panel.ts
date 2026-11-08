@@ -4,6 +4,7 @@ export interface SessionPanelState {
   role: "host" | "guest" | null;
   participants: number;
   hostConnected: boolean;
+  supportsComposition?: boolean;
   inviteLink: string | null;
   message: string;
 }
@@ -52,6 +53,7 @@ export function createSessionPanel(
     </div>
     <div id="session-active" class="session-active" hidden>
       <p id="session-audio" class="session-help">Audio plays on the host.</p>
+      <p id="session-composition-status" class="session-help" hidden>The host is using an older version. Custom recordings, chord followers and independent automation need the current version on the host.</p>
       <div id="session-invite" class="session-link-row" hidden>
         <label for="session-invite-link">Invite link</label>
         <input id="session-invite-link" type="text" readonly autocomplete="off" spellcheck="false">
@@ -77,6 +79,9 @@ export function createSessionPanel(
     join = container.querySelector<HTMLButtonElement>("#session-join"),
     active = container.querySelector<HTMLElement>("#session-active"),
     audio = container.querySelector<HTMLElement>("#session-audio"),
+    compositionStatus = container.querySelector<HTMLElement>(
+      "#session-composition-status",
+    ),
     invite = container.querySelector<HTMLElement>("#session-invite"),
     inviteLink = container.querySelector<HTMLInputElement>(
       "#session-invite-link",
@@ -97,6 +102,7 @@ export function createSessionPanel(
     !join ||
     !active ||
     !audio ||
+    !compositionStatus ||
     !invite ||
     !inviteLink ||
     !copy ||
@@ -148,6 +154,10 @@ export function createSessionPanel(
     join.disabled = busy() || !joinLink.value.trim();
     active.hidden = !showActive;
     audio.hidden = !inSession;
+    compositionStatus.hidden =
+      state.role !== "guest" ||
+      !state.hostConnected ||
+      state.supportsComposition !== false;
     invite.hidden = ended || state.role !== "host" || !state.inviteLink;
     if (inviteLink.value !== (state.inviteLink ?? ""))
       inviteLink.value = state.inviteLink ?? "";

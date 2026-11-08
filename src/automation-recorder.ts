@@ -2,6 +2,7 @@ import { ticksPerStep, trackStepCount, unswungTick } from "./timing";
 import type { Timing } from "./timing";
 
 export interface RecordingLane {
+  /** Effective automation timing, which may outlast the note sequence. */
   timing: Timing;
   base: number;
   values: number[] | null;

@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { createProject, projectSchema } from "../src/model";
+import {
+  createProject,
+  projectSchema,
+  resizeDrumAutomation,
+} from "../src/model";
 
 async function saved(page: Page) {
   await page.waitForFunction(
@@ -12,9 +16,15 @@ async function saved(page: Page) {
     ),
   );
 }
-async function seed(page: Page) {
+async function seed(page: Page, longDrumAutomation = false) {
   const project = createProject();
   project.volume = 0;
+  if (longDrumAutomation) {
+    project.bpm = 180;
+    project.drums = project.drums.map((track) =>
+      track.id === "kick" ? resizeDrumAutomation(track, 8) : track,
+    );
+  }
   await page.addInitScript(
     (value) =>
       localStorage.setItem("acid-303-project-v1", JSON.stringify(value)),
@@ -200,4 +210,62 @@ test("Record fits beside Stop on a narrow phone", async ({ page }) => {
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     320,
   );
+});
+
+test("drum recording reaches later automation bars while keeping its one-bar rhythm", async ({
+  page,
+}) => {
+  await seed(page, true);
+  await page.goto("/");
+  const before = await saved(page);
+  await page.locator("#record-automation").click();
+  await page.locator("#play").click();
+  await expect
+    .poll(async () =>
+      Number(
+        (await page.locator("#bar-position").textContent())?.replace(
+          "Beat ",
+          "",
+        ),
+      ),
+    )
+    .toBeGreaterThanOrEqual(6);
+  await page.locator("#kick-tone").press("End");
+  await expect
+    .poll(async () =>
+      (await saved(page)).drums
+        .find((track) => track.id === "kick")
+        ?.automation.tone?.slice(16)
+        .includes(1),
+    )
+    .toBe(true);
+  await page.locator("#play").click();
+  const after = await saved(page),
+    kick = after.drums.find((track) => track.id === "kick"),
+    original = before.drums.find((track) => track.id === "kick");
+  if (!kick || !original) throw new Error("Kick track is missing.");
+  expect(kick.steps).toEqual(original.steps);
+  expect(kick.steps).toHaveLength(16);
+  expect(kick.tone).toBe(original.tone);
+  expect(kick.automation.tone).toHaveLength(128);
+  expect(kick.automation.tone?.slice(0, 16)).toEqual(
+    Array(16).fill(original.tone),
+  );
+  await tools(page);
+  await page.locator("#global-undo").click();
+  await expect
+    .poll(
+      async () =>
+        (await saved(page)).drums.find((track) => track.id === "kick")
+          ?.automation.tone,
+    )
+    .toBeNull();
+  await page.locator("#global-redo").click();
+  await expect
+    .poll(
+      async () =>
+        (await saved(page)).drums.find((track) => track.id === "kick")
+          ?.automation.tone,
+    )
+    .toEqual(kick.automation.tone);
 });

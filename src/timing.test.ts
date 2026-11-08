@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   createTiming,
+  automationBarsSchema,
+  automationTiming,
+  automationPosition,
+  automationStepPosition,
   stepsPerBar,
   swungTick,
   tickSpanSeconds,
@@ -66,5 +70,36 @@ describe("independent musical timing", () => {
     expect(trackPosition(timing, 240).index).toBe(0);
     expect(trackPosition(createTiming(), 6, 0.5).index).toBe(0);
     expect(trackPosition(createTiming(), 9, 0.5).index).toBe(1);
+  });
+});
+
+describe("independent automation timing", () => {
+  it("follows sequence timing until a separate length is selected", () => {
+    const timing = createTiming();
+    expect(automationTiming({ timing, automationBars: null })).toEqual(timing);
+    const track = { timing, automationBars: automationBarsSchema.parse(8) };
+    expect(automationTiming(track)).toEqual({ ...timing, bars: 8 });
+    expect(trackPosition(timing, 96).index).toBe(0);
+    expect(automationPosition(track, 96).index).toBe(16);
+    expect(automationStepPosition(track, 128)).toBe(0);
+    expect(automationStepPosition(track, 16.5)).toBe(16.5);
+    expect(automationStepPosition(track, NaN)).toBe(-1);
+  });
+  it("uses the same audible clock and swing while keeping independent phase", () => {
+    const track = {
+      timing: createTiming(),
+      automationBars: automationBarsSchema.parse(8),
+    };
+    expect(automationPosition(track, 102, 0.5).index).toBe(16);
+    expect(automationPosition(track, 105, 0.5).index).toBe(17);
+    expect(
+      automationPosition(
+        { ...track, timing: { ...track.timing, grid: "triplet" } },
+        100,
+        0.5,
+      ).index,
+    ).toBe(25);
+    for (const invalid of [0, 3, 32, -1])
+      expect(automationBarsSchema.safeParse(invalid).success).toBe(false);
   });
 });

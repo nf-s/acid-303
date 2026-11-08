@@ -1,17 +1,21 @@
+import { encodeWav } from "./wav";
+export { encodeWav } from "./wav";
 import { CloudInstrument, cloudTailDuration } from "./cloud-audio";
 import { TensionInstrument, tensionTailDuration } from "./tension-audio";
 import type { CloudTrack } from "./cloud-model";
 import type { TensionTrack } from "./tension-model";
 import { VocalInstrument, vocalTailDuration } from "./vocal-audio";
-import { loadVocalSample } from "./vocal-samples";
+import { loadVocalSample, vocalSourceKey } from "./vocal-samples";
 import type { LoadedVocalSample, VocalSampleStatus } from "./vocal-samples";
 import { resolveVocalTrim } from "./vocal-model";
 import type { VocalTrack } from "./vocal-model";
 import {
+  automationStepCount,
   ticksPerStep,
   trackStepCount,
   trackCycleTicks,
   swungTick,
+  unswungTick,
   tickSeconds,
   tickSpanSeconds,
 } from "./timing";
@@ -1586,7 +1590,7 @@ function keysEchoTail(track: KeysTrack, bpm: number): number {
 export function exportTailDuration(project: Project): number {
   const drumTail = project.drums
     .flatMap((track) =>
-      Array.from({ length: track.steps.length }, (_, step) =>
+      Array.from({ length: automationStepCount(track) }, (_, step) =>
         automatedDrum(track, step, project.scale),
       ),
     )
@@ -1607,7 +1611,7 @@ export function exportTailDuration(project: Project): number {
       return Math.max(longest, decay + 0.12 + (track.space > 0 ? 0.92 : 0));
     }, 0);
   const automated = Array.from(
-    { length: project.keys.steps.length },
+    { length: automationStepCount(project.keys) },
     (_, step) => automatedKeys(project.keys, step),
   );
   const keysTail =
@@ -2381,49 +2385,9 @@ class KeysSequencer {
   }
 }
 
-export function encodeWav(channels: Float32Array[], sampleRate: number): Blob {
-  const frames = channels[0]?.length ?? 0;
-  const channelCount = channels.length;
-  if (channelCount < 1 || channels.some((channel) => channel.length !== frames))
-    throw new Error("Audio channels must have matching lengths.");
-  const dataSize = frames * channelCount * 2;
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-  const writeText = (offset: number, value: string) => {
-    for (let index = 0; index < value.length; index += 1)
-      view.setUint8(offset + index, value.charCodeAt(index));
-  };
-  writeText(0, "RIFF");
-  view.setUint32(4, 36 + dataSize, true);
-  writeText(8, "WAVE");
-  writeText(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, channelCount, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * channelCount * 2, true);
-  view.setUint16(32, channelCount * 2, true);
-  view.setUint16(34, 16, true);
-  writeText(36, "data");
-  view.setUint32(40, dataSize, true);
-  let offset = 44;
-  for (let frame = 0; frame < frames; frame += 1) {
-    for (const channel of channels) {
-      const raw = channel[frame] ?? 0;
-      const value = Number.isFinite(raw) ? Math.min(1, Math.max(-1, raw)) : 0;
-      view.setInt16(
-        offset,
-        Math.round(value * (value < 0 ? 32768 : 32767)),
-        true,
-      );
-      offset += 2;
-    }
-  }
-  return new Blob([buffer], { type: "audio/wav" });
-}
-
 export interface ScheduledTrackEvent {
   instrument: InstrumentId;
+  absoluteStep: number;
   index: number;
   logicalTick: number;
   audibleTick: number;
@@ -2444,6 +2408,7 @@ export function projectEventsAtTick(
     if (!extra && logicalTick % stepTicks !== 0) return;
     events.push({
       instrument,
+      absoluteStep: logicalTick / stepTicks,
       index: Math.floor(logicalTick / stepTicks) % trackStepCount(timing),
       logicalTick,
       audibleTick: swungTick(logicalTick, project.swing, timing.grid),
@@ -2465,14 +2430,58 @@ export function projectEventsAtTick(
     project.arp.timing,
     logicalTick % arpRateTicks(project.arp.rate) === 0,
   );
-  add(
-    "pad",
-    project.pad.timing,
-    logicalTick % (trackCycleTicks(project.pad.timing) / 4) === 0,
-  );
+  const addPadBoundary = (
+    timing: Project["pad"]["timing"],
+    interval: number,
+  ): void => {
+    const boundary =
+      Math.ceil(
+        unswungTick(logicalTick, project.swing, timing.grid) / interval - 1e-9,
+      ) * interval;
+    const audibleTick = swungTick(boundary, project.swing, timing.grid);
+    if (
+      audibleTick < logicalTick - 1e-9 ||
+      audibleTick >= logicalTick + 1 - 1e-9 ||
+      events.some(
+        (event) =>
+          event.instrument === "pad" &&
+          Math.abs(event.audibleTick - audibleTick) < 1e-9,
+      )
+    )
+      return;
+    const padTick = unswungTick(
+      audibleTick,
+      project.swing,
+      project.pad.timing.grid,
+    );
+    const stepTicks = ticksPerStep(project.pad.timing);
+    events.push({
+      instrument: "pad",
+      absoluteStep: padTick / stepTicks,
+      index:
+        Math.floor(padTick / stepTicks + 1e-9) %
+        trackStepCount(project.pad.timing),
+      logicalTick: padTick,
+      audibleTick,
+      duration: tickSpanSeconds(
+        padTick,
+        padTick + stepTicks,
+        project.bpm,
+        project.swing,
+        project.pad.timing.grid,
+      ),
+    });
+  };
+  // Pad automation and harmony can use different grids. Bucket their audible
+  // boundaries so a later swung chord never precedes an earlier triplet update.
+  addPadBoundary(project.pad.timing, ticksPerStep(project.pad.timing));
+  const chordTiming = project.pad.followChords
+    ? project.progression.timing
+    : project.pad.timing;
+  addPadBoundary(chordTiming, trackCycleTicks(chordTiming) / 4);
   if (!project.cloud.muted) add("cloud", project.cloud.timing, true);
   if (!project.tension.muted) add("tension", project.tension.timing);
-  return events;
+  return events.sort((a, b) => a.audibleTick - b.audibleTick);
 }
 function scheduleProjectTick(
   graph: AudioGraph,
@@ -2495,14 +2504,14 @@ function scheduleProjectTick(
     const index = event.index;
     if (event.instrument === "bass")
       voices.bass.schedule(
-        automatedBass(project.bass, index),
+        automatedBass(project.bass, event.absoluteStep),
         index,
         time,
         event.duration,
       );
     else if (event.instrument === "keys")
       voices.keys.schedule(
-        automatedKeys(project.keys, index),
+        automatedKeys(project.keys, event.absoluteStep),
         index,
         time,
         event.duration,
@@ -2532,6 +2541,8 @@ function scheduleProjectTick(
         time,
         project.bpm,
         project.swing,
+        project.scale,
+        project.progression,
       );
     else if (event.instrument === "arp")
       voices.arp.scheduleTick(
@@ -2540,20 +2551,29 @@ function scheduleProjectTick(
         logicalTick,
         time,
         project.bpm,
+        project.progression,
+        event.audibleTick,
+        project.swing,
       );
     else if (event.instrument === "pad")
       voices.pad.scheduleTick(
         project.pad,
         project.scale,
-        logicalTick,
+        event.logicalTick,
         time,
         project.bpm,
         project.swing,
+        project.progression,
+        event.audibleTick,
       );
     else {
       const drum = project.drums.find((track) => track.id === event.instrument);
       if (drum && !drum.muted && drum.steps[index])
-        drumVoice(graph, automatedDrum(drum, index, project.scale), time);
+        drumVoice(
+          graph,
+          automatedDrum(drum, event.absoluteStep, project.scale),
+          time,
+        );
     }
   }
 }
@@ -2576,7 +2596,7 @@ export class AudioEngine {
   private vocalPreview: VocalInstrument | null = null;
   private vocalRequest: AbortController | null = null;
   private vocalPreviewRequest: AbortController | null = null;
-  private vocalConfiguration = { sound: -1, muted: true };
+  private vocalConfiguration = { sound: -1, muted: true, sourceKey: "" };
   private vocalStatus: VocalSampleStatus = {
     sound: 0,
     phase: "idle",
@@ -2652,6 +2672,7 @@ export class AudioEngine {
     this.project = project;
     this.vocalConfiguration = {
       sound: project.vocal.sound,
+      sourceKey: vocalSourceKey(project.vocal.sound, project.vocal.recording),
       muted: project.vocal.muted,
     };
     const graph = await this.prepare(project, generation);
@@ -2754,6 +2775,7 @@ export class AudioEngine {
     this.vocalPreview = null;
     this.reportVocal({
       sound: this.vocalConfiguration.sound,
+      sourceKey: this.vocalConfiguration.sourceKey,
       phase: "idle",
       message: "",
     });
@@ -2809,11 +2831,13 @@ export class AudioEngine {
       muted: project.tension.muted,
     };
     const changed =
-      project.vocal.sound !== this.vocalConfiguration.sound ||
+      vocalSourceKey(project.vocal.sound, project.vocal.recording) !==
+        this.vocalConfiguration.sourceKey ||
       project.vocal.muted !== this.vocalConfiguration.muted;
     this.project = project;
     this.vocalConfiguration = {
       sound: project.vocal.sound,
+      sourceKey: vocalSourceKey(project.vocal.sound, project.vocal.recording),
       muted: project.vocal.muted,
     };
     if (changed) {
@@ -2830,6 +2854,10 @@ export class AudioEngine {
       else
         this.reportVocal({
           sound: project.vocal.sound,
+          sourceKey: vocalSourceKey(
+            project.vocal.sound,
+            project.vocal.recording,
+          ),
           phase: "idle",
           message: "",
         });
@@ -2871,24 +2899,35 @@ export class AudioEngine {
   ): Promise<LoadedVocalSample | null> {
     this.vocalRequest?.abort();
     const request = new AbortController(),
-      sound = track.sound;
+      sound = track.sound,
+      sourceKey = vocalSourceKey(track.sound, track.recording);
     this.vocalRequest = request;
-    this.reportVocal({ sound, phase: "loading", message: "Loading vocal…" });
+    this.reportVocal({
+      sound,
+      sourceKey,
+      phase: "loading",
+      message: "Loading vocal…",
+    });
     try {
       const loaded = await loadVocalSample(
         graph.context,
         sound,
         request.signal,
+        track.recording,
       );
       if (
         request.signal.aborted ||
         generation !== this.generation ||
         this.silent ||
-        this.project?.vocal.sound !== sound ||
+        !this.project ||
+        vocalSourceKey(
+          this.project.vocal.sound,
+          this.project.vocal.recording,
+        ) !== sourceKey ||
         this.project.vocal.muted
       )
         return null;
-      this.reportVocal({ sound, phase: "ready", message: "" });
+      this.reportVocal({ sound, sourceKey, phase: "ready", message: "" });
       return loaded;
     } catch (error) {
       if (
@@ -2899,6 +2938,7 @@ export class AudioEngine {
         return null;
       this.reportVocal({
         sound,
+        sourceKey,
         phase: "error",
         message:
           error instanceof Error
@@ -2925,22 +2965,32 @@ export class AudioEngine {
     this.vocalPreview = null;
     const request = new AbortController(),
       generation = this.generation,
-      sound = track.sound;
+      sound = track.sound,
+      sourceKey = vocalSourceKey(track.sound, track.recording);
     const snapshot = structuredClone(track);
     this.vocalPreviewRequest = request;
-    this.reportVocal({ sound, phase: "loading", message: "Loading vocal…" });
+    this.reportVocal({
+      sound,
+      sourceKey,
+      phase: "loading",
+      message: "Loading vocal…",
+    });
     try {
       const graph = await this.prepare(this.project, generation);
       const loaded = await loadVocalSample(
         graph.context,
         sound,
         request.signal,
+        track.recording,
       );
       if (
         request.signal.aborted ||
         generation !== this.generation ||
         this.silent ||
-        this.project.vocal.sound !== sound
+        vocalSourceKey(
+          this.project.vocal.sound,
+          this.project.vocal.recording,
+        ) !== sourceKey
       )
         return;
       const preview = new VocalInstrument(
@@ -2968,7 +3018,7 @@ export class AudioEngine {
         duration,
         this.project.bpm,
       );
-      this.reportVocal({ sound, phase: "ready", message: "" });
+      this.reportVocal({ sound, sourceKey, phase: "ready", message: "" });
     } catch (error) {
       if (
         request.signal.aborted ||
@@ -2978,6 +3028,7 @@ export class AudioEngine {
         return;
       this.reportVocal({
         sound,
+        sourceKey,
         phase: "error",
         message:
           error instanceof Error
@@ -3124,7 +3175,12 @@ export class AudioEngine {
     );
     const loaded = project.vocal.muted
       ? null
-      : await loadVocalSample(context, project.vocal.sound);
+      : await loadVocalSample(
+          context,
+          project.vocal.sound,
+          undefined,
+          project.vocal.recording,
+        );
     if (this.silent) throw new Error("Export audio from the session host.");
     const graph = createGraph(context, project);
     const vocal = loaded
@@ -3157,15 +3213,22 @@ export class AudioEngine {
       loopDuration,
       automatedKeys(
         project.keys,
-        (Math.ceil(plan.ticks / ticksPerStep(project.keys.timing)) - 1) %
-          project.keys.steps.length,
+        Math.ceil(plan.ticks / ticksPerStep(project.keys.timing)) - 1,
       ).decay,
     );
-    if (plan.ticks % (trackCycleTicks(project.pad.timing) / 4) !== 0)
+    if (
+      plan.ticks %
+        (trackCycleTicks(
+          project.pad.followChords
+            ? project.progression.timing
+            : project.pad.timing,
+        ) /
+          4) !==
+      0
+    )
       pad.finish(
         project.pad,
-        (plan.ticks / ticksPerStep(project.pad.timing)) %
-          trackStepCount(project.pad.timing),
+        plan.ticks / ticksPerStep(project.pad.timing),
         loopDuration,
       );
     const rendered = await context.startRendering();

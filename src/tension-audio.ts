@@ -2,7 +2,7 @@ import { automatedTension, tensionDecaySeconds } from "./tension-model";
 import type { TensionTrack } from "./tension-model";
 import { scaleNotes, snapNote } from "./model";
 import type { MusicalScale } from "./model";
-import { ticksPerStep } from "./timing";
+import { automationStepCount, ticksPerStep } from "./timing";
 import { midiFrequency, saturationSample } from "./audio";
 
 interface Profile {
@@ -79,7 +79,7 @@ export function tensionTailDuration(track: TensionTrack): number {
   if (track.muted || !track.steps.some((step) => step.on && step.velocity > 0))
     return 0;
   let longest = 0;
-  for (let index = 0; index < track.steps.length; index++)
+  for (let index = 0; index < automationStepCount(track); index++)
     longest = Math.max(longest, voiceDuration(automatedTension(track, index)));
   return longest + 0.02;
 }
@@ -120,10 +120,10 @@ export class TensionInstrument {
     scale: MusicalScale,
   ): void {
     if (this.stopped || logicalTick % ticksPerStep(track.timing) !== 0) return;
-    const index =
-      Math.floor(logicalTick / ticksPerStep(track.timing)) % track.steps.length;
+    const absoluteStep = Math.floor(logicalTick / ticksPerStep(track.timing));
+    const index = absoluteStep % track.steps.length;
     const step = track.steps[index],
-      resolved = automatedTension(track, index);
+      resolved = automatedTension(track, absoluteStep);
     if (!resolved.muted && step?.on && step.velocity > 0 && resolved.volume > 0)
       this.strike(
         resolved,

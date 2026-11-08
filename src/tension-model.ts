@@ -1,8 +1,13 @@
 import { z } from "zod";
+import type { AutomationBars } from "./timing";
 import { automationLaneSchema, snapNote } from "./model";
 import type { BassStep, MusicalScale } from "./model";
 import {
   createTiming,
+  automationBarsSchema,
+  automationTiming,
+  automationStepCount,
+  automationStepPosition,
   timingSchema,
   trackStepCount,
   resizePattern,
@@ -50,6 +55,7 @@ export const tensionStepSchema = z.object({
 export type TensionStep = z.infer<typeof tensionStepSchema>;
 export const tensionBaseSchema = z.object({
   timing: timingSchema.default(createTiming),
+  automationBars: automationBarsSchema,
   sound: z
     .number()
     .int()
@@ -84,7 +90,7 @@ export const tensionSchema = tensionBaseSchema.superRefine((track, context) => {
   if (
     track.steps.length !== count ||
     Object.values(track.automation).some(
-      (lane) => lane !== null && lane.length !== count,
+      (lane) => lane !== null && lane.length !== automationStepCount(track),
     )
   )
     context.addIssue({
@@ -225,7 +231,7 @@ export function automatedTension(
 ): TensionTrack {
   const resolved = { ...track };
   if (!Number.isFinite(absoluteStep) || absoluteStep < 0) return resolved;
-  const index = Math.floor(absoluteStep) % trackStepCount(track.timing);
+  const index = Math.floor(automationStepPosition(track, absoluteStep));
   for (const parameter of tensionAutomationSchema.keyof().options) {
     const value = track.automation[parameter]?.[index];
     if (value !== undefined) resolved[parameter] = value;
@@ -260,8 +266,8 @@ export function resizeTensionTrack(
   for (const parameter of tensionAutomationSchema.keyof().options)
     automation[parameter] = resizeAutomationLane(
       track.automation[parameter],
-      track.timing,
-      timing,
+      automationTiming(track),
+      automationTiming({ ...track, timing }),
       track[parameter],
     );
   return {
@@ -285,4 +291,19 @@ export function resizeTensionTrack(
 export function tensionDecaySeconds(value: number): number {
   const x = tensionValueFromNormalized("decay", value);
   return 0.08 + 5.92 * x * x;
+}
+
+export function resizeTensionAutomation(
+  track: TensionTrack,
+  automationBars: AutomationBars,
+): TensionTrack {
+  const automation = { ...track.automation };
+  for (const parameter of tensionAutomationSchema.keyof().options)
+    automation[parameter] = resizeAutomationLane(
+      track.automation[parameter],
+      automationTiming(track),
+      automationTiming({ ...track, automationBars }),
+      track[parameter],
+    );
+  return { ...track, automationBars, automation };
 }

@@ -228,3 +228,30 @@
   margin: 8px 14px;
   justify-content: flex-start;
 }
+.vocal-recording-actions,
+.vocal-recording-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.vocal-recording-actions,
+.vocal-recording-limit,
+#vocal-record-message,
+.vocal-recording-row {
+  margin: 10px 0;
+}
+.vocal-recording-row > span {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+.vocal-recording-limit,
+#vocal-record-message {
+  display: block;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.vocal-recordings button {
+  font: inherit;
+  font-size: 10px;
+}

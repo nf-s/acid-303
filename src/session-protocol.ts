@@ -1,9 +1,15 @@
 import { z } from "zod";
 import { projectSchema, readProject } from "./model";
 import type { Project } from "./model";
-import { MAX_PROJECT_BYTES, MAX_TRACK_STEPS } from "./timing";
+import {
+  MAX_PROJECT_BYTES,
+  MAX_TRACK_STEPS,
+  automationTiming,
+  resizeAutomationLane,
+} from "./timing";
+import type { Timing, AutomationBars } from "./timing";
 
-export const SESSION_PROTOCOL = "grain-session-v5";
+export const SESSION_PROTOCOL = "grain-session-v6";
 export const MAX_SESSION_BYTES = MAX_PROJECT_BYTES;
 export const MAX_PROJECT_CHANGES = 4096;
 export const MAX_SESSION_CLIENTS = 8;
@@ -90,6 +96,7 @@ const presenceFields = {
   supportsVocalMusic: z.boolean(),
   supportsCloud: z.boolean(),
   supportsTension: z.boolean(),
+  supportsComposition: z.boolean().default(false),
   participants: z.number().int().min(0).max(MAX_SESSION_CLIENTS),
 };
 const actionSchema = z.enum(["play", "stop", "restart"]);
@@ -313,8 +320,91 @@ export function applyProjectChanges(
   return readProject(updated);
 }
 
-export type VersionFourProject = Omit<
+type LegacyTrack<T> = Omit<T, "automationBars" | "followChords" | "recording">;
+export type VersionFiveProject = Omit<
   Project,
+  | "version"
+  | "progression"
+  | "drums"
+  | "bass"
+  | "keys"
+  | "arp"
+  | "pad"
+  | "vocal"
+  | "cloud"
+  | "tension"
+> & {
+  version: 5;
+  drums: LegacyTrack<Project["drums"][number]>[];
+  bass: LegacyTrack<Project["bass"]>;
+  keys: LegacyTrack<Project["keys"]>;
+  arp: LegacyTrack<Project["arp"]>;
+  pad: LegacyTrack<Project["pad"]>;
+  vocal: LegacyTrack<Project["vocal"]>;
+  cloud: LegacyTrack<Project["cloud"]>;
+  tension: LegacyTrack<Project["tension"]>;
+};
+function legacyTrack<
+  T extends {
+    timing: Timing;
+    automationBars: AutomationBars;
+    automation: Record<string, number[] | null>;
+    followChords?: boolean;
+    recording?: Project["vocal"]["recording"];
+  },
+>(track: T, targetTiming: Timing = track.timing): LegacyTrack<T> {
+  const {
+    automationBars: _bars,
+    followChords: _follow,
+    recording: _recording,
+    ...previous
+  } = structuredClone(track);
+  const automation = { ...previous.automation };
+  for (const lane of Object.values(automation)) {
+    if (!lane) continue;
+    const resized = resizeAutomationLane(
+      lane,
+      automationTiming(track),
+      targetTiming,
+      0,
+    );
+    if (resized) lane.splice(0, lane.length, ...resized);
+  }
+  return { ...previous, automation };
+}
+export function versionFiveProject(project: Project): VersionFiveProject {
+  const { version: _version, progression: _progression, ...previous } = project;
+  return {
+    ...previous,
+    version: 5,
+    drums: project.drums.map((track) => legacyTrack(track)),
+    bass: legacyTrack(project.bass),
+    keys: legacyTrack(project.keys),
+    arp: {
+      ...legacyTrack(project.arp),
+      muted: project.arp.muted || project.arp.followChords,
+    },
+    pad: project.pad.followChords
+      ? {
+          ...legacyTrack(project.pad, project.progression.timing),
+          timing: { ...project.progression.timing },
+          chords: project.progression.chords.map((chord) => ({ ...chord })),
+        }
+      : legacyTrack(project.pad),
+    vocal: {
+      ...legacyTrack(project.vocal),
+      ...(project.vocal.recording ? { sound: 0, muted: true } : {}),
+      muted:
+        project.vocal.muted ||
+        Boolean(project.vocal.recording) ||
+        project.vocal.followChords,
+    },
+    cloud: legacyTrack(project.cloud),
+    tension: legacyTrack(project.tension),
+  };
+}
+export type VersionFourProject = Omit<
+  VersionFiveProject,
   "version" | "cloud" | "tension"
 > & { version: 4 };
 export type VersionThreeProject = Omit<
@@ -327,14 +417,14 @@ export function versionFourProject(project: Project): VersionFourProject {
     tension: _tension,
     version: _version,
     ...previous
-  } = project;
+  } = versionFiveProject(project);
   return {
     ...previous,
     version: 4,
     vocal:
       project.vocal.sound >= 24
-        ? { ...project.vocal, sound: 0, muted: true }
-        : { ...project.vocal },
+        ? { ...previous.vocal, sound: 0, muted: true }
+        : previous.vocal,
   };
 }
 export function versionThreeProject(project: Project): VersionThreeProject {
@@ -345,30 +435,66 @@ export function versionThreeProject(project: Project): VersionThreeProject {
   } = versionFourProject(project);
   return { ...previous, version: 3 };
 }
-type VersionFourWelcome = Omit<
+type LegacyWelcome = Omit<
   Extract<ServerMessage, { type: "welcome" }>,
-  "project" | "supportsCloud" | "supportsTension" | "supportsVocalMusic"
-> & { project: VersionFourProject };
-type VersionThreeWelcome = Omit<
-  VersionFourWelcome,
-  "project" | "supportsVocal"
-> & { project: VersionThreeProject };
-type VersionFourPresence = Omit<
+  | "project"
+  | "supportsComposition"
+  | "supportsCloud"
+  | "supportsTension"
+  | "supportsVocalMusic"
+  | "supportsVocal"
+> & {
+  project: VersionFiveProject | VersionFourProject | VersionThreeProject;
+  supportsVocal?: boolean;
+  supportsVocalMusic?: boolean;
+  supportsCloud?: boolean;
+  supportsTension?: boolean;
+};
+type LegacyPresence = Omit<
   Extract<ServerMessage, { type: "presence" }>,
-  "supportsCloud" | "supportsTension" | "supportsVocalMusic"
->;
-type VersionThreePresence = Omit<VersionFourPresence, "supportsVocal">;
+  | "supportsComposition"
+  | "supportsCloud"
+  | "supportsTension"
+  | "supportsVocalMusic"
+  | "supportsVocal"
+> & {
+  supportsVocal?: boolean;
+  supportsVocalMusic?: boolean;
+  supportsCloud?: boolean;
+  supportsTension?: boolean;
+};
 export type CompatibleServerMessage =
-  | ServerMessage
-  | VersionThreeWelcome
-  | VersionThreePresence
-  | VersionFourWelcome
-  | VersionFourPresence;
+  ServerMessage | LegacyWelcome | LegacyPresence;
+const extendedFields = new Set([
+  "automationBars",
+  "followChords",
+  "recording",
+  "progression",
+]);
+function containsExtended(value: JsonValue): boolean {
+  if (Array.isArray(value)) return value.some(containsExtended);
+  return (
+    object(value) &&
+    Object.entries(value).some(
+      ([key, child]) => extendedFields.has(key) || containsExtended(child),
+    )
+  );
+}
 export function sessionCanChange(
   protocol: number,
   change: ProjectChange,
 ): boolean {
   const field = change.path[0];
+  if (
+    protocol < 6 &&
+    (change.path.some(
+      (key) => typeof key === "string" && extendedFields.has(key),
+    ) ||
+      ("value" in change
+        ? containsExtended(change.value)
+        : change.entries.some(([, value]) => containsExtended(value))))
+  )
+    return false;
   if (protocol === 4 && field === "vocal" && "value" in change) {
     const sound =
       change.path.length === 2 && change.path[1] === "sound"
@@ -384,64 +510,73 @@ export function sessionCanChange(
     (protocol >= 5 || (field !== "cloud" && field !== "tension"))
   );
 }
-/** Every peer receives every revision, including empty patches for hidden instruments. */
+function legacyProject(
+  project: Project,
+  protocol: number,
+): VersionFiveProject | VersionFourProject | VersionThreeProject {
+  return protocol >= 5
+    ? versionFiveProject(project)
+    : protocol === 4
+      ? versionFourProject(project)
+      : versionThreeProject(project);
+}
+/** Legacy peers receive valid projected tracks and every revision, including empty ones. */
 export function sessionMessageForProtocol(
   message: ServerMessage,
   protocol: number,
   project?: Project,
 ): CompatibleServerMessage {
-  if (protocol >= 5) return message;
-  if (message.type === "welcome") {
+  if (protocol >= 6) return message;
+  if (message.type === "welcome" || message.type === "presence") {
     const {
-      supportsVocalMusic: _vocalMusic,
-      supportsCloud: _cloud,
-      supportsTension: _tension,
-      project,
+      supportsComposition: _composition,
+      supportsVocalMusic,
+      supportsCloud,
+      supportsTension,
+      supportsVocal,
       ...previous
     } = message;
-    if (protocol === 4)
-      return { ...previous, project: versionFourProject(project) };
-    const { supportsVocal: _vocal, ...legacy } = previous;
-    return { ...legacy, project: versionThreeProject(project) };
-  }
-  if (message.type === "presence") {
-    const {
-      supportsVocalMusic: _vocalMusic,
-      supportsCloud: _cloud,
-      supportsTension: _tension,
-      ...previous
-    } = message;
-    if (protocol === 4) return previous;
-    const { supportsVocal: _vocal, ...legacy } = previous;
-    return legacy;
-  }
-  if (
-    message.type === "patch" &&
-    protocol === 4 &&
-    project &&
-    message.changes.some((change) => change.path[0] === "vocal")
-  )
-    return {
-      ...message,
-      changes: [
-        ...message.changes.filter(
-          (change) =>
-            change.path[0] !== "vocal" && sessionCanChange(protocol, change),
-        ),
-        { path: ["vocal"], value: versionFourProject(project).vocal },
-      ],
+    const capabilities = {
+      ...(protocol >= 4 ? { supportsVocal } : {}),
+      ...(protocol >= 5
+        ? { supportsVocalMusic, supportsCloud, supportsTension }
+        : {}),
     };
-  if (message.type === "patch")
+    if (previous.type === "welcome")
+      return {
+        ...previous,
+        ...capabilities,
+        project: legacyProject(previous.project, protocol),
+      };
+    return { ...previous, ...capabilities };
+  }
+  if (message.type !== "patch") return message;
+  if (!project)
     return {
       ...message,
       changes: message.changes.filter((change) =>
         sessionCanChange(protocol, change),
       ),
     };
-  return message;
+  const projected = jsonValueSchema.parse(legacyProject(project, protocol));
+  if (!object(projected)) return { ...message, changes: [] };
+  const roots = new Set(message.changes.map((change) => change.path[0]));
+  if (roots.has("progression") && project.pad.followChords) roots.add("pad");
+  const changes: ProjectChange[] = [];
+  for (const root of roots) {
+    if (
+      typeof root !== "string" ||
+      root === "version" ||
+      !Object.hasOwn(projected, root)
+    )
+      continue;
+    const value = projected[root];
+    if (value !== undefined) changes.push({ path: [root], value });
+  }
+  return { ...message, changes };
 }
 
-/** Older full-track edits must not erase the musical sample that their projection cannot represent. */
+/** Old clients may edit known fields without erasing state they cannot represent. */
 export function applySessionProjectChanges(
   current: Project,
   changes: readonly ProjectChange[],
@@ -449,54 +584,196 @@ export function applySessionProjectChanges(
 ): Project | null {
   if (changes.some((change) => !sessionCanChange(protocol, change)))
     return null;
-  if (protocol !== 4 || current.vocal.sound < 24)
-    return applyProjectChanges(current, changes);
-  const selectedSupportedSound = changes.some((change) => {
-    if (!("value" in change) || change.path[0] !== "vocal") return false;
-    const value =
-      change.path.length === 2 && change.path[1] === "sound"
-        ? change.value
-        : change.path.length === 1 &&
-            object(change.value) &&
-            !(change.value.sound === 0 && change.value.muted === true)
-          ? change.value.sound
-          : undefined;
+  if (protocol >= 6) {
+    const next = applyProjectChanges(current, changes);
+    return next?.vocal.recording?.kind === "local" ? null : next;
+  }
+  const canonical = jsonValueSchema.parse(current);
+  const projected = jsonValueSchema.parse(legacyProject(current, protocol));
+  if (!object(canonical) || !object(projected)) return null;
+  const compatible: ProjectChange[] = [];
+  const supportedSound = changes.some((change) => {
+    if (change.path[0] !== "vocal" || !("value" in change)) return false;
+    const direct = change.path.length === 2 && change.path[1] === "sound";
+    const sound = direct
+      ? change.value
+      : change.path.length === 1 && object(change.value)
+        ? change.value.sound
+        : undefined;
+    const previousVocal = projected.vocal;
+    // A whole legacy track carries its masked default even when only volume changed.
+    const changedSound =
+      previousVocal !== undefined &&
+      object(previousVocal) &&
+      sound !== previousVocal.sound;
     return (
-      typeof value === "number" &&
-      Number.isInteger(value) &&
-      value >= 0 &&
-      value < 24
+      (direct || changedSound) &&
+      typeof sound === "number" &&
+      Number.isInteger(sound) &&
+      sound >= 0 &&
+      sound < (protocol === 4 ? 24 : 48)
     );
   });
-  if (
-    !selectedSupportedSound &&
-    changes.some(
-      (change) =>
-        change.path[0] === "vocal" &&
-        change.path[1] === "muted" &&
-        "value" in change &&
-        change.value === false,
-    )
-  )
-    return null;
-  const compatible = changes.map((change) => {
+  const maskedVocal =
+    Boolean(current.vocal.recording) ||
+    current.vocal.followChords ||
+    (protocol === 4 && current.vocal.sound >= 24);
+  function mergeTrack(
+    previous: JsonValue,
+    incoming: JsonValue,
+  ): JsonValue | null {
+    if (!object(previous) || !object(incoming)) return null;
+    const merged = { ...previous, ...incoming };
     if (
-      change.path.length === 1 &&
-      change.path[0] === "vocal" &&
+      previous.automationBars !== null &&
+      previous.automationBars !== undefined
+    ) {
+      if (JSON.stringify(previous.timing) !== JSON.stringify(incoming.timing))
+        return null;
+      merged.automation = previous.automation ?? null;
+    }
+    return merged;
+  }
+  const replacements = changes.flatMap((change): ProjectChange[] =>
+    change.path.length === 1 &&
+    change.path[0] === "drums" &&
+    "entries" in change
+      ? change.entries.map(([index, value]) => ({
+          path: ["drums", index],
+          value,
+        }))
+      : [change],
+  );
+  for (const change of replacements) {
+    const root = change.path[0];
+    if (typeof root !== "string") return null;
+    const previous = canonical[root];
+    if (root === "pad" && current.pad.followChords) {
+      if (change.path[1] === "chords" || change.path[1] === "timing") {
+        compatible.push({
+          ...change,
+          path: ["progression", ...change.path.slice(1)],
+        });
+        continue;
+      }
+      if (
+        change.path[1] === "automation" &&
+        (current.pad.automationBars !== null ||
+          JSON.stringify(current.pad.timing) !==
+            JSON.stringify(current.progression.timing))
+      )
+        return null;
+      if (
+        change.path.length === 1 &&
+        "value" in change &&
+        object(change.value) &&
+        previous !== undefined &&
+        object(previous)
+      ) {
+        const incoming = change.value;
+        if (incoming.chords !== undefined)
+          compatible.push({
+            path: ["progression", "chords"],
+            value: incoming.chords,
+          });
+        if (incoming.timing !== undefined)
+          compatible.push({
+            path: ["progression", "timing"],
+            value: incoming.timing,
+          });
+        const keepAutomation =
+          current.pad.automationBars !== null ||
+          JSON.stringify(current.pad.timing) !==
+            JSON.stringify(incoming.timing);
+        compatible.push({
+          ...change,
+          value: {
+            ...previous,
+            ...incoming,
+            timing: previous.timing ?? null,
+            chords: previous.chords ?? null,
+            ...(keepAutomation
+              ? { automation: previous.automation ?? null }
+              : {}),
+          },
+        });
+        continue;
+      }
+    }
+    if (
+      root === "arp" &&
+      current.arp.followChords &&
+      change.path[1] === "muted" &&
       "value" in change &&
-      object(change.value) &&
-      change.value.sound === 0 &&
-      change.value.muted === true
+      change.value === false
     )
-      return {
-        ...change,
-        value: {
-          ...change.value,
-          sound: current.vocal.sound,
-          muted: current.vocal.muted,
-        },
-      };
-    return change;
-  });
+      return null;
+    if (
+      root === "drums" &&
+      change.path.length === 1 &&
+      "value" in change &&
+      Array.isArray(change.value) &&
+      Array.isArray(previous)
+    ) {
+      const drums: JsonValue[] = [];
+      for (let index = 0; index < previous.length; index++) {
+        const old = previous[index],
+          incoming = change.value[index];
+        if (old === undefined || incoming === undefined) return null;
+        const merged = mergeTrack(old, incoming);
+        if (!merged) return null;
+        drums.push(merged);
+      }
+      compatible.push({ path: [root], value: drums });
+      continue;
+    }
+    const track =
+      root === "drums" &&
+      typeof change.path[1] === "number" &&
+      Array.isArray(previous)
+        ? previous[change.path[1]]
+        : previous;
+    const offset = root === "drums" ? 2 : 1;
+    if (track !== undefined && object(track)) {
+      if (
+        track.automationBars !== null &&
+        track.automationBars !== undefined &&
+        (change.path[offset] === "automation" ||
+          change.path[offset] === "timing")
+      )
+        return null;
+      if (
+        change.path.length === offset &&
+        "value" in change &&
+        Object.hasOwn(track, "automation")
+      ) {
+        const merged = mergeTrack(track, change.value);
+        if (!merged || !object(merged)) return null;
+        if (root === "arp" && current.arp.followChords)
+          merged.muted = current.arp.muted;
+        if (root === "vocal" && maskedVocal && !supportedSound) {
+          merged.sound = current.vocal.sound;
+          merged.muted = current.vocal.muted;
+        }
+        compatible.push({ ...change, value: merged });
+        continue;
+      }
+    }
+    if (
+      root === "vocal" &&
+      maskedVocal &&
+      !supportedSound &&
+      change.path[1] === "muted" &&
+      "value" in change &&
+      change.value === false
+    )
+      return null;
+    compatible.push(change);
+  }
+  if (supportedSound)
+    compatible.push(
+      { path: ["vocal", "recording"], value: null },
+      { path: ["vocal", "followChords"], value: false },
+    );
   return applyProjectChanges(current, compatible);
 }

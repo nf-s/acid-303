@@ -1,4 +1,5 @@
-import { ticksPerStep, trackStepCount } from "./timing";
+import type { Progression } from "./progression-model";
+import { ticksPerStep } from "./timing";
 import { midiFrequency, saturationSample } from "./audio";
 import {
   arpEvents,
@@ -232,17 +233,25 @@ export class ArpInstrument {
     logicalTick: number,
     time: number,
     bpm: number,
+    progression?: Progression,
+    absoluteTick = logicalTick,
+    swing = 0,
   ): void {
-    const index =
-      Math.floor(logicalTick / ticksPerStep(track.timing)) %
-      trackStepCount(track.timing);
+    const index = Math.floor(logicalTick / ticksPerStep(track.timing));
     track = automatedArp(track, index);
     this.level.gain.cancelAndHoldAtTime(time);
     const level = track.muted ? 0 : track.volume;
     if (this.firstStep) this.level.gain.setValueAtTime(level, time);
     else this.level.gain.setTargetAtTime(level, time, 0.004);
     this.firstStep = false;
-    for (const event of arpEventsAtTick(track, scale, logicalTick))
+    for (const event of arpEventsAtTick(
+      track,
+      scale,
+      logicalTick,
+      progression,
+      absoluteTick,
+      swing,
+    ))
       this.note(track, event, time, (event.duration * 60) / bpm / 4, bpm);
   }
 

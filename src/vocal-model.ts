@@ -1,8 +1,19 @@
+import { customSampleSchema } from "./custom-sample-schema";
+import {
+  progressionChordAtTick,
+  progressionScaleDegrees,
+} from "./progression-model";
+import type { Progression } from "./progression-model";
 import { z } from "zod";
-import { automationLaneSchema, snapNote } from "./model";
+import type { AutomationBars } from "./timing";
+import { automationLaneSchema, snapNote, scaleNotes } from "./model";
 import type { BassStep, MusicalScale } from "./model";
 import {
   createTiming,
+  automationBarsSchema,
+  automationTiming,
+  automationStepCount,
+  automationStepPosition,
   timingSchema,
   trackStepCount,
   stepsPerBar,
@@ -107,6 +118,9 @@ export const vocalNoteSchema = z.object({
 export type VocalNote = z.infer<typeof vocalNoteSchema>;
 export const vocalBaseSchema = z.object({
   timing: timingSchema.default(createTiming),
+  automationBars: automationBarsSchema,
+  followChords: z.boolean().default(false),
+  recording: customSampleSchema.nullable().default(null),
   sound: z
     .number()
     .int()
@@ -153,7 +167,7 @@ export const vocalSchema = vocalBaseSchema.superRefine((track, context) => {
   }
   if (
     Object.values(track.automation).some(
-      (lane) => lane !== null && lane.length !== count,
+      (lane) => lane !== null && lane.length !== automationStepCount(track),
     )
   )
     context.addIssue({
@@ -265,7 +279,7 @@ export function automatedVocal(
 ): VocalTrack {
   const resolved = { ...track };
   if (!Number.isFinite(absoluteStep) || absoluteStep < 0) return resolved;
-  const index = Math.floor(absoluteStep) % trackStepCount(track.timing);
+  const index = Math.floor(automationStepPosition(track, absoluteStep));
   for (const parameter of vocalAutomationSchema.keyof().options) {
     const value = track.automation[parameter]?.[index];
     if (value !== undefined) resolved[parameter] = value;
@@ -410,9 +424,49 @@ export function resizeVocalTrack(
   for (const parameter of vocalAutomationSchema.keyof().options)
     automation[parameter] = resizeAutomationLane(
       track.automation[parameter],
-      track.timing,
-      timing,
+      automationTiming(track),
+      automationTiming({ ...track, timing }),
       track[parameter],
     );
   return { ...track, timing: { ...timing }, notes: clipped, automation };
+}
+
+export function resizeVocalAutomation(
+  track: VocalTrack,
+  automationBars: AutomationBars,
+): VocalTrack {
+  const automation = { ...track.automation };
+  for (const parameter of vocalAutomationSchema.keyof().options)
+    automation[parameter] = resizeAutomationLane(
+      track.automation[parameter],
+      automationTiming(track),
+      automationTiming({ ...track, automationBars }),
+      track[parameter],
+    );
+  return { ...track, automationBars, automation };
+}
+
+/** Transpose only the note onset; held notes retain this pitch through chord changes. */
+export function vocalProgressionNote(
+  note: number,
+  scale: MusicalScale,
+  progression: Progression,
+  absoluteTick: number,
+  swing = 0,
+): number {
+  const count = progressionScaleDegrees(scale).length;
+  const first = progression.chords[0]?.degree ?? 0;
+  const active =
+    progression.chords[progressionChordAtTick(progression, absoluteTick, swing)]
+      ?.degree ?? first;
+  const shift = (active % count) - (first % count);
+  const notes = scaleNotes(scale, 0, 127);
+  const original = snapNote(note, scale, 36, 84);
+  const index = notes.indexOf(original);
+  return snapNote(
+    notes[Math.max(0, Math.min(notes.length - 1, index + shift))] ?? original,
+    scale,
+    36,
+    84,
+  );
 }
