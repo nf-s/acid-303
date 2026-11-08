@@ -333,3 +333,28 @@ for (const width of [320, 390]) {
     });
   });
 }
+
+test("recorded gain keeps the base at zero dB and records the touched curve", async ({
+  page,
+}) => {
+  await load(page);
+  await page.locator("#record-automation").click();
+  await page.locator("#play").click();
+  await dragUp(page, page.locator("#vocal-gain"), 40);
+  await expect
+    .poll(
+      async () =>
+        (await saved(page)).vocal.automation.gain?.some(
+          (value) => value > 0.5,
+        ) ?? false,
+    )
+    .toBe(true);
+  await expect(page.locator("#vocal-gain-value")).toHaveText("0.0 dB");
+  await expect(page.locator("#vocal-gain")).toHaveAttribute(
+    "aria-valuetext",
+    "0.0 dB",
+  );
+  await page.locator("#play").click();
+  expect((await saved(page)).vocal.gain).toBe(0.5);
+  expect((await saved(page)).vocal.automation.volume).toBeNull();
+});

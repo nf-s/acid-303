@@ -1054,6 +1054,8 @@ function armRecording(armed: boolean): void {
 }
 
 function recordingDisplay(id: string, value: number): string {
+  if (id === "vocal-gain")
+    return `${value > 0 ? "+" : ""}${value.toFixed(1)} dB`;
   if (id === "cloud-size")
     return `${Math.round(cloudGrainSeconds(value / 100) * 1000)} ms`;
   if (id === "cloud-density")
