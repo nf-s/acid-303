@@ -340,6 +340,7 @@ test("recorded gain keeps the base at zero dB and records the touched curve", as
   await load(page);
   await page.locator("#record-automation").click();
   await page.locator("#play").click();
+  await expect(page.locator("#audio-status")).toHaveText("AUDIO LIVE");
   await dragUp(page, page.locator("#vocal-gain"), 40);
   await expect
     .poll(

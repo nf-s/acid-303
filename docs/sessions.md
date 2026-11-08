@@ -361,6 +361,14 @@ releases after 1 December 2026, when the published pricing changes. Inspect DO
 request/duration, SQLite rows, stored bytes and sampled errors after launch.
 See [Workers Logs pricing](https://developers.cloudflare.com/workers/observability/logs/workers-logs/#pricing).
 
+## Protocol v7 production release evidence
+
+Worker version `ed96973a-7d39-49df-908d-bccfa3d29603` was published on
+8 November 2026 with no namespace, rate-limit or resource changes. Existing v6
+sockets survived and preserved the new gain curve during older-peer edits.
+See [vocal gain release evidence](vocal-gain-release.md) for hashes, live checks
+and identified test-room cleanup.
+
 ## Protocol v6 production release evidence
 
 Source `00522b0` was released on 8 November 2026. Worker version
