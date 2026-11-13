@@ -207,7 +207,7 @@ export function createArpPanel(
     const scale = options.getScale();
     const notes = retuneArp(track, scale).notes;
     container.innerHTML = `
-      <div class="section-header"><div class="section-title"><span class="section-number">04</span><h2 id="arp-title">Arpeggiator</h2></div><div class="bass-actions"><output id="arp-playing-note" aria-label="Arpeggiator playing note">—</output><button id="arp-mute" class="mute-button" aria-label="Mute Arpeggiator" aria-pressed="${track.muted}">M</button></div></div>
+      <div class="section-header"><div class="section-title"><span class="section-number">04</span><h2 id="arp-title">Arpeggiator</h2></div><div class="bass-actions"><output id="arp-playing-note" aria-label="Arpeggiator playing note">—</output><button id="arp-mute" class="mute-button" aria-label="Mute Arpeggiator" aria-pressed="${track.muted}">M</button><button class="mute-button solo-button" data-solo="arp" aria-label="Solo Arpeggiator" aria-pressed="false">S</button></div></div>
       <div class="bass-meta"><div class="waveform-switch arp-sounds" role="group" aria-label="Arpeggiator sound">${ARP_SOUNDS.map((sound, index) => `<button data-arp-sound="${index}" aria-pressed="${track.sound === index}" class="${track.sound === index ? "active" : ""}">${sound}</button>`).join("")}</div></div>
       <div class="acid-controls arp-controls">${CONTROLS.map((control) => {
         const value = track[control.parameter] * control.multiplier;
@@ -348,6 +348,7 @@ export function createArpPanel(
       options.onChange();
     },
     pagerContainer,
+    sequenceViews: true,
     onViewportChange: renderRhythm,
     getSteps: () => contextSteps(options.getTrack().timing),
     getContextSteps: contextSteps,

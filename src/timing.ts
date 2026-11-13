@@ -96,10 +96,24 @@ export function trackStepCount(timing: Timing): number {
 export function trackCycleTicks(timing: Timing): number {
   return ticksPerBar(timing) * timing.bars;
 }
-export function trackPages(timing: Timing): TrackPage[] {
+/** One bar per page splits wide bars; several bars per page keep whole bars together. */
+export function trackPages(timing: Timing, barsPerPage = 1): TrackPage[] {
   const perBar = stepsPerBar(timing),
     width = timing.grid === "triplet" ? 12 : 16;
   const pages: TrackPage[] = [];
+  const group = Number.isInteger(barsPerPage)
+    ? Math.max(1, Math.min(timing.bars, barsPerPage))
+    : 1;
+  if (group > 1) {
+    for (let bar = 0; bar < timing.bars; bar += group)
+      pages.push({
+        start: bar * perBar,
+        count: Math.min(group, timing.bars - bar) * perBar,
+        bar,
+        pageInBar: 0,
+      });
+    return pages;
+  }
   for (let bar = 0; bar < timing.bars; bar++)
     for (let offset = 0; offset < perBar; offset += width)
       pages.push({
@@ -109,6 +123,24 @@ export function trackPages(timing: Timing): TrackPage[] {
         pageInBar: Math.floor(offset / width),
       });
   return pages;
+}
+export const PAGE_BAR_CHOICES: ReadonlyArray<number> = [1, 2, 4, 8];
+/** Bars-per-page choices within the loop that keep at least `maxCells` drawable cells. */
+export function pageBarOptions(timing: Timing, maxCells: number): number[] {
+  const perBar = stepsPerBar(timing);
+  return PAGE_BAR_CHOICES.filter(
+    (bars) => bars === 1 || (bars <= timing.bars && bars * perBar <= maxCells),
+  );
+}
+export function pageIndexAt(
+  pages: ReadonlyArray<TrackPage>,
+  index: number,
+): number {
+  const page = pages.findIndex(
+    (candidate) =>
+      index >= candidate.start && index < candidate.start + candidate.count,
+  );
+  return Math.max(0, page);
 }
 /** Convert a logical note position to the audible clock; whole eighths retain their duration. */
 export function swungTick(

@@ -69,7 +69,7 @@ export function createPadPanel(
   const initial = options.getTrack();
   container.classList.add("pad-instrument");
   container.innerHTML = `
-    <div class="section-header"><div class="section-title"><span class="section-number">05</span><h2 id="pad-title">Chord pads</h2></div><button class="text-button" data-pad-enable></button></div>
+    <div class="section-header"><div class="section-title"><span class="section-number">05</span><h2 id="pad-title">Chord pads</h2></div><div class="bass-actions"><button class="text-button" data-pad-enable></button><button class="mute-button solo-button" data-solo="pad" aria-label="Solo chord pads" aria-pressed="false">S</button></div></div>
     <div class="bass-meta"><div class="waveform-switch pad-sounds" role="group" aria-label="Pad sound">${PAD_SOUNDS.map((sound, index) => `<button data-pad-sound="${index}">${sound}</button>`).join("")}</div><span class="pad-position"></span></div>
     <div class="acid-controls pad-controls">${controls.map((control) => options.renderControl(`pad-${control.parameter}`, control.label, 0, 100, Math.round(initial[control.parameter] * 100), `${Math.round(initial[control.parameter] * 100)}%`, "1", `Pad ${control.label.toLowerCase()}`)).join("")}</div>
     <details class="instrument-section instrument-sequence" open><summary>Sequence</summary>

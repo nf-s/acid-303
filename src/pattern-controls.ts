@@ -1,8 +1,12 @@
 import {
   createTiming,
+  pageBarOptions,
+  pageIndexAt,
+  stepsPerBar,
   timingSchema,
   trackPages,
   trackPosition,
+  trackStepCount,
 } from "./timing";
 import type { Timing, TrackPage } from "./timing";
 import "./pattern-controls.css";
@@ -11,7 +15,9 @@ export interface PatternViewport {
   start: number;
   count: number;
   groupSize?: number;
+  barSize?: number;
 }
+export type PatternView = "page" | "loop";
 interface PatternOptions {
   label: string;
   onTimingChange: (timing: Timing) => void;
@@ -20,9 +26,16 @@ interface PatternOptions {
   allowedBars?: ReadonlyArray<Timing["bars"]>;
   barsOnly?: boolean;
   onFollowSequence?: () => void;
+  /** Adds the Page / Whole loop toggle. */
+  pageViews?: boolean;
+  /** Adds the bars-per-page choice. */
+  pageBars?: boolean;
 }
 
 let nextDialogId = 0;
+/** Narrowest drawable cell when several bars share a page. */
+const MIN_PAGE_CELL = 12;
+const PAGE_GUTTER = 54;
 
 /** Timing and page navigation stay outside the drawing surface. */
 export class PatternControls {
@@ -36,6 +49,13 @@ export class PatternControls {
   private swing = 0;
   private playingPage = -1;
   private lastFocused: HTMLElement | null = null;
+  private view: PatternView = "page";
+  private barsPreference = 1;
+  private maxCells = Number.POSITIVE_INFINITY;
+  private readonly observer: ResizeObserver | null;
+  private readonly viewGroup: HTMLDivElement | null = null;
+  private readonly barsGroup: HTMLDivElement | null = null;
+  private readonly inlineNavigation: HTMLDivElement;
   private mirrorFrame = 0;
   private readonly mirror: HTMLCanvasElement;
   private readonly mirrorContext: CanvasRenderingContext2D | null;
@@ -168,7 +188,32 @@ export class PatternControls {
     navigation.setAttribute("role", "group");
     navigation.setAttribute("aria-label", `${options.label} page navigation`);
     navigation.append(this.previous, this.pageTrigger, this.next, this.follow);
+    this.inlineNavigation = navigation;
     toolbar.append(this.summary, navigation);
+    if (options.pageViews) {
+      this.viewGroup = this.group(`${options.label} view`, "pattern-view");
+      const page = this.button("Page", "view", `${options.label} page view`);
+      page.dataset.patternView = "page";
+      const loop = this.button(
+        "Whole loop",
+        "view",
+        `${options.label} whole loop`,
+      );
+      loop.dataset.patternView = "loop";
+      this.viewGroup.append(page, loop);
+      toolbar.append(this.viewGroup);
+    }
+    if (options.pageBars) {
+      this.barsGroup = this.group(
+        `${options.label} bars per page`,
+        "pattern-page-bars",
+      );
+      const label = document.createElement("span");
+      label.textContent = "Bars";
+      label.setAttribute("aria-hidden", "true");
+      this.barsGroup.append(label);
+      toolbar.append(this.barsGroup);
+    }
     this.dialog.append(header, this.settings, actions, this.mirror);
     container.replaceChildren(toolbar, this.navigation, this.dialog);
     container.addEventListener("click", this.click);
@@ -179,6 +224,11 @@ export class PatternControls {
     this.dialog.addEventListener("click", this.backdrop);
     this.dialog.addEventListener("keydown", this.trapFocus);
     this.dialog.addEventListener("focusin", this.rememberFocus);
+    this.observer =
+      options.pageBars && typeof ResizeObserver === "function"
+        ? new ResizeObserver(this.measure)
+        : null;
+    this.observer?.observe(container);
     this.renderPages();
     this.renderState();
   }
@@ -194,8 +244,20 @@ export class PatternControls {
           ? 2
           : 4;
     return page
-      ? { start: page.start, count: page.count, groupSize }
+      ? {
+          start: page.start,
+          count: page.count,
+          groupSize,
+          barSize: stepsPerBar(this.timing),
+        }
       : { start: 0, count: 1 };
+  }
+  /** The chosen bars per page, reduced to what the loop and width allow. */
+  get barsPerPage(): number {
+    return pageBarOptions(this.timing, this.maxCells).reduce(
+      (best, bars) => (bars <= this.barsPreference ? bars : best),
+      1,
+    );
   }
   update(timing: Timing, linked = false): void {
     this.restoreModal();
@@ -212,10 +274,9 @@ export class PatternControls {
     }
     this.initialized = true;
     this.timing = { ...timing };
-    this.pages = trackPages(timing);
+    this.pages = this.layout();
     this.page = Math.min(this.page, this.pages.length - 1);
-    this.playingPage =
-      this.tick < 0 ? -1 : trackPosition(timing, this.tick, this.swing).page;
+    this.playingPage = this.tick < 0 ? -1 : this.pageAtTick(this.tick);
     this.renderPages();
     this.renderState();
     this.options.onViewportChange(this.viewport);
@@ -223,18 +284,17 @@ export class PatternControls {
   setTick(absoluteTick: number, swing = 0): void {
     this.tick = Number.isFinite(absoluteTick) ? absoluteTick : -1;
     this.swing = Number.isFinite(swing) ? swing : 0;
-    const position =
-      this.tick < 0 ? null : trackPosition(this.timing, this.tick, this.swing);
+    const page = this.tick < 0 ? -1 : this.pageAtTick(this.tick);
     if (this.options.isBusy()) this.freezeFollow();
     if (
-      position &&
+      page >= 0 &&
       this.following &&
       !this.dialog.open &&
       this.navigation.hidden
     )
-      this.changePage(position.page);
-    if (this.playingPage !== (position?.page ?? -1)) {
-      this.playingPage = position?.page ?? -1;
+      this.changePage(page);
+    if (this.playingPage !== page) {
+      this.playingPage = page;
       this.renderState();
     }
   }
@@ -244,6 +304,8 @@ export class PatternControls {
     this.renderState();
   }
   destroy(): void {
+    this.observer?.disconnect();
+    cancelAnimationFrame(this.measureFrame);
     this.stopMirror();
     this.dialog.removeEventListener("close", this.closed);
     this.dialog.removeEventListener("click", this.backdrop);
@@ -269,6 +331,58 @@ export class PatternControls {
     button.setAttribute("aria-label", label);
     return button;
   }
+  private group(label: string, className: string): HTMLDivElement {
+    const group = document.createElement("div");
+    group.className = `automation-view ${className}`;
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", label);
+    return group;
+  }
+  private pageAtTick(tick: number): number {
+    return pageIndexAt(
+      this.pages,
+      trackPosition(this.timing, tick, this.swing).index,
+    );
+  }
+  private layout(): ReturnType<typeof trackPages> {
+    if (this.view === "loop")
+      return [
+        { start: 0, count: trackStepCount(this.timing), bar: 0, pageInBar: 0 },
+      ];
+    return trackPages(this.timing, this.barsPerPage);
+  }
+  /** Rebuild pages after a view change, keeping the visible start in view. */
+  private relayout(): void {
+    const start = this.viewport.start;
+    this.pages = this.layout();
+    this.page =
+      this.following && this.tick >= 0
+        ? this.pageAtTick(this.tick)
+        : pageIndexAt(this.pages, start);
+    this.playingPage = this.tick < 0 ? -1 : this.pageAtTick(this.tick);
+    this.renderPages();
+    this.renderState();
+    this.options.onViewportChange(this.viewport);
+  }
+  private measureFrame = 0;
+  /** Measure after layout so updating the bar choices cannot re-enter the observer. */
+  private readonly measure = (): void => {
+    if (this.measureFrame) return;
+    this.measureFrame = requestAnimationFrame(this.remeasure);
+  };
+  private readonly remeasure = (): void => {
+    this.measureFrame = 0;
+    const width = this.container.clientWidth;
+    const cells =
+      width > 0
+        ? Math.floor((width - PAGE_GUTTER) / MIN_PAGE_CELL)
+        : Number.POSITIVE_INFINITY;
+    if (cells === this.maxCells) return;
+    const before = this.barsPerPage;
+    this.maxCells = cells;
+    if (this.barsPerPage !== before && this.view === "page") this.relayout();
+    else this.renderState();
+  };
   private changePage(index: number): void {
     const next = Math.max(0, Math.min(this.pages.length - 1, index));
     if (this.page === next) return;
@@ -334,6 +448,19 @@ export class PatternControls {
     this.previous.disabled = this.page === 0;
     this.next.disabled = this.page === this.pages.length - 1;
     this.follow.setAttribute("aria-pressed", String(this.following));
+    const loop = this.view === "loop";
+    this.inlineNavigation.hidden = loop;
+    if (loop && !this.navigation.hidden) this.closePages();
+    this.viewGroup
+      ?.querySelectorAll<HTMLButtonElement>("[data-pattern-view]")
+      .forEach((button) =>
+        button.setAttribute(
+          "aria-pressed",
+          String(button.dataset.patternView === this.view),
+        ),
+      );
+    if (this.options.pageViews) this.container.dataset.patternView = this.view;
+    this.renderBars();
     this.strip
       .querySelectorAll<HTMLButtonElement>("button")
       .forEach((button, index) => {
@@ -358,6 +485,35 @@ export class PatternControls {
           ),
         );
       });
+  }
+  private renderBars(): void {
+    const group = this.barsGroup;
+    if (!group) return;
+    const options = pageBarOptions(this.timing, this.maxCells),
+      selected = this.barsPerPage;
+    const signature = options.join(",");
+    if (group.dataset.options !== signature) {
+      group.dataset.options = signature;
+      group.querySelectorAll("button").forEach((button) => button.remove());
+      for (const bars of options) {
+        const button = this.button(
+          String(bars),
+          "page-bars",
+          `${this.options.label} ${bars} ${bars === 1 ? "bar" : "bars"} per page`,
+        );
+        button.dataset.patternBars = String(bars);
+        group.append(button);
+      }
+    }
+    group.hidden = this.view === "loop" || options.length < 2;
+    group
+      .querySelectorAll<HTMLButtonElement>("[data-pattern-bars]")
+      .forEach((button) =>
+        button.setAttribute(
+          "aria-pressed",
+          String(Number(button.dataset.patternBars) === selected),
+        ),
+      );
   }
   private open(): void {
     if (this.dialog.open || this.options.isBusy()) return;
@@ -482,7 +638,7 @@ export class PatternControls {
     this.pageTrigger.setAttribute("aria-expanded", "false");
     this.summary.focus({ preventScroll: true });
     if (this.following && this.tick >= 0 && !this.options.isBusy())
-      this.changePage(trackPosition(this.timing, this.tick, this.swing).page);
+      this.changePage(this.pageAtTick(this.tick));
   };
   private readonly trapFocus = (event: KeyboardEvent): void => {
     if (event.key !== "Tab") return;
@@ -532,6 +688,30 @@ export class PatternControls {
       this.openPages();
       return;
     }
+    if (action === "view") {
+      const view = button.dataset.patternView;
+      if (
+        (view !== "page" && view !== "loop") ||
+        view === this.view ||
+        this.options.isBusy()
+      )
+        return;
+      this.view = view;
+      this.relayout();
+      return;
+    }
+    if (action === "page-bars") {
+      const bars = Number(button.dataset.patternBars);
+      if (
+        !Number.isInteger(bars) ||
+        bars === this.barsPerPage ||
+        this.options.isBusy()
+      )
+        return;
+      this.barsPreference = bars;
+      this.relayout();
+      return;
+    }
     if (action === "close" || action === "done") {
       this.dialog.close();
       return;
@@ -540,8 +720,7 @@ export class PatternControls {
       if (this.options.isBusy()) return;
       this.following = true;
       this.renderState();
-      if (this.tick >= 0)
-        this.changePage(trackPosition(this.timing, this.tick, this.swing).page);
+      if (this.tick >= 0) this.changePage(this.pageAtTick(this.tick));
       this.closePages();
     } else if (
       action === "previous" ||

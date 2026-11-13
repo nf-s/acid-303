@@ -2075,7 +2075,8 @@ for (const width of [320, 375]) {
       name: "Arpeggiator timing",
       exact: true,
     });
-    await expect(controls.getByRole("button")).toHaveCount(5);
+    // Timing, previous, page, next, Follow, Page and Whole loop.
+    await expect(controls.getByRole("button")).toHaveCount(7);
     const compact = await controls.boundingBox();
     expect(compact?.height).toBeLessThanOrEqual(80);
     await trigger.press("Enter");

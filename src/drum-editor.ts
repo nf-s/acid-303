@@ -52,6 +52,7 @@ interface EditorOptions {
   onStroke: () => void;
   onViewportChange?: (viewport: PatternViewport) => void;
   isBusy?: () => boolean;
+  isSoloed?: (id: DrumId) => boolean;
   beforeTimingChange?: () => void;
   renderControl: (
     id: string,
@@ -133,6 +134,8 @@ export class DrumEditor {
     const controls = new PatternControls(element, {
       label: `${DRUM_META[id].name}${automation ? " automation" : ""}`,
       barsOnly: automation,
+      pageViews: !automation,
+      pageBars: true,
       allowedBars: automation ? [1, 2, 4, 8, 16] : [1, 2, 4, 8],
       onFollowSequence: automation
         ? () => this.resizeAutomation(id, null)
@@ -225,7 +228,7 @@ export class DrumEditor {
     ).join("")}</div>`;
   }
   private sounds(track: DrumTrack): string {
-    return `<div class="sound-buttons" role="group" aria-label="${DRUM_META[track.id].name} sounds">${DRUM_META[track.id].sounds.map((sound, index) => `<button data-sound="${index}" data-sound-track="${track.id}" aria-pressed="${track.sound === index}">${sound}</button>`).join("")}</div><button class="mute-button" data-mute="${track.id}" aria-label="Mute ${DRUM_META[track.id].name}" aria-pressed="${track.muted}">M</button>`;
+    return `<div class="sound-buttons" role="group" aria-label="${DRUM_META[track.id].name} sounds">${DRUM_META[track.id].sounds.map((sound, index) => `<button data-sound="${index}" data-sound-track="${track.id}" aria-pressed="${track.sound === index}">${sound}</button>`).join("")}</div><button class="mute-button" data-mute="${track.id}" aria-label="Mute ${DRUM_META[track.id].name}" aria-pressed="${track.muted}">M</button><button class="mute-button solo-button" data-solo="${track.id}" aria-label="Solo ${DRUM_META[track.id].name}" aria-pressed="${this.options.isSoloed?.(track.id) ?? false}">S</button>`;
   }
   private section(track: DrumTrack, surface: Surface): string {
     const open =

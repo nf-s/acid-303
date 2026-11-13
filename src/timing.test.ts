@@ -5,6 +5,8 @@ import {
   automationTiming,
   automationPosition,
   automationStepPosition,
+  pageBarOptions,
+  pageIndexAt,
   stepsPerBar,
   swungTick,
   tickSpanSeconds,
@@ -45,6 +47,40 @@ describe("independent musical timing", () => {
         ({ count }) => count,
       ),
     ).toEqual([12, 9]);
+  });
+  it("groups whole bars when several bars share a page", () => {
+    const timing: Timing = { bars: 8, meter: "4/4", grid: "triplet" };
+    expect(
+      trackPages(timing, 2).map(({ start, count, bar }) => [start, count, bar]),
+    ).toEqual([
+      [0, 48, 0],
+      [48, 48, 2],
+      [96, 48, 4],
+      [144, 48, 6],
+    ]);
+    expect(trackPages(timing, 1)).toEqual(trackPages(timing));
+    expect(
+      trackPages({ bars: 2, meter: "4/4", grid: "straight" }, 8).map(
+        ({ start, count }) => [start, count],
+      ),
+    ).toEqual([[0, 32]]);
+    const pages = trackPages(timing, 4);
+    expect(pageIndexAt(pages, 0)).toBe(0);
+    expect(pageIndexAt(pages, 95)).toBe(0);
+    expect(pageIndexAt(pages, 96)).toBe(1);
+    expect(pageIndexAt(pages, 1000)).toBe(0);
+  });
+  it("offers bars per page within the loop and the drawable width", () => {
+    const straight: Timing = { bars: 4, meter: "4/4", grid: "straight" };
+    expect(pageBarOptions(straight, Number.POSITIVE_INFINITY)).toEqual([
+      1, 2, 4,
+    ]);
+    expect(pageBarOptions(straight, 40)).toEqual([1, 2]);
+    expect(pageBarOptions(straight, 20)).toEqual([1]);
+    expect(pageBarOptions({ ...straight, bars: 1 }, 1000)).toEqual([1]);
+    expect(
+      pageBarOptions({ bars: 8, meter: "4/4", grid: "triplet" }, 100),
+    ).toEqual([1, 2, 4]);
   });
   it("preserves legacy swing while keeping true triplet grids even", () => {
     for (let step = 0; step < 128; step++)

@@ -68,6 +68,14 @@
   color: #eee;
   cursor: pointer;
 }
+.mixer-channel > button.mixer-solo {
+  display: block;
+  width: 44px;
+  height: auto;
+  min-height: 32px;
+  font: inherit;
+  cursor: pointer;
+}
 .mixer-channel > button[aria-pressed="true"] {
   background: #ddd;
   color: #111;

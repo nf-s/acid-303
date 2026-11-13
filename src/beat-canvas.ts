@@ -7,6 +7,7 @@ import {
   fillCell,
   watchCanvasTheme,
 } from "./canvas-theme";
+import { MAX_TRACK_STEPS } from "./timing";
 
 interface Point {
   x: number;
@@ -100,7 +101,7 @@ export class BeatCanvas {
       ? Math.max(0, Math.floor(viewport.start))
       : 0;
     const count = Number.isFinite(viewport.count)
-      ? Math.max(1, Math.min(16, Math.floor(viewport.count)))
+      ? Math.max(1, Math.min(MAX_TRACK_STEPS, Math.floor(viewport.count)))
       : 16;
     const groupSize = [2, 3, 4, 6].includes(viewport.groupSize ?? 4)
       ? (viewport.groupSize ?? 4)
@@ -305,7 +306,14 @@ export class BeatCanvas {
     context.textBaseline = "middle";
     context.fillStyle = colours.drawLabel;
     context.fillText("DRAW", LABEL_WIDTH / 2 - 1, HEADER_HEIGHT / 2);
+    const labelStride =
+      this.cellWidth >= 14
+        ? 1
+        : this.cellWidth * this.groupSize >= 22
+          ? this.groupSize
+          : this.groupSize * 4;
     for (let step = 0; step < this.viewportCount; step += 1) {
+      if (step % labelStride !== 0) continue;
       context.fillStyle =
         step % this.groupSize === 0 ? colours.stepMajor : colours.stepMinor;
       context.fillText(

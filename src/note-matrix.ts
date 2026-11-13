@@ -1,5 +1,6 @@
 import { noteName, scaleNotes } from "./model";
 import type { PatternViewport } from "./pattern-controls";
+import { MAX_TRACK_STEPS } from "./timing";
 import type { BassStep, MusicalScale } from "./model";
 import {
   canvasFont,
@@ -35,12 +36,22 @@ interface Point {
   x: number;
   y: number;
 }
+/** A press on an existing pitch-mode note: tap removes it, dragging moves or joins it. */
+interface NoteGesture {
+  index: number;
+  note: number;
+  extent: number;
+  reach: number;
+  changed: boolean;
+  pitches: Map<number, number>;
+}
 interface Stroke {
   anchor: Point;
   previous: Point;
   original: BassStep[];
   automation?: AutomationSnapshot;
   tool: MatrixTool;
+  gesture?: NoteGesture;
 }
 const LEFT = 34,
   RIGHT = 8,
@@ -68,6 +79,7 @@ export class NoteMatrix {
   private viewportStart = 0;
   private viewportCount = 16;
   private groupSize = 4;
+  private barSize = 16;
   private stepCount = 0;
   private automationViewPreference: MatrixAutomationView = "page";
   private loopBars = 1;
@@ -82,6 +94,8 @@ export class NoteMatrix {
     private readonly onPaint: (change: MatrixChange) => void,
     private readonly onStroke: () => void,
     private readonly drums = false,
+    /** Pitch-mode drags from a note join the following steps with Glide. */
+    private readonly joins = false,
   ) {
     this.context = canvas.getContext("2d");
     this.observer = new ResizeObserver(this.resize);
@@ -126,21 +140,27 @@ export class NoteMatrix {
       ? Math.max(0, Math.floor(viewport.start))
       : 0;
     const count = Number.isFinite(viewport.count)
-      ? Math.max(1, Math.min(16, Math.floor(viewport.count)))
+      ? Math.max(1, Math.min(MAX_TRACK_STEPS, Math.floor(viewport.count)))
       : 16;
     const groupSize = [2, 3, 4, 6].includes(viewport.groupSize ?? 4)
       ? (viewport.groupSize ?? 4)
       : 4;
+    const barSize =
+      Number.isInteger(viewport.barSize) && (viewport.barSize ?? 0) > 0
+        ? (viewport.barSize ?? 16)
+        : 16;
     if (
       start === this.viewportStart &&
       count === this.viewportCount &&
-      groupSize === this.groupSize
+      groupSize === this.groupSize &&
+      barSize === this.barSize
     )
       return;
     if (!this.overview) this.cancelPointers();
     this.viewportStart = start;
     this.viewportCount = count;
     this.groupSize = groupSize;
+    this.barSize = barSize;
     if (!this.overview) this.selected = start;
     this.draw();
   }
@@ -269,6 +289,13 @@ export class NoteMatrix {
       (this.width - LEFT - RIGHT) / Math.max(1, this.visibleCount),
     );
   }
+  /** Narrow multi-bar pages label beats or bars instead of every step. */
+  private get labelStride(): number {
+    if (this.cellWidth >= 14 || this.overview) return 1;
+    return this.cellWidth * this.groupSize >= 22
+      ? this.groupSize
+      : this.barSize;
+  }
   private get plotHeight(): number {
     return Math.max(1, this.height - TOP - BOTTOM);
   }
@@ -296,6 +323,12 @@ export class NoteMatrix {
       )
     );
   }
+  private noteAt(point: Point): number | undefined {
+    const row = Math.round(
+      (1 - (point.y - TOP) / this.plotHeight) * (this.notes.length - 1),
+    );
+    return this.notes[row];
+  }
   private paint(point: Point): void {
     const index = this.index(point);
     this.selected = index;
@@ -307,10 +340,7 @@ export class NoteMatrix {
         value: Math.max(0, Math.min(1, 1 - (point.y - TOP) / this.plotHeight)),
       });
     } else if (this.parameter === "pitch") {
-      const row = Math.round(
-        (1 - (point.y - TOP) / this.plotHeight) * (this.notes.length - 1),
-      );
-      const note = this.notes[row];
+      const note = this.noteAt(point);
       if (note === undefined) return;
       this.onPaint({ parameter: "pitch", index, value: note });
       this.onPaint({ parameter: "gate", index, value: true });
@@ -334,7 +364,140 @@ export class NoteMatrix {
       });
     }
   }
+  /** Pitch mode with Draw: pressing a step's current note starts a note gesture. */
+  private startGesture(point: Point): NoteGesture | undefined {
+    if (this.automation || this.parameter !== "pitch" || this.tool !== "draw")
+      return undefined;
+    const index = this.index(point),
+      step = this.steps[index],
+      note = this.noteAt(point);
+    if (!step?.on || note === undefined || step.note !== note) return undefined;
+    return {
+      index,
+      note,
+      extent: index,
+      reach: index,
+      changed: false,
+      pitches: new Map(),
+    };
+  }
+  private moveGesture(stroke: Stroke, gesture: NoteGesture, to: Point): void {
+    const from = stroke.previous;
+    const count = Math.max(
+      1,
+      Math.ceil((Math.abs(to.x - from.x) / this.cellWidth) * 4),
+    );
+    for (let sample = 0; sample <= count; sample++) {
+      const fraction = sample / count;
+      const point = {
+        x: from.x + (to.x - from.x) * fraction,
+        y: from.y + (to.y - from.y) * fraction,
+      };
+      if (!stroke.gesture) {
+        this.paint(point);
+        continue;
+      }
+      const index = this.index(point),
+        note = this.noteAt(point);
+      if (index > gesture.index && !this.joins) {
+        stroke.gesture = undefined;
+        this.paint(point);
+        continue;
+      }
+      if (index <= gesture.index) {
+        gesture.extent = gesture.index;
+        if (
+          index === gesture.index &&
+          note !== undefined &&
+          note !== gesture.note
+        ) {
+          gesture.note = note;
+          gesture.changed = true;
+          this.onPaint({
+            parameter: "pitch",
+            index: gesture.index,
+            value: note,
+          });
+        }
+      } else {
+        gesture.extent = index;
+        if (note !== undefined) gesture.pitches.set(index, note);
+      }
+    }
+    if (stroke.gesture) this.applyJoins(stroke, gesture);
+  }
+  /** Join the pressed note to each crossed step; same pitch ties, a new pitch glides. */
+  private applyJoins(stroke: Stroke, gesture: NoteGesture): void {
+    const reach = Math.max(gesture.reach, gesture.extent);
+    if (reach === gesture.index) return;
+    gesture.reach = reach;
+    const target = stroke.original
+      .slice(gesture.index, reach + 1)
+      .map((step) => ({ ...step }));
+    const first = target[0];
+    if (!first) return;
+    first.note = gesture.note;
+    first.on = true;
+    let pitch = gesture.note;
+    for (let offset = 1; offset <= gesture.extent - gesture.index; offset++) {
+      const step = target[offset],
+        previous = target[offset - 1];
+      if (!step || !previous) continue;
+      pitch = gesture.pitches.get(gesture.index + offset) ?? pitch;
+      previous.slide = true;
+      step.on = true;
+      step.note = pitch;
+    }
+    if (gesture.extent > gesture.index) gesture.changed = true;
+    target.forEach((step, offset) => {
+      const index = gesture.index + offset;
+      if (this.steps[index]?.slide !== step.slide)
+        this.onPaint({ parameter: "slide", index, value: step.slide });
+    });
+    target.forEach((step, offset) => {
+      const index = gesture.index + offset,
+        current = this.steps[index];
+      if (!current) return;
+      if (current.note !== step.note)
+        this.onPaint({ parameter: "pitch", index, value: step.note });
+      if (current.on !== step.on)
+        this.onPaint({ parameter: "gate", index, value: step.on });
+    });
+  }
+  /** A tap on a note removes it and the glide that led into it. */
+  private removeNote(index: number): void {
+    const step = this.steps[index];
+    if (!step) return;
+    this.onPaint({ parameter: "gate", index, value: false });
+    if (!this.joins) return;
+    if (step.slide) this.onPaint({ parameter: "slide", index, value: false });
+    const previousIndex = (index - 1 + this.steps.length) % this.steps.length;
+    if (previousIndex !== index && this.steps[previousIndex]?.slide)
+      this.onPaint({ parameter: "slide", index: previousIndex, value: false });
+  }
+  /** Keyboard counterpart of dragging from a note: join or separate the next step. */
+  private toggleJoin(index: number): void {
+    const step = this.steps[index],
+      next = this.steps[(index + 1) % this.steps.length];
+    if (!step || !next || this.steps.length < 2) return;
+    if (step.on && step.slide && next.on) {
+      this.onPaint({ parameter: "slide", index, value: false });
+      return;
+    }
+    const nextIndex = (index + 1) % this.steps.length;
+    if (!next.on)
+      this.onPaint({ parameter: "pitch", index: nextIndex, value: step.note });
+    this.onPaint({ parameter: "slide", index, value: true });
+    this.onPaint({ parameter: "gate", index, value: true });
+    this.onPaint({ parameter: "gate", index: nextIndex, value: true });
+  }
   private move(stroke: Stroke, point: Point): void {
+    if (stroke.gesture) {
+      this.moveGesture(stroke, stroke.gesture, point);
+      stroke.previous = point;
+      this.draw();
+      return;
+    }
     if (stroke.tool === "line") {
       this.onPaint({
         parameter: "restore",
@@ -385,6 +548,8 @@ export class NoteMatrix {
         : {}),
       tool: this.tool,
     };
+    const gesture = this.startGesture(point);
+    if (gesture) stroke.gesture = gesture;
     this.pointers.set(event.pointerId, stroke);
     try {
       this.canvas.setPointerCapture(event.pointerId);
@@ -392,7 +557,8 @@ export class NoteMatrix {
       this.pointers.delete(event.pointerId);
       return;
     }
-    this.paint(point);
+    if (gesture) this.selected = gesture.index;
+    else this.paint(point);
     this.draw();
   };
   private readonly pointerMove = (event: PointerEvent): void => {
@@ -409,7 +575,13 @@ export class NoteMatrix {
   };
   private readonly pointerUp = (event: PointerEvent): void => {
     const stroke = this.pointers.get(event.pointerId);
-    if (stroke) this.move(stroke, this.point(event));
+    if (stroke) {
+      this.move(stroke, this.point(event));
+      if (stroke.gesture && !stroke.gesture.changed) {
+        this.removeNote(stroke.gesture.index);
+        this.draw();
+      }
+    }
     this.finish(event.pointerId);
   };
   private readonly pointerCancel = (event: PointerEvent): void => {
@@ -442,6 +614,13 @@ export class NoteMatrix {
         (index + distance * direction + this.steps.length) % this.steps.length;
       this.draw();
       this.controls[0]?.focus();
+      return;
+    }
+    if (event.key === "ArrowRight" && event.shiftKey && this.joinsEditable) {
+      event.preventDefault();
+      this.onStroke();
+      this.toggleJoin(index);
+      this.draw();
       return;
     }
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
@@ -508,6 +687,18 @@ export class NoteMatrix {
       });
     this.draw();
   }
+  private get joinsEditable(): boolean {
+    return this.joins && !this.automation && this.parameter === "pitch";
+  }
+  /** Spoken pitch state, including a tie or glide into the next step. */
+  private pitchText(index: number): string {
+    const step = this.steps[index];
+    if (!step) return "";
+    if (!step.on) return `${noteName(step.note)}, rest`;
+    const next = this.steps[(index + 1) % this.steps.length];
+    const joined = this.joins && step.slide && next?.on === true;
+    return `${noteName(step.note)}${joined ? (next.note === step.note ? ", tie" : ", glide") : ""}`;
+  }
   private accessIndex(column: number): number {
     return this.overview ? this.selected : this.viewStart + column;
   }
@@ -523,7 +714,7 @@ export class NoteMatrix {
       control.setAttribute("aria-orientation", "vertical");
       control.setAttribute(
         "aria-keyshortcuts",
-        "ArrowUp ArrowDown ArrowLeft ArrowRight PageUp PageDown Home End Enter Space",
+        `ArrowUp ArrowDown ArrowLeft ArrowRight PageUp PageDown Home End Enter Space${this.joins ? " Shift+ArrowRight" : ""}`,
       );
       control.addEventListener("focus", () => {
         this.selected = this.accessIndex(column);
@@ -590,7 +781,7 @@ export class NoteMatrix {
         this.automation
           ? this.automation.format(value)
           : this.parameter === "pitch"
-            ? `${noteName(step.note)}${step.on ? "" : ", rest"}`
+            ? this.pitchText(index)
             : value
               ? "On"
               : "Off",
@@ -657,10 +848,18 @@ export class NoteMatrix {
         ctx.fillRect(x, TOP, this.cellWidth, this.plotHeight);
         ctx.strokeStyle =
           index % this.groupSize === 0 ? colours.lineMajor : colours.lineMinor;
+        ctx.lineWidth =
+          index > 0 &&
+          this.visibleCount > this.barSize &&
+          (this.viewStart + index) % this.barSize === 0
+            ? 2
+            : 1;
         ctx.beginPath();
         ctx.moveTo(x + 0.5, TOP);
         ctx.lineTo(x + 0.5, this.height - BOTTOM);
         ctx.stroke();
+        ctx.lineWidth = 1;
+        if ((this.viewStart + index) % this.labelStride !== 0) continue;
         ctx.fillStyle =
           this.viewStart + index === this.current
             ? colours.stepTextCurrent
@@ -734,6 +933,7 @@ export class NoteMatrix {
         this.drawAccents(ctx);
       }
       this.visibleSteps.forEach((step, index) => {
+        if ((this.viewStart + index) % this.labelStride !== 0) return;
         const center = LEFT + (index + 0.5) * this.cellWidth;
         ctx.fillStyle = step.on ? colours.stepNoteOn : colours.stepNoteOff;
         ctx.font = canvasFont(theme, this.cellWidth < 28 ? 7 : 9);
