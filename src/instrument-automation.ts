@@ -34,6 +34,8 @@ interface AutomationOptions<Parameter extends string> {
   onTimingChange: (timing: Timing) => void;
   allowedBars?: ReadonlyArray<Timing["bars"]>;
   pagerContainer?: HTMLElement;
+  /** The sequence pager drives a step editor: offer Whole loop and bars per page. */
+  sequenceViews?: boolean;
   onViewportChange?: (viewport: { start: number; count: number }) => void;
   onChange: () => void;
 }
@@ -141,6 +143,8 @@ export function createInstrumentAutomation<Parameter extends string>(
   const pager = new PatternControls(pagerContainer, {
     label: options.label,
     allowedBars: options.allowedBars,
+    pageViews: options.sequenceViews,
+    pageBars: options.sequenceViews,
     onTimingChange: options.onTimingChange,
     onViewportChange: (viewport) => {
       options.onViewportChange?.(viewport);
@@ -157,6 +161,7 @@ export function createInstrumentAutomation<Parameter extends string>(
     label: `${options.label} automation`,
     allowedBars: [1, 2, 4, 8, 16],
     barsOnly: true,
+    pageBars: true,
     onFollowSequence: () => {
       matrix.cancelStroke();
       options.onAutomationBarsChange(null);

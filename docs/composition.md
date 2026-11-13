@@ -34,7 +34,10 @@ with the page instead of enlarging the sticky transport. Each follower offers an
 Edit chords shortcut. Sequence starts open and Automation collapsed; selecting a
 knob opens the latter without replacing or duplicating the musical controls.
 Sequence paging still edits actual note cells; automation paging and Whole loop
-use the effective curve length. Live knob markers resolve the automation phase
+use the effective curve length. Sequencers have their own Page / Whole loop
+switch and bars-per-page choice in their pattern controls. Pages of several
+bars keep whole bars together; one bar per page keeps the original 16 or 12
+cell split. Live knob markers resolve the automation phase
 without changing the manual base pointer.
 
 Record remains local to the device. Its lane bindings receive

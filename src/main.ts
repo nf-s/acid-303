@@ -42,8 +42,10 @@ import type {
   BassAutomationParameter,
   KeysAutomationParameter,
   DrumAutomationParameter,
+  InstrumentId,
 } from "./model";
 import { DrumEditor, DRUM_CONTROLS } from "./drum-editor";
+import { audibleProject, toggleSolo } from "./solo";
 import { EditHistory } from "./history";
 import { encodeTrack, decodeTrack } from "./share";
 import { createArpPanel } from "./arp-panel";
@@ -332,6 +334,21 @@ function saveProject(): void {
   localStorage.setItem(modeStorageKey, project.mode);
 }
 let project: Project = storedProject(storedMode());
+/** Local monitoring state; never saved, shared or part of Undo. */
+let soloed = new Set<InstrumentId>();
+function audible(): Project {
+  return audibleProject(project, soloed);
+}
+function syncSolo(): void {
+  document
+    .querySelectorAll<HTMLElement>("[data-solo]")
+    .forEach((button) =>
+      button.setAttribute(
+        "aria-pressed",
+        String([...soloed].some((id) => id === button.dataset.solo)),
+      ),
+    );
+}
 const editHistory = new EditHistory(project);
 let historyGroup = 0;
 const historyPointers = new Set<number>();
@@ -436,12 +453,12 @@ app.innerHTML = `
         <div class="section-footer"><span><span class="legend-pad"></span><span id="paint-help">Drag to paint · Drag a filled step to erase</span></span><span>Drag controls up / down</span></div></details>
       </section>
       <section id="bass-panel" class="panel bass-panel" aria-labelledby="bass-title">
-        <div class="section-header"><div class="section-title"><span class="section-number">02</span><h2 id="bass-title">Acid bass</h2><span class="small-tag">303</span></div><div class="bass-actions"><button id="bass-mute" class="mute-button" aria-label="Mute acid bass" aria-pressed="${project.bass.muted}">M</button><button id="generate" class="text-button">${icon("shuffle")} Generate</button></div></div>
+        <div class="section-header"><div class="section-title"><span class="section-number">02</span><h2 id="bass-title">Acid bass</h2><span class="small-tag">303</span></div><div class="bass-actions"><button id="bass-mute" class="mute-button" aria-label="Mute acid bass" aria-pressed="${project.bass.muted}">M</button><button class="mute-button solo-button" data-solo="bass" aria-label="Solo acid bass" aria-pressed="false">S</button><button id="generate" class="text-button">${icon("shuffle")} Generate</button></div></div>
         <div class="bass-meta"><div class="waveform-switch bass-sounds" role="group" aria-label="Bass sound">${BASS_SOUNDS.map((sound, index) => `<button data-bass-sound="${index}">${sound}</button>`).join("")}</div></div>
         <div class="acid-controls">${slider("cutoff", "Cutoff", 0, 100, Math.round((Math.log(project.bass.cutoff / 80) / Math.log(100)) * 100), formatFrequency(project.bass.cutoff))}${slider("resonance", "Resonance", 0, 22, project.bass.resonance, `${Math.round((project.bass.resonance / 22) * 100)}%`, "0.1")}${slider("envelope", "Envelope", 0, 100, project.bass.envelope * 100, `${Math.round(project.bass.envelope * 100)}%`)}${slider("bass-decay", "Decay", 50, 1500, project.bass.decay * 1000, `${Math.round(project.bass.decay * 1000)} ms`, "10")}${slider("bass-volume", "Level", 0, 100, project.bass.volume * 100, `${Math.round(project.bass.volume * 100)}%`)}${slider("bass-shape", "Shape", 0, 100, project.bass.shape * 100, `${Math.round(project.bass.shape * 100)}%`)}${slider("bass-drive", "Drive", 0, 100, project.bass.drive * 100, `${Math.round(project.bass.drive * 100)}%`)}${slider("bass-pulse", "Pulse", 0, 100, project.bass.pulse * 100, `${Math.round(project.bass.pulse * 100)}%`)}</div>${matrixMarkup("bass", "Bass")}
       </section>
       <section id="keys-panel" class="panel bass-panel keys-panel" aria-labelledby="keys-title">
-        <div class="section-header"><div class="section-title"><span class="section-number">03</span><h2 id="keys-title">Texture</h2></div><div class="bass-actions"><button id="keys-mute" class="mute-button" aria-label="Mute Texture" aria-pressed="${project.keys.muted}">M</button><button id="keys-generate" class="text-button">${icon("shuffle")} New pattern</button></div></div>
+        <div class="section-header"><div class="section-title"><span class="section-number">03</span><h2 id="keys-title">Texture</h2></div><div class="bass-actions"><button id="keys-mute" class="mute-button" aria-label="Mute Texture" aria-pressed="${project.keys.muted}">M</button><button class="mute-button solo-button" data-solo="keys" aria-label="Solo Texture" aria-pressed="false">S</button><button id="keys-generate" class="text-button">${icon("shuffle")} New pattern</button></div></div>
         <div class="bass-meta"><div class="waveform-switch keys-sounds" role="group" aria-label="Texture sound">${KEYS_SOUNDS.map((sound, index) => `<button data-key-sound="${index}">${sound}</button>`).join("")}</div></div>
         <div class="acid-controls">${slider("keys-tone", "Tone", 0, 100, project.keys.tone * 100, `${Math.round(project.keys.tone * 100)}%`)}${slider("keys-decay", "Decay", 80, 2000, project.keys.decay * 1000, `${Math.round(project.keys.decay * 1000)} ms`, "10")}${slider("keys-space", "Space", 0, 100, project.keys.space * 100, `${Math.round(project.keys.space * 100)}%`)}${slider("keys-volume", "Level", 0, 100, project.keys.volume * 100, `${Math.round(project.keys.volume * 100)}%`)}${slider("keys-grit", "Grit", 0, 100, project.keys.grit * 100, `${Math.round(project.keys.grit * 100)}%`)}${slider("keys-motion", "Motion", 0, 100, project.keys.motion * 100, `${Math.round(project.keys.motion * 100)}%`)}${slider("keys-width", "Width", 0, 100, project.keys.width * 100, `${Math.round(project.keys.width * 100)}%`)}${slider("keys-attack", "Attack", 0, 100, project.keys.attack * 100, `${Math.round(project.keys.attack * 100)}%`)}</div>
         ${matrixMarkup("keys", "Texture")}
@@ -545,7 +562,7 @@ function matrixMarkup(track: NoteTrack, label: string): string {
     )
     .join(
       "",
-    )}</div><div class="matrix-tools" role="group" aria-label="${label} drawing tool"><button data-matrix-track="${track}" data-matrix-tool="draw" aria-pressed="true">Draw</button><button data-matrix-track="${track}" data-matrix-tool="line" aria-pressed="false">Line</button><button data-matrix-undo="${track}" aria-label="Undo ${label} drawing" disabled>Undo</button></div></div><div class="note-matrix" id="${track}-matrix"><canvas id="${track}-matrix-canvas" aria-label="Draw ${label} pitch" aria-describedby="${track}-matrix-help"></canvas><div class="matrix-access" id="${track}-matrix-access"></div></div><div class="matrix-legend" aria-hidden="true"><span class="motif-pitch">━ Pitch</span><span class="motif-gate">▌ Gate</span><span class="motif-accent">◆ Accent</span><span class="motif-glide">⌒ Glide</span></div><div class="section-footer note-help" id="${track}-matrix-help"><span>Draw pitch in scale</span><span>↑↓ Edit · ←→ Step · Enter Gate</span></div></details>
+    )}</div><div class="matrix-tools" role="group" aria-label="${label} drawing tool"><button data-matrix-track="${track}" data-matrix-tool="draw" aria-pressed="true">Draw</button><button data-matrix-track="${track}" data-matrix-tool="line" aria-pressed="false">Line</button><button data-matrix-undo="${track}" aria-label="Undo ${label} drawing" disabled>Undo</button></div></div><div class="note-matrix" id="${track}-matrix"><canvas id="${track}-matrix-canvas" aria-label="Draw ${label} pitch" aria-describedby="${track}-matrix-help"></canvas><div class="matrix-access" id="${track}-matrix-access"></div></div><div class="matrix-legend" aria-hidden="true"><span class="motif-pitch">━ Pitch</span><span class="motif-gate">▌ Gate</span><span class="motif-accent">◆ Accent</span><span class="motif-glide">⌒ Glide</span></div><div class="section-footer note-help" id="${track}-matrix-help"><span>Draw pitch in scale · Tap a note to remove · Drag from a note to tie or glide</span><span>↑↓ Edit · ←→ Step · Enter Gate · Shift+→ Join</span></div></details>
   <details class="instrument-section instrument-automation-section" id="${track}-automation-section"><summary>Automation</summary><div id="${track}-automation-pattern"></div><div class="automation-strip" id="${track}-automation"><span id="${track}-automation-label"></span><div class="automation-view" role="group" aria-label="${label} automation view"><button data-matrix-track="${track}" data-matrix-automation-view="page" aria-pressed="true">Page</button><button data-matrix-track="${track}" data-matrix-automation-view="loop" aria-pressed="false">Whole loop</button></div><div class="matrix-tools" role="group" aria-label="${label} automation drawing tool"><button data-matrix-track="${track}" data-note-automation-tool="draw" aria-pressed="true">Draw</button><button data-matrix-track="${track}" data-note-automation-tool="line" aria-pressed="false">Line</button><button data-note-automation-undo="${track}" aria-label="Undo ${label} automation" disabled>Undo</button><button data-automation-clear="${track}" aria-label="Clear ${label} automation">Clear curve</button></div></div><div class="note-matrix"><canvas id="${track}-automation-canvas" aria-label="Draw ${label} automation"></canvas><div class="matrix-access" id="${track}-automation-access"></div></div></details>`;
 }
 function automationValues(
@@ -684,7 +701,7 @@ function selectMatrixParameter(
   if (help)
     help.textContent =
       parameter === "pitch"
-        ? "Draw pitch in scale · Tap a knob to automate"
+        ? "Draw pitch in scale · Tap a note to remove · Drag from a note to tie or glide · Tap a knob to automate"
         : "Draw above the centre for on · Below for off";
   document
     .querySelector(`#${track}-matrix-canvas`)
@@ -1043,6 +1060,7 @@ function refreshProject(cancelPerformance = true): void {
   renderDrums();
   renderBass();
   renderKeys();
+  syncSolo();
   applyMode();
   updatePresetLabels();
   refreshScaleControls();
@@ -1306,7 +1324,7 @@ function captureAutomation(
 const lastDrumSteps = new Map<DrumId, number>();
 function updateBarPosition(absoluteTick = currentAbsoluteTick): void {
   currentAbsoluteTick = absoluteTick;
-  const plan = exportPlan(project);
+  const plan = exportPlan(audible());
   const position = document.getElementById("bar-position");
   if (position)
     position.textContent = `Beat ${absoluteTick < 0 ? 1 : Math.floor(absoluteTick / PPQ) + 1}`;
@@ -1448,7 +1466,7 @@ function showFrame(frame: PlaybackFrame): void {
   notePagers.bass?.setTick(playingTick, project.swing);
   notePagers.keys?.setTick(playingTick, project.swing);
   updateBarPosition(frame.absoluteTick);
-  for (const drum of project.drums) {
+  for (const drum of audible().drums) {
     const index = positions[drum.id]?.index;
     if (
       frame.playing &&
@@ -1492,7 +1510,7 @@ visualizer.setMode(project.mode);
 visualizer.setPalette(visualizerPalette);
 visualizer.setSwirl(visualizerSwirl / 100);
 updateVisualizerPalette();
-engine.update(project);
+engine.update(audible());
 visualizer.setMotion(motion);
 
 const paintCanvas = document.querySelector("#beat-canvas");
@@ -1545,6 +1563,7 @@ const drumEditor = new DrumEditor(drumEditorContainer, {
   },
   onStroke: () => automationSweeps.clear(),
   isBusy: () => beatCanvas.busy,
+  isSoloed: (id) => soloed.has(id),
   beforeTimingChange: () => beatCanvas.cancelStroke(),
   onViewportChange: (viewport) => {
     drumViewport = viewport;
@@ -1576,6 +1595,8 @@ function createMatrix(
       notePagers[track]?.freezeFollow();
       saveMatrixUndo(track);
     },
+    false,
+    true,
   );
 }
 const matrices = {
@@ -1588,6 +1609,8 @@ for (const track of noteTracks) {
   if (!container) throw new Error("Pattern controls are missing.");
   notePagers[track] = new PatternControls(container, {
     label: track === "bass" ? "Bass" : "Texture",
+    pageViews: true,
+    pageBars: true,
     isBusy: () => matrices[track].busy,
     onViewportChange: (viewport) => matrices[track].setViewport(viewport),
     onTimingChange: (timing) => {
@@ -1638,6 +1661,7 @@ for (const track of noteTracks) {
   automationPagers[track] = new PatternControls(container, {
     label: `${track === "bass" ? "Bass" : "Texture"} automation`,
     barsOnly: true,
+    pageBars: true,
     allowedBars: [1, 2, 4, 8, 16],
     onFollowSequence: () => changeBars(null),
     onTimingChange: (timing) => changeBars(timing.bars),
@@ -2087,7 +2111,7 @@ function travelHistory(redo: boolean): void {
 function persist(record = true, broadcast = true): void {
   if (record) editHistory.record(project, historyGroup);
   updateHistoryButtons();
-  engine.update(project);
+  engine.update(audible());
   mixer.update(project);
   if (broadcast) sessionClient?.edit(project);
   if (saveTimer) clearTimeout(saveTimer);
@@ -2180,7 +2204,7 @@ async function togglePlayback(recovering = false): Promise<void> {
   starting = true;
   updatePlayback();
   try {
-    await engine.play(project);
+    await engine.play(audible());
   } catch {
     if (!recovering && request === playbackRequest)
       toast("Audio could not start. Try Play again.");
@@ -2207,6 +2231,13 @@ document.addEventListener("click", async (event) => {
   const button = event.target.closest("button");
   if (!button) return;
   const { dataset, id } = button;
+  if (dataset.solo !== undefined) {
+    soloed = toggleSolo(soloed, dataset.solo);
+    syncSolo();
+    engine.update(audible());
+    updateBarPosition();
+    return;
+  }
   if (id === "session-toggle") setSessionOpen(!sessionPanel.isOpen());
   if (id === "global-undo") travelHistory(false);
   if (id === "global-redo") travelHistory(true);
@@ -2299,7 +2330,7 @@ document.addEventListener("click", async (event) => {
     engine.stop();
     if (playing) {
       try {
-        await engine.play(project);
+        await engine.play(audible());
       } catch {
         toast("Audio could not restart.");
       }
@@ -2625,7 +2656,7 @@ document.addEventListener("click", async (event) => {
     button.innerHTML = `${icon("download")}<span>Rendering…</span>`;
     refreshIcons();
     try {
-      const blob = await engine.exportWav(structuredClone(project));
+      const blob = await engine.exportWav(audible());
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -3079,7 +3110,7 @@ async function hostTransport(
       cancelMaterialPerformance();
       engine.stop();
     }
-    if (action !== "stop") await engine.play(project);
+    if (action !== "stop") await engine.play(audible());
     updatePlayback();
     sessionClient?.clock(engine.isPlaying, currentAbsoluteTick);
   } catch {
@@ -3109,7 +3140,7 @@ const sessionPanel = createSessionPanel(sessionContainer, {
     void (async () => {
       try {
         try {
-          await engine.unlock(project);
+          await engine.unlock(audible());
         } catch {
           toast("Press Play on the host to enable audio.");
         }

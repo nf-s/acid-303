@@ -33,7 +33,7 @@ export function mixerTrack(project: Project, id: string) {
 
 export class TrackMixer {
   constructor(private readonly container: HTMLElement) {
-    container.innerHTML = `<details class="track-mixer"><summary>Mixer</summary><div class="mixer-channels">${CHANNELS.map(({ id, label }) => `<div class="mixer-channel"><span>${label}</span><button id="mixer-${id}" class="gesture-control mixer-fader" data-source-control="${id}-volume" role="slider" aria-label="Mixer ${label} level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-step="1"><span class="fader-track" aria-hidden="true"><span class="fader-fill"></span><span class="fader-thumb"></span></span></button><output id="mixer-${id}-value"></output><button data-mixer-mute="${id}" aria-label="Mixer mute ${label}" aria-pressed="false">M</button></div>`).join("")}</div></details>`;
+    container.innerHTML = `<details class="track-mixer"><summary>Mixer</summary><div class="mixer-channels">${CHANNELS.map(({ id, label }) => `<div class="mixer-channel"><span>${label}</span><button id="mixer-${id}" class="gesture-control mixer-fader" data-source-control="${id}-volume" role="slider" aria-label="Mixer ${label} level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-step="1"><span class="fader-track" aria-hidden="true"><span class="fader-fill"></span><span class="fader-thumb"></span></span></button><output id="mixer-${id}-value"></output><button data-mixer-mute="${id}" aria-label="Mixer mute ${label}" aria-pressed="false">M</button><button class="mute-button mixer-solo" data-solo="${id}" aria-label="Mixer solo ${label}" aria-pressed="false">S</button></div>`).join("")}</div></details>`;
   }
 
   update(project: Project): void {

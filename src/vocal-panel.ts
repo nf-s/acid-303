@@ -138,7 +138,7 @@ export function createVocalPanel(
   const controller = new AbortController();
   const held = new Set<"start" | "end">();
   container.innerHTML = `
-    <div class="section-header"><div class="section-title"><span class="section-number">06</span><h2 id="vocal-title">Vocals</h2></div><div class="bass-actions"><button id="vocal-preview">Preview</button><button id="vocal-mute" class="mute-button" aria-label="Mute Vocals">M</button></div></div>
+    <div class="section-header"><div class="section-title"><span class="section-number">06</span><h2 id="vocal-title">Vocals</h2></div><div class="bass-actions"><button id="vocal-preview">Preview</button><button id="vocal-mute" class="mute-button" aria-label="Mute Vocals">M</button><button class="mute-button solo-button" data-solo="vocal" aria-label="Solo Vocals" aria-pressed="false">S</button></div></div>
     <p id="vocal-host-capability" class="vocal-status" hidden>Host must reload Grain to play vocals.</p>
     <div class="vocal-sample-picker"><div class="waveform-switch vocal-banks" role="group" aria-label="Vocal voice">${VOCAL_BANKS.map((item) => `<button data-vocal-bank="${item.id}">${item.label}</button>`).join("")}</div><div class="waveform-switch vocal-sounds" role="group" aria-label="Vocal sample"></div></div>
     <details class="vocal-recordings instrument-section"><summary>Recordings</summary><div class="vocal-recording-actions"><button id="vocal-record-mic">Record mic</button><button id="vocal-import-wav">Import WAV</button><input id="vocal-import-file" type="file" accept=".wav,audio/wav" aria-label="Import short PCM WAV" hidden><button id="vocal-record-stop" hidden>Stop recording</button><button id="vocal-record-cancel" hidden>Cancel</button><output id="vocal-record-time"></output></div><p class="vocal-recording-limit">On this device until shared · 10 seconds maximum. WAV imports: mono or stereo, 16-bit PCM, 24/44.1/48 kHz, up to 2 MiB.</p><p class="vocal-recording-limit">Sharing uploads audio. Anyone with the track or session link can hear it. Shared copies expire after 30 days without access.</p><output id="vocal-record-message" role="status"></output><div id="vocal-recording-list"></div></details>
@@ -292,6 +292,7 @@ export function createVocalPanel(
     },
     allowedBars: [1, 2, 4, 8, 16],
     pagerContainer,
+    sequenceViews: true,
     onViewportChange: (viewport) => roll.setViewport(viewport),
     onChange: options.onChange,
   });

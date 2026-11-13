@@ -86,7 +86,7 @@ export function createCloudPanel(
   const steps: BassStep[] = [];
   const velocities: number[] = [];
   container.innerHTML = `
-    <div class="section-header"><div class="section-title"><span class="section-number">07</span><h2 id="cloud-title">Cloud</h2></div><div class="bass-actions"><button id="cloud-preview">Preview</button><button id="cloud-mute" class="mute-button" aria-label="Mute Cloud">M</button></div></div>
+    <div class="section-header"><div class="section-title"><span class="section-number">07</span><h2 id="cloud-title">Cloud</h2></div><div class="bass-actions"><button id="cloud-preview">Preview</button><button id="cloud-mute" class="mute-button" aria-label="Mute Cloud">M</button><button class="mute-button solo-button" data-solo="cloud" aria-label="Solo Cloud" aria-pressed="false">S</button></div></div>
     <p id="cloud-host-capability" class="material-status" hidden>Host must reload Grain to play cloud.</p>
     <div class="material-surface-tools"><span>Drag to scan and pitch · Two fingers change width</span><div class="material-octaves" role="group" aria-label="Cloud pitch view"><button data-cloud-octave="-1" aria-label="Lower Cloud pitch view">−</button><output id="cloud-octave-label"></output><button data-cloud-octave="1" aria-label="Raise Cloud pitch view">+</button></div></div>
     <div class="material-surface"><canvas id="cloud-surface"></canvas></div>
@@ -182,6 +182,7 @@ export function createCloudPanel(
     },
     allowedBars: [1, 2, 4, 8, 16],
     pagerContainer: pager,
+    sequenceViews: true,
     onViewportChange: (viewport) => matrix.setViewport(viewport),
     onChange: options.onChange,
   });

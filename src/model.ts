@@ -987,8 +987,17 @@ export function resizeKeysTrack(
     ),
   };
 }
-export type InstrumentId =
-  DrumId | "bass" | "keys" | "arp" | "pad" | "vocal" | "cloud" | "tension";
+export const instrumentIdSchema = z.enum([
+  ...drumIdSchema.options,
+  "bass",
+  "keys",
+  "arp",
+  "pad",
+  "vocal",
+  "cloud",
+  "tension",
+]);
+export type InstrumentId = z.infer<typeof instrumentIdSchema>;
 export interface PlaybackFrame {
   playing: boolean;
   absoluteTick: number;

@@ -86,7 +86,7 @@ export function createTensionPanel(
   const steps: BassStep[] = [];
   const velocities: number[] = [];
   container.innerHTML = `
-    <div class="section-header"><div class="section-title"><span class="section-number">08</span><h2 id="tension-title">Tension</h2></div><div class="bass-actions"><button id="tension-preview">Preview</button><button id="tension-mute" class="mute-button" aria-label="Mute Tension">M</button></div></div>
+    <div class="section-header"><div class="section-title"><span class="section-number">08</span><h2 id="tension-title">Tension</h2></div><div class="bass-actions"><button id="tension-preview">Preview</button><button id="tension-mute" class="mute-button" aria-label="Mute Tension">M</button><button class="mute-button solo-button" data-solo="tension" aria-label="Solo Tension" aria-pressed="false">S</button></div></div>
     <p id="tension-host-capability" class="material-status" hidden>Host must reload Grain to play tension.</p>
     <div class="material-surface-tools"><span>Pull sideways and release · Touch height changes Pick</span><div class="material-octaves" role="group" aria-label="Tension pitch view"><button data-tension-octave="-1" aria-label="Lower Tension pitch view">−</button><output id="tension-octave-label"></output><button data-tension-octave="1" aria-label="Raise Tension pitch view">+</button></div></div>
     <div class="material-surface"><canvas id="tension-surface"></canvas></div>
@@ -183,6 +183,7 @@ export function createTensionPanel(
     },
     allowedBars: [1, 2, 4, 8, 16],
     pagerContainer: pager,
+    sequenceViews: true,
     onViewportChange: (viewport) => matrix.setViewport(viewport),
     onChange: options.onChange,
   });
