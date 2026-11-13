@@ -75,22 +75,22 @@ Working reference distilled from producer tutorials and genre breakdowns; the va
 
 ## Examples
 
-`src/fluff-presets.ts` defines twelve tracks in a compact notation (sixteen cells per bar for drums, scale-degree tokens for notes) and builds validated projects from them. Every track has an 8-bar bassline and an 8- or 16-bar chord loop; the 16-bar loops share each bass bar between two chords.
+`src/fluff-presets.ts` defines twelve tracks in a compact notation (sixteen cells per bar for drums, scale-degree tokens for notes, `[bar, value]` points for automation) and builds validated projects from them. Every track has an 8-bar bassline, seventh chords from the shared progression changing every two or four bars, and a 16-bar automation loop (filters, tone, decay, sends, or a part entering at bar 9) whose curves ease back by the loop point. In the 16-bar progressions each bass bar sounds under two chords, so one bass note gives a second colour (A♭maj7 over F is Fm9). Hooks are one- or two-bar motifs that repeat and change only their answer; leads play at most five notes a bar and sit above the arp's register.
 
-| Track       | Genre               | BPM | Key      | Chords                |
-| ----------- | ------------------- | --- | -------- | --------------------- |
-| Cotton      | Progressive house   | 126 | A minor  | i–VI–III–iv, 16 bars  |
-| Skylark     | Uplifting trance    | 138 | F♯ minor | i–VI–iv–VII, 8 bars   |
-| Halflight   | Melodic progressive | 126 | D minor  | i–VI–VII–v, 8 bars    |
-| Tidepool    | Melodic breaks      | 130 | E minor  | VI–VII–i–III, 8 bars  |
-| Hush        | Lo-fi house         | 120 | G minor  | iv–VII–III–VI, 8 bars |
-| Kite String | Kawaii future bass  | 150 | C major  | IV–V–iii–vi, 8 bars   |
-| Hoshi       | Vocaloid trance pop | 164 | D major  | vi–IV–V–I, 8 bars     |
-| Glasshouse  | Progressive trance  | 132 | B minor  | iv–VI–i–v, 8 bars     |
-| Night Swim  | UK garage           | 132 | F minor  | i–VI–iv–v, 8 bars     |
-| Overpass    | Fast trance         | 145 | F♯ minor | i–VII–VI–VII, 8 bars  |
-| Low Sun     | Deep house          | 122 | D minor  | i–iv–VII–III, 8 bars  |
-| Undertone   | Dark melodic house  | 124 | C minor  | i–VI–i–VII, 16 bars   |
+| Track       | Genre               | BPM | Key        | Chords (bars per loop)     | Automated                          | Pump |
+| ----------- | ------------------- | --- | ---------- | -------------------------- | ---------------------------------- | ---- |
+| Cotton      | Progressive house   | 125 | F minor    | i7–VImaj7–IIImaj7–VII7, 16 | bass cutoff, pluck tone, pad tone  | 0.70 |
+| Skylark     | Progressive trance  | 134 | C♯ minor   | i7–VII7–VImaj7–v7, 16      | bass cutoff, lead tone, arp decay  | 0.70 |
+| Halflight   | Melodic house       | 122 | A Dorian   | i7–VIImaj7–IIImaj7–IV7, 16 | bass cutoff, arp decay and tone    | 0.45 |
+| Tidepool    | Melodic breaks      | 132 | D minor    | i7–iv7–VImaj7–v7, 16       | Reese cutoff, arp decay, choir     | 0.30 |
+| Hush        | Lo-fi house         | 122 | E♭ Dorian  | i7–IV7–IIImaj7–VIImaj7, 16 | bass cutoff, keys tone, vocal hall | 0.35 |
+| Kite String | Future bass         | 150 | E major    | IVmaj7–vi7–V7–I/3, 8       | supersaw tone, bell arp enters     | 0.85 |
+| Hoshi       | Vocaloid trance pop | 168 | D major    | IVmaj7–V7–iii7–vi7, 8      | bass cutoff, voice tone, arp decay | 0.60 |
+| Glasshouse  | Melodic progressive | 126 | E minor    | i7–VImaj7–iv7–VII7, 16     | riff tone and decay, pad level     | 0.65 |
+| Night Swim  | UK garage           | 132 | G minor    | i7–VImaj7–iv7–v7, 16       | bass cutoff, organ tone            | 0.25 |
+| Overpass    | Fast trance         | 142 | B minor    | i7–VImaj7–VII7–iv7, 16     | bass cutoff, lead tone, arp enters | 0.75 |
+| Low Sun     | Deep house          | 122 | C minor    | i7–iv7–VImaj7–VII7, 16     | bass cutoff, keys tone and hall    | 0.40 |
+| Undertone   | Dark melodic house  | 124 | G Phrygian | i7–IImaj7–iv7–IImaj7, 16   | growl cutoff, lead tone, choir     | 0.55 |
 
 ## Look
 
@@ -102,7 +102,7 @@ Grain lays one visualizer canvas over the whole page with `mix-blend-mode: diffe
 
 ## Verification and limits
 
-- `src/fluff-presets.test.ts` checks that all twelve tracks build, validate, stay in key and have 8-bar basslines and 8- or 16-bar chord loops.
+- `src/fluff-presets.test.ts` checks that all twelve tracks build, validate, stay in key and have 8-bar basslines and 8- or 16-bar chord loops, that leads play at most five notes a bar (4.5 on average), and that every track has a moving 16-bar automation curve whose non-volume lanes end where they start. The examples were rendered whole and part by part: peaks −3.6 to −6.0 dBFS without clipping, integrated loudness −16.3 to −18.2 LUFS, 30–120 Hz carrying almost all the power, 2–16 kHz at −17 to −22 dB, hats 10–14 LU under the kick, and the automated parts' brightness changing by 2–12 dB across the loop.
 - `src/fluff-drums.test.ts` checks that every Fluff drum slot maps to a bundled file (or is one of the two synthesized slots), that kick tuning stays in 40–70 Hz, Decay gating, render tails and the loader's caching, validation and retry.
 - Each track was rendered offline in headless Chrome (full mix, kick alone, bass alone, bass with the sidechain running) and measured for peak, integrated loudness, band balance against the targets above, low-frequency stereo correlation, bass ducking at each kick and recovery by the offbeat, and kick/bass summing. Nothing has been judged by ear.
 - `src/fluff-patches.test.ts` checks that every lead, arp and pad patch builds finite, audible voices at the extremes of every control. Every patch was also rendered alone at default, darkest/shortest and brightest/longest settings, across low and high registers, and checked on spectrograms and by measurement: loudness, stereo width and mono sum, spectral centroid movement, inharmonic energy on a held high note (aliasing) and onset transients. The plate measures about 1.8 s RT60 in the mids falling to 1.3 s at 8 kHz, the hall about 4.8 s falling to 3.6 s; both decay as straight lines (within 0.4 dB from −5 to −35 dB) with no periodic peaks in the tail. Grain renders sample-identical (within 16-bit rounding) to the previous release.
