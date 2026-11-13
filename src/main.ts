@@ -73,6 +73,7 @@ import "./session.css";
 import "./instrument-automation.css";
 import { AudioEngine } from "./audio";
 import { FluidVisualizer } from "./visualizer";
+import { FluffWordmarkMotion } from "./fluff-wordmark-motion";
 import { setThemePalette } from "./canvas-theme";
 import grainWordmark from "./grain-wordmark.svg?raw";
 import fluffWordmark from "./fluff-wordmark.svg?raw";
@@ -1507,6 +1508,11 @@ const canvas = document.querySelector("#fluid-canvas");
 if (!(canvas instanceof HTMLCanvasElement))
   throw new Error("Visualizer canvas is missing.");
 const visualizer = new FluidVisualizer(canvas);
+const brandWordmark = document.querySelector(".brand-wordmark");
+if (brandWordmark) {
+  const wordmarkMotion = new FluffWordmarkMotion(brandWordmark);
+  visualizer.setLevelListener((levels) => wordmarkMotion.update(levels));
+}
 visualizer.setMode(project.mode);
 visualizer.setPalette(visualizerPalette);
 visualizer.setSwirl(visualizerSwirl / 100);

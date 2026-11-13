@@ -43,10 +43,10 @@
 }
 
 /*
- * Fluff mirrors Grain's single live layer: one visualizer canvas sits under every
- * surface, and the UI is made of translucent veils so the clouds, palette and
- * drum-driven swells move through the whole interface. Surfaces carry no outlines;
- * lumpy radii and soft white halos give the outer shapes a cloud edge.
+ * Fluff uses Grain's single live layer: one visualizer canvas over the whole page,
+ * multiplied so the clouds tint every panel, control, editor and the title. Surfaces
+ * are near-white so the tint reads evenly; they carry no outlines, and lumpy radii and
+ * soft white halos give the outer shapes a cloud edge.
  */
 :root[data-mode="fluff"] {
   --mono:
@@ -54,12 +54,12 @@
     sans-serif;
   --line: transparent;
   --fluff-text: #1f2735;
-  --fluff-muted: #3f4a5b;
+  --fluff-muted: #303a4a;
   --fluff-slate: #475569;
   --fluff-focus: #1f2735;
   --fluff-ink: var(--fluff-palette-ink, #6a4f9c);
   --fluff-fill: var(--fluff-palette-fill, #9a7fd0);
-  --fluff-veil: rgb(255 255 255 / 0.6);
+  --fluff-veil: rgb(255 255 255 / 0.82);
   --fluff-veil-strong: rgb(255 255 255 / 0.86);
   --fluff-veil-solid: rgb(255 255 255 / 0.94);
   --fluff-mist: rgb(255 255 255 / 0.58);
@@ -128,14 +128,17 @@
   box-shadow: inset 0 0 0 1.5px var(--fluff-active-edge);
 }
 
-/* The live layer: under every surface, stronger than Grain's overlay so the veils show it. */
+/*
+ * The live layer: Grain's full-screen canvas over the whole page, multiplied instead of
+ * differenced. White leaves the interface untouched and the pastel clouds tint and shade
+ * every panel, control, editor and the title; dark text stays dark. Intensity eases in
+ * (1 - (1 - i)²) so pastel tints read at the default while 0 is none and 100% is full.
+ */
 :root[data-mode="fluff"] .visualizer-panel {
-  z-index: -1;
-  mix-blend-mode: normal;
-  opacity: min(1, calc(0.45 + var(--visualizer-intensity, 0.3)));
-}
-:root[data-mode="fluff"] .visualizer-expanded .visualizer-panel {
-  z-index: 1000;
+  mix-blend-mode: multiply;
+  opacity: calc(
+    var(--visualizer-intensity, 0.3) * (2 - var(--visualizer-intensity, 0.3))
+  );
 }
 :root[data-mode="fluff"] .pattern-fluid-mirror {
   display: none;
@@ -390,7 +393,6 @@
 /* Nested areas lose their boxes; spacing separates them. */
 :root[data-mode="fluff"] .scale-panel,
 :root[data-mode="fluff"] .studio-tools .scale-panel,
-:root[data-mode="fluff"] .chords-disclosure,
 :root[data-mode="fluff"] .instrument-tabs,
 :root[data-mode="fluff"] .automation-strip,
 :root[data-mode="fluff"] .pattern-navigation,
@@ -591,7 +593,7 @@
   padding-bottom: calc(5px + env(safe-area-inset-bottom, 0px));
   gap: 2px;
   color: var(--fluff-text);
-  background: var(--fluff-veil-strong);
+  background: #ffffff;
   border: 0;
   border-radius: 30px 36px 32px 38px / 34px 30px 38px 32px;
   box-shadow: var(--fluff-halo);
@@ -665,6 +667,7 @@
   box-shadow: none;
 }
 :root[data-mode="fluff"] .pattern-dialog {
+  padding: 22px 24px;
   color: var(--fluff-text);
   background: var(--fluff-veil-strong);
   border: 0;
@@ -674,6 +677,178 @@
 :root[data-mode="fluff"] .pattern-dialog::backdrop {
   background: rgb(238 241 246 / 0.6);
   backdrop-filter: none;
+}
+/*
+ * Spacing: content sits a consistent --fluff-inset inside every rounded shape, clear of
+ * the corner curves, and every disclosure gets the same soft pill so it has a home.
+ */
+:root[data-mode="fluff"] {
+  --fluff-inset: 10px;
+  scroll-padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+}
+:root[data-mode="fluff"] .app-header {
+  padding: 12px 26px;
+}
+:root[data-mode="fluff"] .transport {
+  padding: 16px 26px 14px;
+}
+:root[data-mode="fluff"] .studio-grid .panel {
+  padding: 6px var(--fluff-inset) 14px;
+}
+:root[data-mode="fluff"] .studio-grid .panel.instrument-collapsed {
+  padding-bottom: 6px;
+}
+:root[data-mode="fluff"] .studio-grid .panel > .section-header {
+  height: auto;
+  min-height: 52px;
+  padding: 0 14px;
+}
+:root[data-mode="fluff"] .instrument-collapse-toggle {
+  flex-basis: 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+:root[data-mode="fluff"]
+  :is(
+    .track-mixer,
+    .chords-disclosure,
+    .progression-presets,
+    .instrument-section,
+    .material-instrument details
+  )
+  > summary {
+  display: list-item;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 6px 14px 6px 12px;
+  color: var(--fluff-text);
+  background: color-mix(
+    in srgb,
+    var(--fluff-palette-mid, #cec4f6) 20%,
+    transparent
+  );
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+}
+:root[data-mode="fluff"]
+  :is(
+    .track-mixer,
+    .chords-disclosure,
+    .progression-presets,
+    .instrument-section,
+    .material-instrument details
+  )
+  > summary:hover {
+  background: color-mix(
+    in srgb,
+    var(--fluff-palette-mid, #cec4f6) 34%,
+    transparent
+  );
+}
+:root[data-mode="fluff"] .instrument-section > summary {
+  margin: 4px 0 8px;
+}
+:root[data-mode="fluff"] .track-mixer {
+  margin-top: 12px;
+}
+/* Chords is its own soft panel, so its toggle is not left floating between shapes. */
+:root[data-mode="fluff"] .chords-disclosure {
+  padding: 10px 14px;
+  background: var(--fluff-veil);
+  border: 0;
+  border-radius: var(--fluff-lump-alt);
+  box-shadow: var(--fluff-halo);
+}
+:root[data-mode="fluff"] .project-progression {
+  margin-bottom: 14px;
+}
+:root[data-mode="fluff"] .chords-disclosure .progression-position {
+  margin-left: 4px;
+  font-weight: 400;
+}
+:root[data-mode="fluff"] .progression-presets {
+  margin: 12px 0;
+}
+:root[data-mode="fluff"] .progression-timing {
+  margin: 12px 0;
+}
+:root[data-mode="fluff"] .progression-composition {
+  padding: 0 0 4px;
+}
+/* Example strip: cards fade at the scroll edges instead of being sliced, and snap clear of them. */
+:root[data-mode="fluff"] .preset-section {
+  padding: 10px 14px;
+}
+:root[data-mode="fluff"] .preset-options {
+  padding: 6px 28px;
+  scroll-padding-inline: 28px;
+  mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent
+  );
+}
+/* Automation pagers line up with the Sequence pager above them. */
+:root[data-mode="fluff"]
+  .instrument-section
+  .instrument-automation
+  .instrument-pattern-controls {
+  margin-right: 0;
+  margin-left: 0;
+}
+/* Fields need a surface of their own on the near-white panels. */
+:root[data-mode="fluff"] .share-panel input,
+:root[data-mode="fluff"] .session-panel input {
+  background: rgb(71 85 105 / 0.08);
+}
+/*
+ * The floating tab bar ends in two sticky spacers that fade tabs scrolled under them,
+ * instead of cutting a tab at the curve.
+ */
+:root[data-mode="fluff"] .instrument-nav {
+  padding-right: 0;
+  padding-left: 0;
+}
+:root[data-mode="fluff"] .instrument-nav::before,
+:root[data-mode="fluff"] .instrument-nav::after {
+  content: "";
+  position: sticky;
+  z-index: 1;
+  flex: 0 0 16px;
+  pointer-events: none;
+}
+:root[data-mode="fluff"] .instrument-nav::before {
+  left: 0;
+  background: linear-gradient(90deg, #ffffff, rgb(255 255 255 / 0));
+}
+:root[data-mode="fluff"] .instrument-nav::after {
+  right: 0;
+  background: linear-gradient(270deg, #ffffff, rgb(255 255 255 / 0));
+}
+@media (max-width: 650px) {
+  :root[data-mode="fluff"] {
+    --fluff-inset: 2px;
+  }
+  :root[data-mode="fluff"] .app-header {
+    padding: 12px 16px;
+  }
+  :root[data-mode="fluff"] .transport {
+    padding: 12px 16px;
+  }
+  :root[data-mode="fluff"] .studio-grid .panel > .section-header {
+    padding: 0 12px;
+  }
+  /* A sound chip that wraps keeps its own width instead of stretching across the row. */
+  :root[data-mode="fluff"] .drum-detail .sound-buttons button {
+    flex: 0 1 auto;
+    padding: 4px 10px;
+  }
 }
 @media (max-width: 650px) {
   :root[data-mode="fluff"] {
