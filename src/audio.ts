@@ -399,10 +399,10 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   highpass.type = "highpass";
   highpass.frequency.value = 22;
   highpass.Q.value = 0.7;
-  compressor.threshold.value = fluffMode ? -16 : -7;
+  compressor.threshold.value = fluffMode ? -18 : -7;
   compressor.knee.value = fluffMode ? 10 : 5;
   compressor.ratio.value = fluffMode ? 2.5 : 6;
-  compressor.attack.value = fluffMode ? 0.01 : 0.008;
+  compressor.attack.value = fluffMode ? 0.004 : 0.008;
   compressor.release.value = fluffMode ? 0.18 : 0.11;
   master.gain.value = project.volume * 0.8;
   const ceiling = new Float32Array(2048);

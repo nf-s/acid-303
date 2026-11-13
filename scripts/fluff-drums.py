@@ -1,6 +1,6 @@
 """Synthesize Fluff hats, snares, claps and the tambourine.
 
-python3 -I scripts/fluff-drums.py <out-dir> [virtuosity-samples-dir] [hats|snares|claps|perc]
+python3 -I kit.py <out-dir> [virtuosity-dir]
 
 Hats follow the TR-808/606 metal circuit: six free-running square oscillators
 at the 808's inharmonic frequencies, summed, band-passed, through an
@@ -195,36 +195,36 @@ def hats(out):
     # Closed: tight 808 closed hat, about 45 ms to -20 dB.
     n = 0.16
     env = np.exp(-t(n) / 0.024)
-    write(f"{out}/hat-closed.wav", fade(hat(n, 1, env, 6800, 4800, 15000, 0.5), 0.11, n))
+    write(f"{out}/hat-closed.wav", fade(hat(n, 1, env, 6000, 3800, 15000, 0.5), 0.11, n))
     # Open: smooth open hat, quick initial drop then an even exponential tail.
     n = 0.8
     env = two_stage(n, 0.012, 0.4, 0.15)
-    write(f"{out}/hat-open.wav", fade(hat(n, 2, env, 7200, 5000, 14000, 0.6), 0.5, n))
+    write(f"{out}/hat-open.wav", fade(hat(n, 2, env, 6300, 4000, 14000, 0.6), 0.5, n))
     # Shaker: band-passed noise with a soft swell and bead texture, one take per side.
     n = 0.16
-    write(f"{out}/hat-shaker.wav", fade(stereo(shaker, n, 3, 6000, 3500, 0.01, 0.03, 13000), 0.11, n))
+    write(f"{out}/hat-shaker.wav", fade(stereo(shaker, n, 3, 5000, 2800, 0.01, 0.03, 13000), 0.11, n))
     # Tick: very short, bright 606-style closed hat.
     n = 0.08
     env = np.exp(-t(n) / 0.012)
-    write(f"{out}/hat-tick.wav", fade(hat(n, 4, env, 8200, 6000, 15500, 0.45, 1.12, 1.2), 0.06, n))
+    write(f"{out}/hat-tick.wav", fade(hat(n, 4, env, 7200, 4800, 15500, 0.45, 1.12, 1.2), 0.06, n))
     # Ride: dense partial wash, wide.
     n = 1.6
     write(f"{out}/hat-ride.wav", fade(stereo(ride, n, 5), 1.2, n))
     # Offbeat: short 909-like open hat for the off-beat "tss".
     n = 0.4
     env = two_stage(n, 0.01, 0.35, 0.085)
-    write(f"{out}/hat-offbeat.wav", fade(hat(n, 6, env, 7200, 5000, 14000, 0.6, 1.0, 0.8), 0.28, n))
+    write(f"{out}/hat-offbeat.wav", fade(hat(n, 6, env, 6300, 4000, 14000, 0.6, 1.0, 0.8), 0.28, n))
     # Dusty: darker closed hat, crushed and saturated.
     n = 0.2
     env = np.exp(-t(n) / 0.024)
-    x = hat(n, 7, env, 6200, 4200, 9000, 0.45)
+    x = hat(n, 7, env, 5400, 3400, 9000, 0.45)
     x = crush(np.tanh(x / np.abs(x).max() * 1.6), 10, 2)
     x = biquad(x[:, 0], "lp", 7500, 0.6), biquad(x[:, 1], "lp", 7500, 0.6)
     write(f"{out}/hat-dusty.wav", fade(np.stack(x, axis=1), 0.14, n))
     # Sizzle: long, airy open hat.
     n = 1.2
     env = two_stage(n, 0.015, 0.3, 0.24)
-    write(f"{out}/hat-sizzle.wav", fade(hat(n, 8, env, 8600, 6000, 14500, 0.65, 1.04, 0.8), 0.9, n))
+    write(f"{out}/hat-sizzle.wav", fade(hat(n, 8, env, 7600, 4800, 14500, 0.65, 1.04, 0.8), 0.9, n))
 
 
 # ---------------------------------------------------------------- snares

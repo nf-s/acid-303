@@ -10,28 +10,28 @@ The vocal samples have their own credits in `public/vocals/README.txt`.
 
 Hats follow the TR-808/606 metal circuit: six free-running, band-limited square oscillators at 205.3, 304.4, 369.6, 522.7, 540 and 800 Hz are summed, band-passed, mixed with band-passed white noise, shaped by an exponential VCA envelope, then high-passed twice (12 dB each) and gently low-passed. Snares are 909-style: two tuned bodies (a fundamental and one about 1.78× above) whose pitch drops by half in the first few milliseconds, plus high- and low-passed "snappy" noise with a fast and a slow decay, softly saturated. Claps are 909-style: three or four band-passed noise bursts 8–13 ms apart, each falling with a 3–4.5 ms time constant, then a filtered noise "reverb" tail.
 
-| File         | Sound                                                                          | 20 dB decay | Centroid |
-| ------------ | ------------------------------------------------------------------------------ | ----------- | -------- |
-| hat-closed   | 808 metal + 50% noise, 6.8 kHz band-pass, 4.8 kHz high-pass, 24 ms decay       | 37 ms       | 8.1 kHz  |
-| hat-open     | 808 metal + 60% noise, two-stage decay (12 ms to 60%, then 150 ms)             | 230 ms      | 8.4 kHz  |
-| hat-shaker   | Band-passed noise (6 kHz) with bead texture, 10 ms swell, 30 ms decay          | 59 ms       | 7.1 kHz  |
-| hat-tick     | 606-style: metal 1.12× higher, 8.2 kHz band-pass, 12 ms decay                  | 23 ms       | 9.1 kHz  |
-| hat-ride     | 700 inharmonic partials (2.6–14 kHz) with their own decays, noise and stick    | 790 ms      | 5.3 kHz  |
-| hat-offbeat  | 808 metal + 60% noise, two-stage decay (10 ms to 65%, then 85 ms)              | 100 ms      | 8.6 kHz  |
-| hat-dusty    | Darker closed hat (6.2 kHz band-pass), saturated, 10-bit, 22 kHz, 7.5 kHz LP   | 45 ms       | 5.7 kHz  |
-| hat-sizzle   | 808 metal + 65% noise, two-stage decay (15 ms to 70%, then 240 ms)             | 350 ms      | 9.7 kHz  |
-| snare-house  | 909: 185 Hz body, noise 1.1–9.5 kHz, 12 ms / 100 ms snappy decay               | 105 ms      | 3.6 kHz  |
-| snare-garage | 909 tuned to 235 Hz, short noise 1.7–11 kHz, 808 rimshot click (455 + 1667 Hz) | 65 ms       | 4.3 kHz  |
-| snare-roll   | 909 at 205 Hz with short snappy noise, for rolls                               | 56 ms       | 2.7 kHz  |
-| clap-house   | Four bursts at 0, 10.5, 21.5 and 33 ms through 1.15 kHz, 70 ms tail            | 6 ms        | 2.5 kHz  |
-| clap-tight   | Three bursts 8 ms apart through 1.5 kHz, 35 ms tail                            | 59 ms       | 3.1 kHz  |
-| clap-hall    | Four bursts 12–13 ms apart through 1.1 kHz, 80 ms tail and a short room        | 107 ms      | 2.3 kHz  |
-| clap-dusty   | House clap through 4.5 kHz low-pass, saturated, 10-bit                         | 7 ms        | 1.5 kHz  |
-| clap-layered | House clap with the 909 snare at -4.4 dB                                       | 123 ms      | 2.8 kHz  |
-| clap-soft    | Four slower bursts through 1.05 kHz, softened attack, 3.2 kHz low-pass         | 9 ms        | 1.6 kHz  |
-| perc-tamb    | Nine jingle bands (6–11.5 kHz, Q 5) over bright noise, 40 ms decay             | 80 ms       | 7.5 kHz  |
+| File         | Sound                                                                                 | 20 dB decay | Centroid |
+| ------------ | ------------------------------------------------------------------------------------- | ----------- | -------- |
+| hat-closed   | 808 metal + 50% noise, 6 kHz band-pass, 3.8 kHz high-pass, 24 ms decay                | 37 ms       | 7.2 kHz  |
+| hat-open     | 808 metal + 60% noise, 6.3 kHz band-pass, two-stage decay (12 ms to 60%, then 150 ms) | 228 ms      | 7.6 kHz  |
+| hat-shaker   | Band-passed noise (5 kHz) with bead texture, 10 ms swell, 30 ms decay                 | 59 ms       | 6.3 kHz  |
+| hat-tick     | 606-style: metal 1.12× higher, 7.2 kHz band-pass, 12 ms decay                         | 23 ms       | 7.9 kHz  |
+| hat-ride     | 700 inharmonic partials (2.6–14 kHz) with their own decays, noise and stick           | 790 ms      | 5.3 kHz  |
+| hat-offbeat  | 808 metal + 60% noise, 6.3 kHz band-pass, two-stage decay (10 ms to 65%, then 85 ms)  | 119 ms      | 7.7 kHz  |
+| hat-dusty    | Darker closed hat (5.4 kHz band-pass), saturated, 10-bit, 22 kHz, 7.5 kHz LP          | 49 ms       | 5.1 kHz  |
+| hat-sizzle   | 808 metal + 65% noise, 7.6 kHz band-pass, two-stage decay (15 ms to 70%, then 240 ms) | 356 ms      | 8.8 kHz  |
+| snare-house  | 909: 185 Hz body, noise 1.1–9.5 kHz, 12 ms / 100 ms snappy decay                      | 105 ms      | 3.6 kHz  |
+| snare-garage | 909 tuned to 235 Hz, short noise 1.7–11 kHz, 808 rimshot click (455 + 1667 Hz)        | 65 ms       | 4.3 kHz  |
+| snare-roll   | 909 at 205 Hz with short snappy noise, for rolls                                      | 56 ms       | 2.7 kHz  |
+| clap-house   | Four bursts at 0, 10.5, 21.5 and 33 ms through 1.15 kHz, 70 ms tail                   | 6 ms        | 2.5 kHz  |
+| clap-tight   | Three bursts 8 ms apart through 1.5 kHz, 35 ms tail                                   | 59 ms       | 3.1 kHz  |
+| clap-hall    | Four bursts 12–13 ms apart through 1.1 kHz, 80 ms tail and a short room               | 107 ms      | 2.3 kHz  |
+| clap-dusty   | House clap through 4.5 kHz low-pass, saturated, 10-bit                                | 7 ms        | 1.5 kHz  |
+| clap-layered | House clap with the 909 snare at -4.4 dB                                              | 123 ms      | 2.8 kHz  |
+| clap-soft    | Four slower bursts through 1.05 kHz, softened attack, 3.2 kHz low-pass                | 9 ms        | 1.6 kHz  |
+| perc-tamb    | Nine jingle bands (6–11.5 kHz, Q 5) over bright noise, 40 ms decay                    | 80 ms       | 7.5 kHz  |
 
-Decay and centroid are measured on the bundled files (the clap figures show the gap between bursts, not the tail). No slot has a narrow spectral peak more than 22 dB above its surroundings in the tail; the previous recorded open hat and ride rang 24–26 dB above.
+Decay and centroid are measured on the bundled files (the clap figures show the gap between bursts, not the tail). The strongest narrow peak in any hat's tail is a faint line at 2.4 or 4 kHz (harmonics of the 800 Hz oscillator), 19–25 dB above its immediate surroundings but more than 30 dB under the hat's main band; snares, claps and the tambourine stay under 17 dB. The previous recorded open hat, ride and tambourine rang 24–29 dB above their surroundings inside their main band. The hats' band-pass sits at 5–7.6 kHz so they carry body in 4–7.5 kHz, as the reference hats do, not only air above 8 kHz.
 
 Targets came from bar-synchronous averages of reference club tracks (UK-leaning melodic house, garage and breaks): closed hats fall 20 dB in 40–90 ms, off-beat open hats in about 100–150 ms, and hats sit well under the kick.
 

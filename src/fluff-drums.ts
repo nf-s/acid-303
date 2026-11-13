@@ -85,14 +85,14 @@ export const FLUFF_DRUM_SAMPLES: Readonly<
     sample("snare-room", 0.75, -13.5, { reach: 2.8, hall: 0.08 }),
   ],
   hat: [
-    sample("hat-closed", 0.16, -17.7, { reach: 2, stereo: true }),
-    sample("hat-open", 0.8, -14.3, { reach: 3, trim: -2, stereo: true }),
-    sample("hat-shaker", 0.16, -17.9, { reach: 2, stereo: true }),
-    sample("hat-tick", 0.08, -20.2, { reach: 1, trim: -1, stereo: true }),
+    sample("hat-closed", 0.16, -18.6, { reach: 2, stereo: true }),
+    sample("hat-open", 0.8, -13.6, { reach: 3, trim: -2, stereo: true }),
+    sample("hat-shaker", 0.16, -17.2, { reach: 2, stereo: true }),
+    sample("hat-tick", 0.08, -20.3, { reach: 1, trim: -1, stereo: true }),
     sample("hat-ride", 1.6, -13.3, { reach: 6, trim: -4, stereo: true }),
-    sample("hat-offbeat", 0.4, -16.4, { reach: 3, trim: 2, stereo: true }),
-    sample("hat-dusty", 0.2, -13.4, { reach: 2, trim: -1, stereo: true }),
-    sample("hat-sizzle", 1.2, -14.4, { reach: 4, trim: -2, stereo: true }),
+    sample("hat-offbeat", 0.4, -15.9, { reach: 3, trim: 2, stereo: true }),
+    sample("hat-dusty", 0.2, -13.7, { reach: 2, trim: -1, stereo: true }),
+    sample("hat-sizzle", 1.2, -13.4, { reach: 4, trim: -2, stereo: true }),
   ],
   clap: [
     sample("clap-house", 0.4, -16, { reach: 2.4, hall: 0.08 }),
@@ -119,7 +119,7 @@ const LANE_LEVEL: Readonly<Record<DrumId, number>> = {
   kick: 0.85,
   snare: 0.75,
   hat: 1,
-  clap: 0.7,
+  clap: 0.85,
   rim: 0.5,
 };
 /** Each lane's samples are levelled to this first-50 ms RMS. */
@@ -161,6 +161,12 @@ export function fluffDrumRate(
   if (drum.fundamental <= 0) return offset;
   return (keyFrequency(drum.fundamental) / drum.fundamental) * offset;
 }
+
+/** Peaking boost on every sampled kick, in Hz and dB. */
+export const FLUFF_KICK_KNOCK: Readonly<{ frequency: number; gain: number }> = {
+  frequency: 150,
+  gain: 3,
+};
 
 /** Target for the added sub; the caller tunes it to the key. */
 export const FLUFF_SUB_TARGET = 52;
@@ -363,6 +369,17 @@ export function playFluffDrumSample(
   nodes.push(level, input);
 
   let previous: AudioNode = input;
+  if (track.id === "kick") {
+    // Knock: a little 120–200 Hz body so the kick reads above the sub.
+    const knock = context.createBiquadFilter();
+    knock.type = "peaking";
+    knock.frequency.value = FLUFF_KICK_KNOCK.frequency;
+    knock.Q.value = 1;
+    knock.gain.value = FLUFF_KICK_KNOCK.gain;
+    previous.connect(knock);
+    previous = knock;
+    nodes.push(knock);
+  }
   if (track.tone !== 0.5) {
     const tone = context.createBiquadFilter();
     tone.type = "highshelf";
