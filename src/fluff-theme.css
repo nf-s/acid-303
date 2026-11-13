@@ -42,34 +42,47 @@
   }
 }
 
-/* Fluff tokens: cool grey page, white panels, dark slate text, pastel active states. */
+/*
+ * Fluff mirrors Grain's single live layer: one visualizer canvas sits under every
+ * surface, and the UI is made of translucent veils so the clouds, palette and
+ * drum-driven swells move through the whole interface. Surfaces carry no outlines;
+ * lumpy radii and soft white halos give the outer shapes a cloud edge.
+ */
 :root[data-mode="fluff"] {
   --mono:
     ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto,
     sans-serif;
-  --line: #dbe1e8;
-  --fluff-page: #e8ecf1;
-  --fluff-panel: #ffffff;
-  --fluff-sunken: #f4f6f9;
-  --fluff-line: #dbe1e8;
-  --fluff-line-strong: #c3ccd7;
+  --line: transparent;
   --fluff-text: #1f2735;
-  --fluff-muted: #5d6879;
+  --fluff-muted: #3f4a5b;
   --fluff-slate: #475569;
-  --fluff-focus: #334155;
-  --fluff-pink: #f8c4dc;
-  --fluff-lavender: #ddd3fb;
-  --fluff-sky: #c9e0fb;
-  --fluff-peach: #ffd9c6;
-  --fluff-rose: #d9669a;
-  --fluff-active: linear-gradient(135deg, #fbd3e5, #e2d8fc);
-  --fluff-active-line: #b7a3e8;
-  --fluff-active-text: #2a2140;
-  --fluff-canvas: #131518;
-  --fluff-shadow: 0 1px 2px #3341550f, 0 8px 24px #3341551a;
-  --fluff-shadow-soft: 0 1px 2px #3341550d, 0 4px 12px #33415514;
+  --fluff-focus: #1f2735;
+  --fluff-ink: var(--fluff-palette-ink, #6a4f9c);
+  --fluff-fill: var(--fluff-palette-fill, #9a7fd0);
+  --fluff-veil: rgb(255 255 255 / 0.6);
+  --fluff-veil-strong: rgb(255 255 255 / 0.86);
+  --fluff-veil-solid: rgb(255 255 255 / 0.94);
+  --fluff-mist: rgb(255 255 255 / 0.58);
+  --fluff-mist-soft: rgb(255 255 255 / 0.3);
+  --fluff-active: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--fluff-palette-light, #f4c0de) 62%, white),
+    color-mix(in srgb, var(--fluff-palette-mid, #cec4f6) 58%, white)
+  );
+  --fluff-active-edge: color-mix(in srgb, var(--fluff-ink) 34%, transparent);
+  --fluff-lump: 38px 52px 44px 56px / 46px 40px 54px 42px;
+  --fluff-lump-alt: 54px 40px 50px 38px / 40px 52px 42px 50px;
+  --fluff-lump-small: 22px 28px 24px 30px / 26px 22px 30px 24px;
+  --fluff-halo:
+    0 0 0 1px rgb(255 255 255 / 0.4), 0 0 18px 5px rgb(255 255 255 / 0.32),
+    0 20px 40px -22px rgb(51 65 85 / 0.32);
+  --fluff-lift: 0 1px 2px rgb(51 65 85 / 0.1), 0 4px 10px rgb(51 65 85 / 0.06);
   color: var(--fluff-text);
-  background: var(--fluff-page);
+  background: color-mix(
+    in srgb,
+    var(--fluff-palette-sky, #b2c6f0) 30%,
+    #eef1f6
+  );
   color-scheme: light;
   font-variant-numeric: tabular-nums;
 }
@@ -85,7 +98,7 @@
   outline-offset: 3px;
 }
 :root[data-mode="fluff"] button:hover {
-  filter: brightness(0.98);
+  filter: brightness(1.03);
 }
 :root[data-mode="fluff"] h1,
 :root[data-mode="fluff"] h2 {
@@ -95,12 +108,12 @@
   display: none;
 }
 
-/* Mode switch in Fluff: a soft segmented pill. */
+/* Mode switch: a soft segmented pill. */
 :root[data-mode="fluff"] .mode-switch {
   gap: 2px;
   padding: 3px;
-  background: var(--fluff-sunken);
-  border: 1px solid var(--fluff-line);
+  background: var(--fluff-mist);
+  border: 0;
   border-radius: 999px;
 }
 :root[data-mode="fluff"] .mode-switch button {
@@ -110,17 +123,16 @@
   border-radius: 999px;
 }
 :root[data-mode="fluff"] .mode-switch button[aria-pressed="true"] {
-  color: var(--fluff-active-text);
+  color: var(--fluff-text);
   background: var(--fluff-active);
-  box-shadow:
-    inset 0 0 0 1px var(--fluff-active-line),
-    var(--fluff-shadow-soft);
+  box-shadow: inset 0 0 0 1.5px var(--fluff-active-edge);
 }
 
-/* Visualizer: soft clouds sit behind the frosted UI, so text never blends with them. */
+/* The live layer: under every surface, stronger than Grain's overlay so the veils show it. */
 :root[data-mode="fluff"] .visualizer-panel {
   z-index: -1;
   mix-blend-mode: normal;
+  opacity: min(1, calc(0.45 + var(--visualizer-intensity, 0.3)));
 }
 :root[data-mode="fluff"] .visualizer-expanded .visualizer-panel {
   z-index: 1000;
@@ -129,202 +141,154 @@
   display: none;
 }
 
-/* Header and page shells */
+/* Outer shapes: translucent veils, lumpy radii, soft halos, no outlines. */
 :root[data-mode="fluff"] .app-header {
-  margin-bottom: 12px;
-  background: #ffffffe6;
-  border: 1px solid #ffffff;
-  border-radius: 22px;
-  box-shadow: var(--fluff-shadow);
+  margin-bottom: 14px;
+  background: rgb(255 255 255 / 0.34);
+  border: 0;
+  border-radius: var(--fluff-lump-alt);
+  box-shadow: var(--fluff-halo);
 }
 :root[data-mode="fluff"] .brand-wordmark,
 :root[data-mode="fluff"] .opening-wordmark {
-  color: #4b5470;
+  color: color-mix(in srgb, var(--fluff-ink) 55%, #334155);
 }
-:root[data-mode="fluff"] .workspace {
-  padding: 12px 12px 0;
-  background: #ffffff66;
-  border: 1px solid #ffffffb3;
-  border-radius: 26px;
-  box-shadow: var(--fluff-shadow-soft);
-}
+:root[data-mode="fluff"] .workspace,
 :root[data-mode="fluff"] .visualizer-expanded .workspace {
+  padding: 4px 0 0;
   background: transparent;
-  border-color: transparent;
+  border: 0;
   box-shadow: none;
 }
 :root[data-mode="fluff"] .panel {
-  background: #fffffff2;
   color: var(--fluff-text);
-  border: 1px solid var(--fluff-line);
-  border-radius: 18px;
-  box-shadow: var(--fluff-shadow-soft);
+  background: var(--fluff-veil);
+  border: 0;
+  border-radius: var(--fluff-lump);
+  box-shadow: var(--fluff-halo);
+}
+:root[data-mode="fluff"] .sequencers > .panel:nth-child(even),
+:root[data-mode="fluff"] .preset-section {
+  border-radius: var(--fluff-lump-alt);
 }
 :root[data-mode="fluff"] .studio-grid .panel {
   overflow: clip;
 }
 :root[data-mode="fluff"] .section-header {
-  background: transparent;
+  padding: 0 18px;
   color: var(--fluff-text);
-  border-bottom: 1px solid var(--fluff-line);
+  background: transparent;
+  border: 0;
   box-shadow: none;
 }
 :root[data-mode="fluff"] .section-title {
   color: var(--fluff-text);
 }
 :root[data-mode="fluff"] .section-number {
-  color: var(--fluff-slate);
-  background: var(--fluff-sunken);
-  border: 1px solid var(--fluff-line);
-  border-radius: 6px;
-}
-:root[data-mode="fluff"] .instrument-collapsed > .section-header {
-  border-bottom: 0;
+  color: var(--fluff-muted);
+  background: transparent;
+  border: 0;
 }
 :root[data-mode="fluff"] .text-button {
   color: var(--fluff-muted);
 }
 
-/* Shared chip buttons */
-:root[data-mode="fluff"] .secondary,
-:root[data-mode="fluff"] .preset-options button,
-:root[data-mode="fluff"] .preset-scroll,
-:root[data-mode="fluff"] .remix-button,
-:root[data-mode="fluff"] .sound-buttons button,
-:root[data-mode="fluff"] .mute-button,
-:root[data-mode="fluff"] .waveform-switch button,
-:root[data-mode="fluff"] .scale-roots button,
-:root[data-mode="fluff"] .scale-modes button,
-:root[data-mode="fluff"] .matrix-toolbar button,
-:root[data-mode="fluff"] .automation-strip button,
-:root[data-mode="fluff"] .arp-note-options button,
-:root[data-mode="fluff"] .arp-step-row button,
-:root[data-mode="fluff"] .pad-length button,
-:root[data-mode="fluff"] .pad-progressions button,
-:root[data-mode="fluff"] .pad-degrees button,
-:root[data-mode="fluff"] .pad-inversions button,
-:root[data-mode="fluff"] .pad-instrument [data-pad-presets],
-:root[data-mode="fluff"] .motion-options button,
-:root[data-mode="fluff"] .share-panel button,
-:root[data-mode="fluff"] .drum-mode-bar button,
-:root[data-mode="fluff"] .drum-detail .matrix-toolbar button,
-:root[data-mode="fluff"] .restart,
-:root[data-mode="fluff"] .performance-tools .icon-button,
-:root[data-mode="fluff"] .instrument-collapse-toggle,
-:root[data-mode="fluff"] .mixer-channel > button[data-mixer-mute],
-:root[data-mode="fluff"] .session-panel button,
-:root[data-mode="fluff"] .pattern-controls button,
-:root[data-mode="fluff"] .progression-editor button,
-:root[data-mode="fluff"] .follow-chord-controls button,
-:root[data-mode="fluff"] .automation-view button,
-:root[data-mode="fluff"] .material-instrument .material-octaves button,
-:root[data-mode="fluff"] .vocal-instrument .vocal-roll-tools button,
-:root[data-mode="fluff"] .vocal-recordings button,
-:root[data-mode="fluff"] .visualizer-button {
+/* Chips: one soft fill, no outline. New buttons in these areas inherit the look. */
+:root[data-mode="fluff"]
+  :is(.workspace, .app-header, .visualizer-toolbar)
+  button:not(
+    .play-button,
+    .record-button,
+    .mixer-fader,
+    .step-pad,
+    .text-button,
+    .gesture-control,
+    .preset-scroll
+  ) {
   color: var(--fluff-text);
-  background: var(--fluff-panel);
-  border: 1px solid var(--fluff-line-strong);
-  border-radius: 10px;
-  box-shadow: 0 1px 2px #3341550f;
-}
-:root[data-mode="fluff"] .preset-options button.active,
-:root[data-mode="fluff"] .sound-buttons button[aria-pressed="true"],
-:root[data-mode="fluff"] .mute-button[aria-pressed="true"],
-:root[data-mode="fluff"] .waveform-switch button.active,
-:root[data-mode="fluff"] .scale-panel button[aria-pressed="true"],
-:root[data-mode="fluff"] .matrix-toolbar button[aria-pressed="true"],
-:root[data-mode="fluff"] .arp-note-options button[aria-pressed="true"],
-:root[data-mode="fluff"] .arp-step-row button[aria-pressed="true"],
-:root[data-mode="fluff"] .pad-length button[aria-pressed="true"],
-:root[data-mode="fluff"] .pad-progressions button[aria-pressed="true"],
-:root[data-mode="fluff"] .pad-degrees button[aria-pressed="true"],
-:root[data-mode="fluff"] .pad-inversions button[aria-pressed="true"],
-:root[data-mode="fluff"] .pad-sounds button[aria-pressed="true"],
-:root[data-mode="fluff"]
-  .pad-instrument
-  [data-pad-presets][aria-expanded="true"],
-:root[data-mode="fluff"] .motion-options button[aria-pressed="true"],
-:root[data-mode="fluff"] .drum-mode-bar button[aria-pressed="true"],
-:root[data-mode="fluff"]
-  .drum-detail
-  .matrix-toolbar
-  button[aria-pressed="true"],
-:root[data-mode="fluff"] .mixer-channel > button[aria-pressed="true"],
-:root[data-mode="fluff"] .pattern-controls button[aria-pressed="true"],
-:root[data-mode="fluff"] .progression-editor button[aria-pressed="true"],
-:root[data-mode="fluff"] .follow-chord-controls button[aria-pressed="true"],
-:root[data-mode="fluff"] .automation-view button[aria-pressed="true"],
-:root[data-mode="fluff"] .pattern-follow-sequence[aria-pressed="true"],
-:root[data-mode="fluff"] .material-instrument button[aria-pressed="true"],
-:root[data-mode="fluff"] .vocal-instrument button[aria-pressed="true"],
-:root[data-mode="fluff"] #phone-motion[aria-pressed="true"],
-:root[data-mode="fluff"] .visualizer-button[aria-pressed="true"],
-:root[data-mode="fluff"] .palette-toggle[aria-expanded="true"] {
-  color: var(--fluff-active-text);
-  background: var(--fluff-active);
-  border-color: var(--fluff-active-line);
-  box-shadow: inset 0 0 0 1px #ffffffb3;
-}
-:root[data-mode="fluff"] .secondary {
+  background: var(--fluff-mist);
+  border-color: transparent;
   border-radius: 999px;
+  box-shadow: var(--fluff-lift);
+}
+:root[data-mode="fluff"]
+  :is(.workspace, .app-header, .visualizer-toolbar)
+  button:not(
+    .play-button,
+    .record-button,
+    .mixer-fader,
+    .step-pad,
+    .text-button,
+    .gesture-control,
+    .preset-scroll
+  ):is([aria-pressed="true"], [aria-expanded="true"], .active) {
+  color: var(--fluff-text);
+  background: var(--fluff-active);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--fluff-active-edge);
+}
+:root[data-mode="fluff"] .preset-scroll {
+  color: var(--fluff-slate);
+  background: transparent;
+  border: 0;
 }
 :root[data-mode="fluff"] .remix-button {
-  border-radius: 999px;
-  box-shadow: var(--fluff-shadow-soft);
+  font-weight: 600;
 }
 :root[data-mode="fluff"] .undo-remix {
   color: var(--fluff-muted);
+}
+:root[data-mode="fluff"] .workspace .preset-options button,
+:root[data-mode="fluff"] .workspace .progression-cards button,
+:root[data-mode="fluff"] .workspace .pad-chords button {
+  border-radius: var(--fluff-lump-small);
 }
 :root[data-mode="fluff"] .preset-options button span {
   opacity: 1;
   color: var(--fluff-muted);
 }
-:root[data-mode="fluff"] .preset-options button.active span {
-  color: #4f4566;
-}
-:root[data-mode="fluff"] .preset-scroll {
-  color: var(--fluff-slate);
-}
-:root[data-mode="fluff"] .mixer-channel > button[data-mixer-mute] {
-  border-radius: 10px;
+:root[data-mode="fluff"] .preset-options {
+  scrollbar-color: rgb(71 85 105 / 0.3) transparent;
 }
 
-/* Transport */
+/* Transport stays readable while content scrolls beneath it. */
 :root[data-mode="fluff"] .transport {
-  background: var(--fluff-panel);
   color: var(--fluff-text);
-  border: 1px solid #ffffff;
-  border-radius: 20px;
-  box-shadow: var(--fluff-shadow);
+  background: linear-gradient(
+    170deg,
+    #ffffff 35%,
+    color-mix(in srgb, var(--fluff-palette-light, #f4c0de) 24%, #ffffff)
+  );
+  border: 0;
+  border-radius: var(--fluff-lump-alt);
+  box-shadow: var(--fluff-halo);
 }
 :root[data-mode="fluff"] .play-button {
-  color: var(--fluff-active-text);
-  background: linear-gradient(140deg, #f9c6dd, #dccffb 60%, #c7ddfb);
-  border: 1px solid #c2acec;
-  border-radius: 16px;
+  color: var(--fluff-text);
+  background: var(--fluff-active);
+  border: 0;
+  border-radius: 22px 26px 20px 28px / 24px 20px 28px 22px;
   box-shadow:
-    inset 0 1px #ffffffcc,
-    0 4px 12px #b48ee233;
+    inset 0 2px 0 rgb(255 255 255 / 0.7),
+    0 6px 16px -6px color-mix(in srgb, var(--fluff-ink) 45%, transparent);
 }
 :root[data-mode="fluff"] .play-button.playing {
-  color: #1d2a3f;
-  background: linear-gradient(140deg, #c7ddfb, #e2d8fc 55%, #ffd8c6);
-  border-color: #93b4e0;
   box-shadow:
-    inset 0 0 0 2px #ffffffb3,
-    0 0 0 3px #c9e0fb99,
-    0 4px 14px #7fa6d633;
+    inset 0 0 0 2px var(--fluff-active-edge),
+    0 0 0 4px rgb(255 255 255 / 0.6),
+    0 6px 18px -4px color-mix(in srgb, var(--fluff-ink) 55%, transparent);
 }
 :root[data-mode="fluff"] .record-button {
-  border-radius: 14px;
   color: var(--fluff-muted);
+  border: 0;
+  border-radius: 999px;
 }
 :root[data-mode="fluff"] .record-button[aria-pressed="true"] {
   color: #8a1f45;
   background: #fbd3e1;
-  border-color: #e494b2;
 }
-:root[data-mode="fluff"] .icon-button {
+:root[data-mode="fluff"] .icon-button,
+:root[data-mode="fluff"] .visualizer-button svg {
   color: var(--fluff-slate);
 }
 :root[data-mode="fluff"] .position,
@@ -335,54 +299,54 @@
   color: var(--fluff-text);
 }
 :root[data-mode="fluff"] .beat-lights b {
-  background: var(--fluff-line-strong);
-  border-radius: 3px;
+  background: rgb(71 85 105 / 0.22);
+  border-radius: 999px;
 }
 :root[data-mode="fluff"] .beat-lights b.active {
-  background: var(--fluff-rose);
+  background: var(--fluff-ink);
 }
-:root[data-mode="fluff"] .studio-tools {
-  border-top-color: var(--fluff-line);
-}
-:root[data-mode="fluff"] .track-mixer {
-  border-top-color: var(--fluff-line);
+:root[data-mode="fluff"] .studio-tools,
+:root[data-mode="fluff"] .track-mixer,
+:root[data-mode="fluff"] .share-panel,
+:root[data-mode="fluff"] .section-footer,
+:root[data-mode="fluff"] #header-visuals {
+  border-color: transparent;
 }
 
-/* Knobs and dial labels */
+/* Knobs */
 :root[data-mode="fluff"] .knob-face {
-  background: radial-gradient(circle at 35% 28%, #ffffff, #eef1f6 70%);
-  border: 1px solid var(--fluff-line-strong);
+  background: radial-gradient(circle at 35% 28%, #ffffff, #f1f3f8 72%);
+  border: 0;
   box-shadow:
-    0 2px 6px #3341551f,
-    inset 0 -2px 4px #3341550f;
+    0 3px 8px rgb(51 65 85 / 0.16),
+    inset 0 -2px 4px rgb(51 65 85 / 0.06);
 }
 :root[data-mode="fluff"] .knob-face > span:before {
   width: 3px;
   left: calc(50% - 1.5px);
   border-radius: 2px;
-  background: var(--fluff-rose);
-  box-shadow: 0 0 4px #f8c4dc;
+  background: var(--fluff-ink);
+  box-shadow: none;
 }
 :root[data-mode="fluff"] .gesture-control:focus-visible .knob-face,
 :root[data-mode="fluff"] .gesture-control.dragging .knob-face {
-  border-color: var(--fluff-active-line);
   box-shadow:
-    0 0 0 3px var(--fluff-lavender),
-    0 2px 6px #3341551f;
+    0 0 0 3px var(--fluff-active-edge),
+    0 3px 8px rgb(51 65 85 / 0.16);
 }
 :root[data-mode="fluff"] .gesture-control:focus-visible {
   outline: 2px solid var(--fluff-focus);
   outline-offset: 3px;
-  border-radius: 10px;
+  border-radius: 12px;
 }
 :root[data-mode="fluff"] .gesture-control.automation-selected .knob-face {
-  outline-color: var(--fluff-slate);
+  outline-color: var(--fluff-ink);
 }
 :root[data-mode="fluff"] .knob-face > .automation-live {
-  border-color: #b7a3e8aa;
+  border-color: var(--fluff-active-edge);
 }
 :root[data-mode="fluff"] .knob-face > .automation-live:before {
-  background: #8f7ad6;
+  background: var(--fluff-ink);
   box-shadow: 0 0 0 1px #ffffff;
 }
 :root[data-mode="fluff"] .dial-label,
@@ -399,430 +363,323 @@
   color: var(--fluff-text);
 }
 
-/* Mixer */
+/* Mixer: bare faders, no boxes. */
 :root[data-mode="fluff"] .mixer-fader {
-  background: var(--fluff-sunken);
-  border: 1px solid var(--fluff-line);
-  border-radius: 12px;
+  background: transparent;
+  border: 0;
 }
 :root[data-mode="fluff"] .fader-track {
-  background: #dfe4eb;
+  background: rgb(71 85 105 / 0.16);
   border: 0;
-  border-radius: 2px;
+  border-radius: 999px;
 }
 :root[data-mode="fluff"] .fader-fill {
-  background: linear-gradient(#e2d8fc, #f8c4dc);
-  border-radius: 2px;
+  background: linear-gradient(
+    var(--fluff-palette-light, #f4c0de),
+    var(--fluff-fill)
+  );
+  border-radius: 999px;
 }
 :root[data-mode="fluff"] .fader-thumb {
   background: #ffffff;
-  border: 1px solid var(--fluff-line-strong);
-  border-radius: 6px;
-  box-shadow:
-    inset 0 -2px 0 #f8c4dc,
-    0 1px 3px #33415529;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 2px 6px rgb(51 65 85 / 0.25);
 }
 
-/* Scale, chords and example strip */
+/* Nested areas lose their boxes; spacing separates them. */
 :root[data-mode="fluff"] .scale-panel,
-:root[data-mode="fluff"] .studio-tools .scale-panel {
-  background: var(--fluff-sunken);
-  color: var(--fluff-text);
-  border-radius: 14px;
-  box-shadow: none;
-}
-:root[data-mode="fluff"] .scale-row > span,
-:root[data-mode="fluff"] .progression-position,
-:root[data-mode="fluff"] .follow-chord-context {
-  color: var(--fluff-muted);
-}
-:root[data-mode="fluff"] .chords-disclosure {
-  background: #fffffff2;
-  border: 1px solid var(--fluff-line);
-  border-radius: 18px;
-  box-shadow: var(--fluff-shadow-soft);
-}
-:root[data-mode="fluff"] .progression-cards button.current {
-  box-shadow: inset 0 -4px var(--fluff-rose);
-}
-:root[data-mode="fluff"] .pad-chords button {
-  background: var(--fluff-panel);
-  color: var(--fluff-text);
-  border: 1px solid var(--fluff-line-strong);
-  border-radius: 12px;
-}
-:root[data-mode="fluff"] .pad-chords button[aria-pressed="true"],
-:root[data-mode="fluff"]
-  .pad-instrument
-  .pad-chords
-  button[aria-pressed="true"] {
-  background: var(--fluff-active);
-  border-color: var(--fluff-active-line);
-  outline: none;
-}
-:root[data-mode="fluff"] .pad-chords button.current,
-:root[data-mode="fluff"] .pad-instrument .pad-chords button.current {
-  box-shadow: inset 0 -4px var(--fluff-rose);
-}
-:root[data-mode="fluff"] .pad-chords span,
-:root[data-mode="fluff"] .pad-chords small,
-:root[data-mode="fluff"] .pad-instrument .pad-chords .pad-chord-duration,
-:root[data-mode="fluff"] .pad-instrument .pad-edit-group > span,
-:root[data-mode="fluff"] .pad-instrument .pad-progression-description {
-  color: var(--fluff-muted);
-}
-:root[data-mode="fluff"] .pad-instrument .pad-chords .pad-chord-number {
-  border-right-color: var(--fluff-line);
-}
-:root[data-mode="fluff"] .pad-instrument .pad-chord-editor {
-  background: var(--fluff-sunken);
-  border: 1px solid var(--fluff-line);
-  border-radius: 14px;
-}
-:root[data-mode="fluff"] .pad-instrument .pad-progressions {
-  background: var(--fluff-panel);
-  border: 1px solid var(--fluff-line);
-  border-radius: 14px;
-  box-shadow: var(--fluff-shadow);
-}
-:root[data-mode="fluff"] .arp-note-options button.current,
-:root[data-mode="fluff"] .arp-step-row button.current {
-  outline: 2px solid var(--fluff-rose);
-}
-:root[data-mode="fluff"] .preset-options {
-  scrollbar-color: var(--fluff-line-strong) transparent;
-}
-
-/* Instrument tabs, controls and sections */
-:root[data-mode="fluff"] .instrument-tabs {
-  gap: 4px;
-  padding: 4px;
-  background: var(--fluff-sunken);
-  border: 1px solid var(--fluff-line);
-  border-radius: 14px;
-}
-:root[data-mode="fluff"] .instrument-tabs button {
-  color: var(--fluff-muted);
+:root[data-mode="fluff"] .studio-tools .scale-panel,
+:root[data-mode="fluff"] .chords-disclosure,
+:root[data-mode="fluff"] .instrument-tabs,
+:root[data-mode="fluff"] .automation-strip,
+:root[data-mode="fluff"] .pattern-navigation,
+:root[data-mode="fluff"] .pad-instrument .pad-chord-editor,
+:root[data-mode="fluff"] .material-instrument .material-status,
+:root[data-mode="fluff"] .vocal-instrument #vocal-host-capability,
+:root[data-mode="fluff"] .session-panel,
+:root[data-mode="fluff"] .studio-tools .session-panel,
+:root[data-mode="fluff"] .session-panel #session-status,
+:root[data-mode="fluff"] .matrix-legend span,
+:root[data-mode="fluff"] .note-help {
+  color: inherit;
   background: transparent;
-  border-radius: 10px;
-}
-:root[data-mode="fluff"] .instrument-tabs button[aria-pressed="true"] {
-  color: var(--fluff-active-text);
-  background: var(--fluff-active);
-  box-shadow:
-    inset 0 0 0 1px var(--fluff-active-line),
-    var(--fluff-shadow-soft);
-}
-:root[data-mode="fluff"] .instrument-controls {
-  margin-top: 8px;
-  background: var(--fluff-sunken);
-  border: 1px solid var(--fluff-line);
-  border-radius: 14px;
-}
-:root[data-mode="fluff"] .drum-detail {
-  background: var(--fluff-sunken);
-  border: 1px solid var(--fluff-line);
-  border-radius: 16px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 :root[data-mode="fluff"] .instrument-section,
 :root[data-mode="fluff"] .material-instrument .material-sound-controls,
 :root[data-mode="fluff"] .material-instrument .material-sequence,
 :root[data-mode="fluff"] .material-instrument .material-automation-details {
-  border: 1px solid var(--fluff-line);
-  border-radius: 14px;
-  overflow: clip;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
 }
 :root[data-mode="fluff"] .instrument-section > summary,
 :root[data-mode="fluff"] .material-instrument summary {
   color: var(--fluff-text);
-  background: var(--fluff-sunken);
+  background: transparent;
+  font-weight: 600;
 }
+/* One soft fill marks the drum detail and instrument control areas. */
+:root[data-mode="fluff"] .instrument-controls,
+:root[data-mode="fluff"] .drum-detail {
+  background: var(--fluff-mist-soft);
+  border: 0;
+  border-radius: var(--fluff-lump-small);
+}
+:root[data-mode="fluff"] .instrument-controls {
+  margin-top: 8px;
+}
+:root[data-mode="fluff"] .instrument-tabs {
+  gap: 4px;
+}
+:root[data-mode="fluff"] .instrument-tabs button {
+  color: var(--fluff-muted);
+}
+:root[data-mode="fluff"] .scale-row > span,
+:root[data-mode="fluff"] .progression-position,
+:root[data-mode="fluff"] .follow-chord-context,
+:root[data-mode="fluff"] .matrix-legend,
+:root[data-mode="fluff"] .section-footer,
+:root[data-mode="fluff"] .note-help,
 :root[data-mode="fluff"] .material-instrument summary span,
 :root[data-mode="fluff"] .material-instrument .material-surface-tools,
 :root[data-mode="fluff"]
   .instrument-automation
   .instrument-lane-title
   > span:last-child,
-:root[data-mode="fluff"] .vocal-instrument .vocal-waveform-info {
-  color: var(--fluff-muted);
-}
-:root[data-mode="fluff"] .material-instrument .material-status,
-:root[data-mode="fluff"] .vocal-instrument #vocal-host-capability {
-  background: var(--fluff-sunken);
-  border: 1px solid var(--fluff-line);
-  border-radius: 12px;
-}
-:root[data-mode="fluff"] .section-footer {
-  color: var(--fluff-muted);
-  border-top-color: var(--fluff-line);
-}
-:root[data-mode="fluff"] .note-help {
-  background: transparent;
-  color: var(--fluff-muted);
-}
-:root[data-mode="fluff"] .legend-pad {
-  background: var(--fluff-rose);
-  border-radius: 2px;
-}
-:root[data-mode="fluff"] .matrix-legend {
-  color: var(--fluff-muted);
-}
-:root[data-mode="fluff"] .matrix-legend span {
-  background: var(--fluff-sunken);
-  border-radius: 6px;
-}
-:root[data-mode="fluff"] .automation-strip {
-  background: var(--fluff-sunken);
-  border: 1px solid var(--fluff-line);
-  border-radius: 12px;
-}
-
-/* Dark canvases sit in rounded wells so they read as screens inside the light panels. */
-:root[data-mode="fluff"] .beat-surface,
-:root[data-mode="fluff"] .note-matrix,
-:root[data-mode="fluff"] .material-instrument .material-surface,
-:root[data-mode="fluff"] .vocal-instrument .vocal-roll {
-  background: var(--fluff-canvas);
-  border: 1px solid #2c3140;
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow:
-    0 0 0 4px #ffffff,
-    0 0 0 5px var(--fluff-line),
-    0 6px 16px #33415524;
-}
-:root[data-mode="fluff"] .beat-keyboard .step-pad:focus-visible,
-:root[data-mode="fluff"] .matrix-access > div:focus-visible {
-  outline-color: #f8c4dc;
-}
-
-/* Vocal waveform is SVG, so it can follow the light theme. */
-:root[data-mode="fluff"] .vocal-instrument .vocal-waveform {
-  background: var(--fluff-sunken);
-  border: 1px solid var(--fluff-line);
-  border-radius: 12px;
-  overflow: hidden;
-}
-:root[data-mode="fluff"] .vocal-waveform path {
-  fill: #a99ae0;
-}
-:root[data-mode="fluff"] .vocal-waveform .vocal-trim-shade {
-  fill: #e8ecf1;
-  opacity: 0.85;
-}
-:root[data-mode="fluff"] .vocal-waveform .vocal-trim-line {
-  stroke: var(--fluff-rose);
-}
-:root[data-mode="fluff"] .vocal-trim > span {
-  color: var(--fluff-text);
-  background: #ffffffe6;
-  border-radius: 6px;
-}
-:root[data-mode="fluff"] .vocal-trim input::-webkit-slider-thumb {
-  border: 2px solid var(--fluff-rose);
-  border-radius: 8px;
-  background: #ffffffb3;
-}
-:root[data-mode="fluff"] .vocal-trim input::-moz-range-thumb {
-  border: 2px solid var(--fluff-rose);
-  border-radius: 8px;
-  background: #ffffffb3;
-}
-
-/* Header extras: share, motion and session panels */
+:root[data-mode="fluff"] .vocal-instrument .vocal-waveform-info,
+:root[data-mode="fluff"] .pad-chords span,
+:root[data-mode="fluff"] .pad-chords small,
+:root[data-mode="fluff"] .pad-instrument .pad-chords .pad-chord-duration,
+:root[data-mode="fluff"] .pad-instrument .pad-edit-group > span,
+:root[data-mode="fluff"] .pad-instrument .pad-progression-description,
+:root[data-mode="fluff"] .pattern-setting > span,
+:root[data-mode="fluff"] .pattern-page-label,
 :root[data-mode="fluff"] .save-state,
-:root[data-mode="fluff"] .studio-tools .save-state {
-  color: var(--fluff-muted);
-}
-:root[data-mode="fluff"] .status-dot {
-  background: #8f7ad6;
-  border-radius: 50%;
-}
-:root[data-mode="fluff"] .share-panel {
-  color: var(--fluff-text);
-  border-top-color: var(--fluff-line);
-}
-:root[data-mode="fluff"] .share-panel input,
-:root[data-mode="fluff"] .session-panel input {
-  color: var(--fluff-text);
-  background: var(--fluff-sunken);
-  border: 1px solid var(--fluff-line-strong);
-  border-radius: 10px;
-}
-:root[data-mode="fluff"] .playback-recovery-status {
-  color: var(--fluff-text);
-}
-:root[data-mode="fluff"] .motion-options {
-  color: var(--fluff-text);
-  background: #ffffffe6;
-  border-radius: 16px;
-  box-shadow: var(--fluff-shadow-soft);
-}
-:root[data-mode="fluff"] .session-panel {
-  color: var(--fluff-text);
-  background: #fffffff2;
-  border: 1px solid var(--fluff-line);
-  border-radius: 18px;
-}
-:root[data-mode="fluff"] .studio-tools .session-panel {
-  border-color: var(--fluff-line);
-}
-:root[data-mode="fluff"] .session-panel #session-status {
-  background: var(--fluff-sunken);
-  border: 1px solid var(--fluff-line);
-  border-radius: 999px;
-}
-:root[data-mode="fluff"] .session-panel .session-primary {
-  color: var(--fluff-active-text);
-  background: var(--fluff-active);
-  border-color: var(--fluff-active-line);
-}
-:root[data-mode="fluff"] .session-panel .session-help {
-  color: var(--fluff-muted);
-}
-:root[data-mode="fluff"] .session-panel .session-message {
-  background: var(--fluff-sunken);
-  border-left-color: var(--fluff-rose);
-  border-radius: 0 10px 10px 0;
-}
-
-/* Bottom instrument navigation */
-:root[data-mode="fluff"] .instrument-nav {
-  bottom: 8px;
-  width: min(680px, calc(100vw - 16px));
-  padding: 4px;
-  padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
-  gap: 2px;
-  color: var(--fluff-text);
-  background: #ffffffeb;
-  border: 1px solid #ffffff;
-  border-radius: 18px;
-  box-shadow: var(--fluff-shadow);
-}
-:root[data-mode="fluff"] .instrument-nav button {
-  min-height: 40px;
-  color: var(--fluff-muted);
-  border-right: 0;
-  border-radius: 12px;
-}
-:root[data-mode="fluff"] .instrument-nav button[aria-current="location"],
-:root[data-mode="fluff"] .instrument-nav button[aria-expanded="true"] {
-  color: var(--fluff-active-text);
-  background: var(--fluff-active);
-  box-shadow: inset 0 0 0 1px var(--fluff-active-line);
-}
-
-/* Visualizer toolbar and palette picker */
-:root[data-mode="fluff"] .visualizer-toolbar {
-  color: var(--fluff-text);
-  background: #ffffffeb;
-  border: 1px solid #ffffff;
-  border-radius: 16px;
-  box-shadow: var(--fluff-shadow);
-}
-:root[data-mode="fluff"] #header-visuals .visualizer-toolbar {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-}
+:root[data-mode="fluff"] .studio-tools .save-state,
+:root[data-mode="fluff"] .session-panel .session-help,
 :root[data-mode="fluff"] .visualizer-label,
 :root[data-mode="fluff"] .audio-status {
   color: var(--fluff-muted);
 }
-:root[data-mode="fluff"] .visualizer-button svg {
-  color: var(--fluff-slate);
+:root[data-mode="fluff"] .legend-pad {
+  background: var(--fluff-ink);
+  border-radius: 2px;
 }
-:root[data-mode="fluff"] .palette-current {
-  border: 1px solid var(--fluff-line-strong);
+:root[data-mode="fluff"] .progression-cards button.current,
+:root[data-mode="fluff"] .pad-chords button.current,
+:root[data-mode="fluff"] .pad-instrument .pad-chords button.current {
+  box-shadow: inset 0 -4px var(--fluff-ink);
+}
+:root[data-mode="fluff"] .pad-instrument .pad-chords .pad-chord-number {
+  border-right-color: transparent;
+}
+:root[data-mode="fluff"] .pad-instrument .pad-progressions {
+  background: var(--fluff-veil-strong);
+  border: 0;
+  border-radius: var(--fluff-lump-small);
+  box-shadow: var(--fluff-halo);
+}
+:root[data-mode="fluff"] .arp-note-options button.current,
+:root[data-mode="fluff"] .arp-step-row button.current {
+  outline: 2px solid var(--fluff-ink);
+}
+:root[data-mode="fluff"] .pattern-pages button[data-playing="true"] {
+  box-shadow: inset 0 -3px var(--fluff-ink);
+}
+:root[data-mode="fluff"] .status-dot {
+  background: var(--fluff-ink);
   border-radius: 50%;
 }
-:root[data-mode="fluff"] .visualizer-palettes {
-  background: #fffffff7;
-  border: 1px solid var(--fluff-line);
-  border-radius: 16px;
-  box-shadow: var(--fluff-shadow);
+
+/* Canvas editors: no wells or rings, just a rounded window onto the light canvas. */
+:root[data-mode="fluff"] .beat-surface,
+:root[data-mode="fluff"] .note-matrix,
+:root[data-mode="fluff"] .material-instrument .material-surface,
+:root[data-mode="fluff"] .vocal-instrument .vocal-roll {
+  background: transparent;
+  border: 0;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: none;
 }
-:root[data-mode="fluff"] .visualizer-palettes button {
+:root[data-mode="fluff"] .beat-keyboard .step-pad.on:after {
+  left: calc(50% - 3.5px);
+  top: calc(50% - 3.5px);
+  width: 7px;
+  height: 7px;
+  background: rgb(255 255 255 / 0.92);
+  border: 0;
+  border-radius: 50%;
+  box-shadow: none;
+}
+:root[data-mode="fluff"] .beat-keyboard .step-pad:focus-visible {
   color: var(--fluff-text);
-  border: 1px solid var(--fluff-line);
+  background: rgb(255 255 255 / 0.5);
   border-radius: 12px;
 }
-:root[data-mode="fluff"] .visualizer-palettes button[aria-pressed="true"] {
-  color: var(--fluff-active-text);
-  background: var(--fluff-sunken);
-  border-color: var(--fluff-active-line);
-  box-shadow: inset 0 0 0 1px var(--fluff-active-line);
+:root[data-mode="fluff"] .beat-keyboard .step-pad:focus-visible,
+:root[data-mode="fluff"] .matrix-access > div:focus-visible {
+  outline-color: var(--fluff-focus);
+}
+
+/* Vocal waveform is SVG, so it follows the same light treatment. */
+:root[data-mode="fluff"] .vocal-instrument .vocal-waveform {
+  background: var(--fluff-mist-soft);
+  border: 0;
+  border-radius: 18px;
+  overflow: hidden;
+}
+:root[data-mode="fluff"] .vocal-waveform path {
+  fill: var(--fluff-fill);
+}
+:root[data-mode="fluff"] .vocal-waveform .vocal-trim-shade {
+  fill: #eef1f6;
+  opacity: 0.85;
+}
+:root[data-mode="fluff"] .vocal-waveform .vocal-trim-line {
+  stroke: var(--fluff-ink);
+}
+:root[data-mode="fluff"] .vocal-trim > span {
+  color: var(--fluff-text);
+  background: var(--fluff-veil-strong);
+  border-radius: 999px;
+}
+:root[data-mode="fluff"] .vocal-trim input::-webkit-slider-thumb {
+  border: 2px solid var(--fluff-ink);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.7);
+}
+:root[data-mode="fluff"] .vocal-trim input::-moz-range-thumb {
+  border: 2px solid var(--fluff-ink);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.7);
+}
+
+/* Inputs, share and session */
+:root[data-mode="fluff"] .share-panel,
+:root[data-mode="fluff"] .playback-recovery-status {
+  color: var(--fluff-text);
+}
+:root[data-mode="fluff"] .share-panel input,
+:root[data-mode="fluff"] .session-panel input {
+  color: var(--fluff-text);
+  background: var(--fluff-mist);
+  border: 0;
+  border-radius: 999px;
+}
+:root[data-mode="fluff"] .session-panel .session-message {
+  background: transparent;
+  border-left-color: var(--fluff-ink);
+}
+:root[data-mode="fluff"] .motion-options {
+  color: var(--fluff-text);
+  background: var(--fluff-veil-strong);
+  border-radius: var(--fluff-lump-small);
+  box-shadow: var(--fluff-halo);
+}
+
+/* Floating bars */
+:root[data-mode="fluff"] .instrument-nav {
+  bottom: 8px;
+  width: min(680px, calc(100vw - 16px));
+  padding: 5px;
+  padding-bottom: calc(5px + env(safe-area-inset-bottom, 0px));
+  gap: 2px;
+  color: var(--fluff-text);
+  background: var(--fluff-veil-strong);
+  border: 0;
+  border-radius: 30px 36px 32px 38px / 34px 30px 38px 32px;
+  box-shadow: var(--fluff-halo);
+}
+:root[data-mode="fluff"] .instrument-nav button {
+  min-height: 40px;
+  color: var(--fluff-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+}
+:root[data-mode="fluff"] .instrument-nav button[aria-current="location"],
+:root[data-mode="fluff"] .instrument-nav button[aria-expanded="true"] {
+  color: var(--fluff-text);
+  background: var(--fluff-active);
+  box-shadow: inset 0 0 0 1.5px var(--fluff-active-edge);
+}
+:root[data-mode="fluff"] .visualizer-toolbar {
+  color: var(--fluff-text);
+  background: var(--fluff-veil-strong);
+  border: 0;
+  border-radius: var(--fluff-lump-small);
+  box-shadow: var(--fluff-halo);
+}
+:root[data-mode="fluff"] #header-visuals .visualizer-toolbar {
+  background: transparent;
+  box-shadow: none;
+}
+:root[data-mode="fluff"] .palette-current {
+  border: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgb(51 65 85 / 0.15);
+}
+:root[data-mode="fluff"] .visualizer-palettes {
+  background: var(--fluff-veil-strong);
+  border: 0;
+  border-radius: var(--fluff-lump-small);
+  box-shadow: var(--fluff-halo);
+}
+:root[data-mode="fluff"] .visualizer-palettes button {
+  border-radius: 18px;
 }
 :root[data-mode="fluff"] .palette-swatch {
-  border-radius: 8px;
-  box-shadow: inset 0 0 0 1px #3341551a;
-}
-@media (max-width: 920px) {
-  :root[data-mode="fluff"] #header-visuals {
-    border-top-color: var(--fluff-line);
-  }
+  border-radius: 999px;
 }
 
 /* Footer, toast and dialogs */
 :root[data-mode="fluff"] .app-footer {
+  margin: 14px 0 0;
   color: var(--fluff-muted);
-  background: transparent;
-  border-top-color: var(--fluff-line);
+  background: var(--fluff-veil);
+  border: 0;
+  border-radius: 999px;
 }
 :root[data-mode="fluff"] kbd {
   color: var(--fluff-text);
-  background: var(--fluff-panel);
-  border: 1px solid var(--fluff-line-strong);
-  border-radius: 4px;
+  background: var(--fluff-mist);
+  border: 0;
+  border-radius: 6px;
 }
 :root[data-mode="fluff"] .toast {
   color: var(--fluff-text);
-  background: #fffffff7;
-  border: 1px solid var(--fluff-line);
+  background: var(--fluff-veil-strong);
+  border: 0;
   border-radius: 999px;
-  box-shadow: var(--fluff-shadow);
+  box-shadow: var(--fluff-halo);
 }
 :root[data-mode="fluff"] .pattern-controls .pattern-trigger {
-  background: var(--fluff-sunken);
-}
-:root[data-mode="fluff"] .pattern-pages button[data-playing="true"] {
-  box-shadow: inset 0 -3px var(--fluff-rose);
-}
-:root[data-mode="fluff"]
-  .pattern-pages
-  button[aria-pressed="true"][data-playing="true"] {
-  box-shadow: inset 0 -3px #8f7ad6;
+  background: var(--fluff-mist-soft);
+  border-color: transparent;
+  box-shadow: none;
 }
 :root[data-mode="fluff"] .pattern-dialog {
   color: var(--fluff-text);
-  background: var(--fluff-panel);
-  border: 1px solid var(--fluff-line);
-  border-radius: 22px;
-  box-shadow: 0 20px 60px #33415533;
+  background: var(--fluff-veil-strong);
+  border: 0;
+  border-radius: var(--fluff-lump);
+  box-shadow: var(--fluff-halo);
 }
 :root[data-mode="fluff"] .pattern-dialog::backdrop {
-  background: #e8ecf1b3;
-  backdrop-filter: blur(6px);
-}
-:root[data-mode="fluff"] .pattern-setting > span,
-:root[data-mode="fluff"] .pattern-page-label {
-  color: var(--fluff-muted);
-}
-:root[data-mode="fluff"] .pattern-navigation {
-  background: var(--fluff-sunken);
-  border: 1px solid var(--fluff-line);
-  border-radius: 12px;
+  background: rgb(238 241 246 / 0.6);
+  backdrop-filter: none;
 }
 @media (max-width: 650px) {
-  :root[data-mode="fluff"] .app-header {
-    border-radius: 18px;
-  }
-  :root[data-mode="fluff"] .workspace {
-    padding: 8px 8px 0;
-    border-radius: 20px;
-  }
-  :root[data-mode="fluff"] .panel {
-    border-radius: 16px;
+  :root[data-mode="fluff"] {
+    --fluff-lump: 26px 34px 28px 36px / 30px 26px 34px 28px;
+    --fluff-lump-alt: 34px 26px 32px 24px / 26px 34px 28px 32px;
+    --fluff-lump-small: 18px 22px 20px 24px / 20px 18px 24px 20px;
   }
   :root[data-mode="fluff"] .instrument-nav {
     bottom: 6px;

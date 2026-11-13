@@ -4,173 +4,257 @@
   aria-hidden="true"
 >
   <style>
-    .fluff-wordmark-letter {
-      animation: fluff-wordmark-float 5.2s ease-in-out infinite;
-    }
-    .fluff-wordmark-letter:nth-of-type(2) {
-      animation-delay: -1s;
-    }
-    .fluff-wordmark-letter:nth-of-type(3) {
-      animation-delay: -2s;
-    }
-    .fluff-wordmark-letter:nth-of-type(4) {
-      animation-delay: -3s;
-    }
-    .fluff-wordmark-letter:nth-of-type(5) {
-      animation-delay: -4s;
-    }
-    @keyframes fluff-wordmark-float {
-      0%,
-      100% {
-        transform: translateY(0);
-      }
-      50% {
-        transform: translateY(-2px);
-      }
+    .fluff-wordmark-still {
+      display: none;
     }
     @media (prefers-reduced-motion: reduce) {
-      .fluff-wordmark-letter {
-        animation: none;
+      .fluff-wordmark-live {
+        display: none;
+      }
+      .fluff-wordmark-still {
+        display: inline;
       }
     }
   </style>
   <defs>
+    <filter
+      id="fluff-letter-drift"
+      x="-10"
+      y="-10"
+      width="682"
+      height="120"
+      filterUnits="userSpaceOnUse"
+      color-interpolation-filters="sRGB"
+    >
+      <feTurbulence
+        type="fractalNoise"
+        baseFrequency="0.012 0.03"
+        numOctaves="1"
+        seed="5"
+        result="drift"
+      >
+        <animate
+          attributeName="baseFrequency"
+          values="0.012 0.03;0.016 0.024;0.012 0.03"
+          dur="14s"
+          repeatCount="indefinite"
+        />
+      </feTurbulence>
+      <feDisplacementMap
+        in="SourceGraphic"
+        in2="drift"
+        scale="3"
+        xChannelSelector="R"
+        yChannelSelector="G"
+      >
+        <animate
+          attributeName="scale"
+          values="3;6;3"
+          dur="9s"
+          repeatCount="indefinite"
+        />
+      </feDisplacementMap>
+    </filter>
+    <filter
+      id="fluff-letter-shadow"
+      x="-10"
+      y="-10"
+      width="682"
+      height="130"
+      filterUnits="userSpaceOnUse"
+    >
+      <feGaussianBlur stdDeviation="4" />
+    </filter>
     <linearGradient
-      id="fluff-wordmark-fill"
-      x1="42"
-      y1="0"
-      x2="620"
-      y2="0"
+      id="fluff-letter-belly"
+      x1="0"
+      y1="8"
+      x2="0"
+      y2="96"
       gradientUnits="userSpaceOnUse"
     >
-      <stop offset="0" stop-color="#f8b4d2" />
-      <stop offset="0.36" stop-color="#d8c4fb" />
-      <stop offset="0.7" stop-color="#b6d5fb" />
-      <stop offset="1" stop-color="#ffd0bc" />
+      <stop offset="0.35" style="stop-color: var(--fluff-palette-light, #f4c0de)" stop-opacity="0" />
+      <stop offset="1" style="stop-color: var(--fluff-palette-mid, #f4c0de)" stop-opacity="0.75" />
     </linearGradient>
+    <g id="fluff-letter-puffs">
+      <circle cx="108.7" cy="81.4" r="12.9" />
+      <circle cx="108.8" cy="73.9" r="12.3" />
+      <circle cx="109.4" cy="65.3" r="10.8" />
+      <circle cx="108.9" cy="57.1" r="12.7" />
+      <circle cx="109.4" cy="48.3" r="13.2" />
+      <circle cx="108.4" cy="40" r="11.5" />
+      <circle cx="109.3" cy="31.8" r="11.8" />
+      <circle cx="108.9" cy="23" r="14.4" />
+      <circle cx="108.5" cy="23" r="13.7" />
+      <circle cx="117.3" cy="23.4" r="12.9" />
+      <circle cx="123.5" cy="22.9" r="11.3" />
+      <circle cx="131.6" cy="22.8" r="12.2" />
+      <circle cx="139.1" cy="23" r="12.9" />
+      <circle cx="146.9" cy="22.7" r="12.3" />
+      <circle cx="154.3" cy="23.2" r="10.4" />
+      <circle cx="162.3" cy="22.9" r="12.4" />
+      <circle cx="170.2" cy="23.5" r="12.7" />
+      <circle cx="109.1" cy="53.9" r="13.9" />
+      <circle cx="116.8" cy="53.2" r="11.5" />
+      <circle cx="123.6" cy="53.4" r="10.5" />
+      <circle cx="130.6" cy="54.1" r="13.5" />
+      <circle cx="138.1" cy="52.9" r="13.2" />
+      <circle cx="146.3" cy="53" r="10.5" />
+      <circle cx="152.9" cy="54.3" r="10.8" />
+      <circle cx="122.4" cy="19.5" r="15.5" />
+      <circle cx="144.2" cy="20.7" r="15.5" />
+      <circle cx="162.8" cy="21.1" r="14.2" />
+      <circle cx="205.6" cy="23.7" r="12.5" />
+      <circle cx="205.6" cy="32.3" r="13.3" />
+      <circle cx="206.6" cy="39.4" r="11.1" />
+      <circle cx="206.7" cy="48.6" r="11.3" />
+      <circle cx="206.6" cy="56.2" r="12.8" />
+      <circle cx="206.3" cy="64.7" r="11" />
+      <circle cx="206.1" cy="72.8" r="10.4" />
+      <circle cx="206.3" cy="81.8" r="13.8" />
+      <circle cx="206.7" cy="81.3" r="11.9" />
+      <circle cx="213" cy="82.5" r="13" />
+      <circle cx="222.3" cy="82.3" r="11.5" />
+      <circle cx="229.7" cy="82.5" r="11.4" />
+      <circle cx="237" cy="82.5" r="13.5" />
+      <circle cx="245.1" cy="82.2" r="11.8" />
+      <circle cx="252.6" cy="81.4" r="11" />
+      <circle cx="261.3" cy="82.1" r="12.9" />
+      <circle cx="207.3" cy="20.9" r="15.5" />
+      <circle cx="257.4" cy="75.8" r="15.1" />
+      <circle cx="299.6" cy="23.3" r="14.2" />
+      <circle cx="298.3" cy="32.3" r="13.7" />
+      <circle cx="298.9" cy="41.2" r="10.8" />
+      <circle cx="298.1" cy="49.2" r="12" />
+      <circle cx="299.2" cy="49.2" r="13.3" />
+      <circle cx="299.2" cy="53.8" r="13.9" />
+      <circle cx="301.4" cy="60" r="11.2" />
+      <circle cx="302.2" cy="64.3" r="13.3" />
+      <circle cx="306.6" cy="67.3" r="14.2" />
+      <circle cx="309.1" cy="70.9" r="12.7" />
+      <circle cx="314.8" cy="74" r="11.3" />
+      <circle cx="319.1" cy="76.2" r="11.3" />
+      <circle cx="323.8" cy="78.2" r="14.5" />
+      <circle cx="329" cy="77.6" r="10.7" />
+      <circle cx="335.2" cy="77.3" r="11.2" />
+      <circle cx="338.9" cy="76.1" r="13.9" />
+      <circle cx="343.6" cy="74.1" r="12.5" />
+      <circle cx="348.6" cy="72.4" r="10.8" />
+      <circle cx="352.1" cy="67.2" r="10.7" />
+      <circle cx="354.8" cy="63.5" r="12.8" />
+      <circle cx="358.1" cy="59.3" r="11.6" />
+      <circle cx="359.5" cy="54.8" r="11.8" />
+      <circle cx="359.3" cy="49.5" r="12.6" />
+      <circle cx="359.8" cy="49.8" r="13.8" />
+      <circle cx="360.1" cy="41.3" r="12.9" />
+      <circle cx="359.4" cy="32.8" r="11" />
+      <circle cx="358.8" cy="23" r="13.2" />
+      <circle cx="299.5" cy="19.8" r="15.5" />
+      <circle cx="360.3" cy="20.8" r="15.6" />
+      <circle cx="395.2" cy="82.5" r="13.5" />
+      <circle cx="396.2" cy="73.5" r="12.3" />
+      <circle cx="395.9" cy="65.7" r="11.4" />
+      <circle cx="395.7" cy="56.6" r="11.6" />
+      <circle cx="395.4" cy="49" r="13.7" />
+      <circle cx="396.1" cy="40.6" r="11" />
+      <circle cx="396.5" cy="30.8" r="10.7" />
+      <circle cx="395" cy="23.6" r="11.5" />
+      <circle cx="395.4" cy="24" r="13.4" />
+      <circle cx="402.8" cy="23.5" r="11.9" />
+      <circle cx="411.1" cy="23.7" r="12.3" />
+      <circle cx="418.9" cy="24" r="10.8" />
+      <circle cx="426.6" cy="23.6" r="14.1" />
+      <circle cx="433" cy="22.5" r="11.6" />
+      <circle cx="441.4" cy="22.9" r="10.5" />
+      <circle cx="449" cy="23.8" r="12.1" />
+      <circle cx="455.7" cy="23.6" r="14.5" />
+      <circle cx="396.1" cy="54.1" r="13.9" />
+      <circle cx="403.2" cy="54.1" r="14.4" />
+      <circle cx="411.1" cy="53.9" r="11.4" />
+      <circle cx="417.5" cy="53.9" r="13.8" />
+      <circle cx="426.2" cy="54.3" r="13" />
+      <circle cx="432.5" cy="54.3" r="12.9" />
+      <circle cx="439.9" cy="53.1" r="12" />
+      <circle cx="407.8" cy="20.1" r="14.2" />
+      <circle cx="429.6" cy="20.3" r="14.4" />
+      <circle cx="449" cy="21.2" r="14.5" />
+      <circle cx="492.7" cy="82.3" r="12.8" />
+      <circle cx="493.1" cy="73.3" r="12.3" />
+      <circle cx="493.2" cy="65.9" r="11.4" />
+      <circle cx="493.2" cy="56.2" r="12.8" />
+      <circle cx="493" cy="48.3" r="13.6" />
+      <circle cx="492.7" cy="39.4" r="11.9" />
+      <circle cx="492.5" cy="31.4" r="10.5" />
+      <circle cx="492.1" cy="22.6" r="12.1" />
+      <circle cx="493.4" cy="22.5" r="12.8" />
+      <circle cx="500.2" cy="23.9" r="11.9" />
+      <circle cx="508.7" cy="22.8" r="10.1" />
+      <circle cx="514.7" cy="22.8" r="12.4" />
+      <circle cx="522.6" cy="23.9" r="14.1" />
+      <circle cx="530.6" cy="23" r="11" />
+      <circle cx="538.8" cy="23.6" r="11.3" />
+      <circle cx="546.3" cy="23.8" r="13.4" />
+      <circle cx="553.6" cy="22.9" r="13.9" />
+      <circle cx="493.3" cy="53" r="13.7" />
+      <circle cx="500.7" cy="53.5" r="12.1" />
+      <circle cx="506.8" cy="53.1" r="11.2" />
+      <circle cx="515.1" cy="54.1" r="10.5" />
+      <circle cx="523" cy="54.1" r="14.4" />
+      <circle cx="529.7" cy="53.4" r="13.2" />
+      <circle cx="537.2" cy="53.4" r="11.1" />
+      <circle cx="504.1" cy="19.8" r="14.9" />
+      <circle cx="526.5" cy="20.7" r="15.3" />
+      <circle cx="547.4" cy="19.4" r="15.1" />
+    </g>
+    <mask
+      id="fluff-letter-mask"
+      x="0"
+      y="0"
+      width="662"
+      height="100"
+      maskUnits="userSpaceOnUse"
+    >
+      <use href="#fluff-letter-puffs" fill="#fff" />
+    </mask>
+    <filter
+      id="fluff-letter-soften"
+      x="-10"
+      y="-10"
+      width="682"
+      height="120"
+      filterUnits="userSpaceOnUse"
+    >
+      <feGaussianBlur stdDeviation="0.9" />
+    </filter>
+    <g id="fluff-cloud-letters">
+      <use
+        href="#fluff-letter-puffs"
+        fill="currentColor"
+        opacity="0.3"
+        filter="url(#fluff-letter-shadow)"
+        transform="translate(0 5)"
+      />
+      <use
+        href="#fluff-letter-puffs"
+        fill="currentColor"
+        stroke="currentColor"
+        stroke-width="4.5"
+        opacity="0.4"
+        filter="url(#fluff-letter-soften)"
+      />
+      <use href="#fluff-letter-puffs" fill="#fff" />
+      <rect
+        width="662"
+        height="100"
+        fill="url(#fluff-letter-belly)"
+        mask="url(#fluff-letter-mask)"
+      />
+    </g>
   </defs>
-  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <g class="fluff-wordmark-letter">
-      <path
-        d="M55 80V20h66M55 50h50"
-        stroke="currentColor"
-        stroke-opacity="0.14"
-        stroke-width="28"
-        transform="translate(0 4)"
-      />
-      <path d="M55 80V20h66M55 50h50" stroke="currentColor" stroke-width="28" />
-      <path
-        d="M55 80V20h66M55 50h50"
-        stroke="url(#fluff-wordmark-fill)"
-        stroke-width="18"
-      />
-      <path
-        d="M55 80V20h66M55 50h50"
-        stroke="#fff"
-        stroke-opacity="0.8"
-        stroke-width="5"
-        transform="translate(-3 -4)"
-      />
-    </g>
-    <g class="fluff-wordmark-letter">
-      <path
-        d="M177 20v60h58"
-        stroke="currentColor"
-        stroke-opacity="0.14"
-        stroke-width="28"
-        transform="translate(0 4)"
-      />
-      <path d="M177 20v60h58" stroke="currentColor" stroke-width="28" />
-      <path
-        d="M177 20v60h58"
-        stroke="url(#fluff-wordmark-fill)"
-        stroke-width="18"
-      />
-      <path
-        d="M177 20v60h58"
-        stroke="#fff"
-        stroke-opacity="0.8"
-        stroke-width="5"
-        transform="translate(-3 -4)"
-      />
-    </g>
-    <g class="fluff-wordmark-letter">
-      <path
-        d="M291 20v26a36 36 0 0 0 72 0V20"
-        stroke="currentColor"
-        stroke-opacity="0.14"
-        stroke-width="28"
-        transform="translate(0 4)"
-      />
-      <path
-        d="M291 20v26a36 36 0 0 0 72 0V20"
-        stroke="currentColor"
-        stroke-width="28"
-      />
-      <path
-        d="M291 20v26a36 36 0 0 0 72 0V20"
-        stroke="url(#fluff-wordmark-fill)"
-        stroke-width="18"
-      />
-      <path
-        d="M291 20v26a36 36 0 0 0 72 0V20"
-        stroke="#fff"
-        stroke-opacity="0.8"
-        stroke-width="5"
-        transform="translate(-3 -4)"
-      />
-    </g>
-    <g class="fluff-wordmark-letter">
-      <path
-        d="M419 80V20h66M419 50h50"
-        stroke="currentColor"
-        stroke-opacity="0.14"
-        stroke-width="28"
-        transform="translate(0 4)"
-      />
-      <path
-        d="M419 80V20h66M419 50h50"
-        stroke="currentColor"
-        stroke-width="28"
-      />
-      <path
-        d="M419 80V20h66M419 50h50"
-        stroke="url(#fluff-wordmark-fill)"
-        stroke-width="18"
-      />
-      <path
-        d="M419 80V20h66M419 50h50"
-        stroke="#fff"
-        stroke-opacity="0.8"
-        stroke-width="5"
-        transform="translate(-3 -4)"
-      />
-    </g>
-    <g class="fluff-wordmark-letter">
-      <path
-        d="M541 80V20h66M541 50h50"
-        stroke="currentColor"
-        stroke-opacity="0.14"
-        stroke-width="28"
-        transform="translate(0 4)"
-      />
-      <path
-        d="M541 80V20h66M541 50h50"
-        stroke="currentColor"
-        stroke-width="28"
-      />
-      <path
-        d="M541 80V20h66M541 50h50"
-        stroke="url(#fluff-wordmark-fill)"
-        stroke-width="18"
-      />
-      <path
-        d="M541 80V20h66M541 50h50"
-        stroke="#fff"
-        stroke-opacity="0.8"
-        stroke-width="5"
-        transform="translate(-3 -4)"
-      />
-    </g>
-  </g>
+  <use
+    class="fluff-wordmark-live"
+    href="#fluff-cloud-letters"
+    filter="url(#fluff-letter-drift)"
+  />
+  <use class="fluff-wordmark-still" href="#fluff-cloud-letters" />
 </svg>

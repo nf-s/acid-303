@@ -1,5 +1,12 @@
 import type { PatternViewport } from "./pattern-controls";
 import type { DrumId, Project } from "./model";
+import { MODE_LABELS } from "./mode";
+import {
+  canvasFont,
+  canvasTheme,
+  fillCell,
+  watchCanvasTheme,
+} from "./canvas-theme";
 
 interface Point {
   x: number;
@@ -47,6 +54,7 @@ export class BeatCanvas {
   private groupSize = 4;
   private readonly trackLengths = new Map<DrumId, number>();
   private trackSteps: Partial<Record<DrumId, number>> = {};
+  private readonly unwatchTheme = watchCanvasTheme(() => this.draw());
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -288,15 +296,18 @@ export class BeatCanvas {
     if (!context || this.destroyed) return;
     context.setTransform(this.ratio, 0, 0, this.ratio, 0, 0);
     context.clearRect(0, 0, this.width, this.height);
-    context.fillStyle = "#141414";
+    const theme = canvasTheme();
+    const colours = theme.beat;
+    context.fillStyle = colours.background;
     context.fillRect(0, 0, this.width, this.height);
-    context.font = '9px "IBM Plex Mono", monospace';
+    context.font = canvasFont(theme, 9);
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.fillStyle = "#969696";
+    context.fillStyle = colours.drawLabel;
     context.fillText("DRAW", LABEL_WIDTH / 2 - 1, HEADER_HEIGHT / 2);
     for (let step = 0; step < this.viewportCount; step += 1) {
-      context.fillStyle = step % this.groupSize === 0 ? "#e1e1e1" : "#777777";
+      context.fillStyle =
+        step % this.groupSize === 0 ? colours.stepMajor : colours.stepMinor;
       context.fillText(
         String(this.viewportStart + step + 1).padStart(2, "0"),
         LABEL_WIDTH + (step + 0.5) * this.cellWidth,
@@ -310,13 +321,21 @@ export class BeatCanvas {
         (candidate) => candidate.id === drum,
       );
       const selected = drum === this.selected;
-      context.fillStyle = selected ? "#292929" : "#1a1a1a";
-      context.fillRect(0, y, LABEL_WIDTH - 5, this.rowHeight - gap);
-      context.fillStyle = selected ? "#f1f1f1" : "#858585";
-      if (selected) context.fillRect(0, y + 4, 2, this.rowHeight - gap - 8);
-      context.font = `${selected ? "bold " : ""}9px "IBM Plex Mono", monospace`;
+      context.fillStyle = selected
+        ? colours.labelBackgroundSelected
+        : colours.labelBackground;
+      fillCell(context, theme, 0, y, LABEL_WIDTH - 5, this.rowHeight - gap);
+      context.fillStyle = colours.labelMarker;
+      if (selected)
+        fillCell(context, theme, 0, y + 4, 2, this.rowHeight - gap - 8);
+      context.fillStyle = selected
+        ? colours.labelTextSelected
+        : colours.labelText;
+      context.font = canvasFont(theme, 9, selected);
       context.fillText(
-        LABELS[drum],
+        drum === "rim" && theme.mode === "fluff"
+          ? MODE_LABELS.fluff.rim.toUpperCase()
+          : LABELS[drum],
         LABEL_WIDTH / 2 - 2,
         y + (this.rowHeight - gap) / 2,
       );
@@ -332,25 +351,41 @@ export class BeatCanvas {
         context.globalAlpha = track?.muted ? 0.4 : 1;
         if (on) {
           const gradient = context.createLinearGradient(0, y, 0, y + height);
-          gradient.addColorStop(0, "#d5d5d5");
-          gradient.addColorStop(1, "#969696");
+          gradient.addColorStop(0, colours.onTop);
+          gradient.addColorStop(1, colours.onBottom);
           context.fillStyle = gradient;
         } else
           context.fillStyle =
-            Math.floor(step / this.groupSize) % 2 === 0 ? "#252525" : "#2c2c2c";
-        context.fillRect(x, y, width, height);
-        context.fillStyle = on ? "#eeeeee" : "#464646";
-        context.fillRect(x, y, width, 1);
-        context.fillStyle = on ? "#5d5d5d" : "#101010";
-        context.fillRect(x + width - 1, y + 1, 1, height - 1);
-        context.fillRect(x, y + height - 2, width, 2);
-        context.fillStyle = on ? "#373737" : "#515151";
-        context.fillRect(
-          x + width * 0.35,
-          y + height - 10,
-          Math.max(3, width * 0.3),
-          2,
-        );
+            Math.floor(step / this.groupSize) % 2 === 0
+              ? colours.offEven
+              : colours.offOdd;
+        fillCell(context, theme, x, y, width, height);
+        const bevel = colours.bevel;
+        if (bevel) {
+          context.fillStyle = on ? bevel.onLight : bevel.offLight;
+          context.fillRect(x, y, width, 1);
+          context.fillStyle = on ? bevel.onShade : bevel.offShade;
+          context.fillRect(x + width - 1, y + 1, 1, height - 1);
+          context.fillRect(x, y + height - 2, width, 2);
+          context.fillStyle = on ? bevel.onNotch : bevel.offNotch;
+          context.fillRect(
+            x + width * 0.35,
+            y + height - 10,
+            Math.max(3, width * 0.3),
+            2,
+          );
+        }
+        if (on && colours.gloss) {
+          context.fillStyle = colours.gloss;
+          fillCell(
+            context,
+            theme,
+            x + 3,
+            y + 3,
+            Math.max(1, width - 6),
+            Math.max(1, height * 0.32),
+          );
+        }
         context.globalAlpha = 1;
         const playing = this.trackSteps[drum] ?? this.step;
         if (
@@ -358,9 +393,19 @@ export class BeatCanvas {
           track?.steps.length &&
           localStep === playing % track.steps.length
         ) {
-          context.strokeStyle = "#eee";
-          context.lineWidth = 1;
-          context.strokeRect(x - 1, y - 1, width + 2, height + 2);
+          context.strokeStyle = colours.playhead;
+          context.lineWidth = colours.playheadWidth;
+          if (theme.radius > 0) {
+            context.beginPath();
+            context.roundRect(
+              x - 1,
+              y - 1,
+              width + 2,
+              height + 2,
+              Math.min(theme.radius + 1, (width + 2) / 2, (height + 2) / 2),
+            );
+            context.stroke();
+          } else context.strokeRect(x - 1, y - 1, width + 2, height + 2);
         }
       }
     });
@@ -373,7 +418,7 @@ export class BeatCanvas {
         0,
         Math.PI * 2,
       );
-      context.strokeStyle = "#ffffff88";
+      context.strokeStyle = colours.pointer;
       context.lineWidth = 1.5;
       context.stroke();
     }
@@ -383,6 +428,7 @@ export class BeatCanvas {
     if (this.destroyed) return;
     this.cancelPointers();
     this.destroyed = true;
+    this.unwatchTheme();
     this.observer.disconnect();
     this.canvas.removeEventListener("pointerdown", this.pointerDown);
     this.canvas.removeEventListener("pointermove", this.pointerMove);

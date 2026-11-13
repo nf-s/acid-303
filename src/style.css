@@ -643,7 +643,7 @@ h2 {
   background: transparent;
   border: 0;
   margin: 0;
-  opacity: 0.3;
+  opacity: var(--visualizer-intensity, 0.3);
   overflow: hidden;
 }
 .visualizer-panel canvas {

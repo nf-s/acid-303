@@ -36,11 +36,16 @@ Patch levels were calibrated from offline renders: each lead, arp, pad and bass 
 
 ## Look
 
-`src/fluff-theme.css` restyles the interface under `:root[data-mode="fluff"]`: cool grey page, white rounded panels, slate text and pastel accents. The visualizer draws slow pastel clouds and bokeh behind the panels instead of inverting the page; kick swells the clouds, hats twinkle and snare or clap sends a soft puff. Palettes are Cotton, Sorbet, Lilac, Dusk and Prism.
+Grain lays one visualizer canvas over the whole page with `mix-blend-mode: difference`, so every panel, control and title shifts with the smoke. Fluff keeps the same single live layer but puts it under the interface: the visualizer draws slow pastel clouds and bokeh, and every surface is a translucent veil, so the clouds, the palette and the drum swells (kick swells, hat twinkle, snare or clap puff) move through panels, controls and editors. Intensity sets how strongly the clouds show; Fluff lifts it so the default 30% stays visible. Palettes are Cotton, Sorbet, Lilac, Dusk and Prism.
+
+- `src/fluff-theme.css` restyles the interface under `:root[data-mode="fluff"]`: no outlines or nested cards, lumpy radii and soft white halos on outer shapes, pill chips, and accents taken from the current palette. The sticky transport stays opaque so scrolled content does not show through it.
+- `src/canvas-theme.ts` holds the colours and cell shapes for every canvas editor (beat grid, note and automation matrices, vocal roll, Cloud and Tension surfaces). Grain keeps its original values exactly; Fluff draws light, translucent surfaces with rounded cells. Palette accents are darkened in their own hue until they reach 3:1 (marks) and 4.5:1 (text and thin lines) on a pale surface, and the same values are published to CSS as `--fluff-palette-*`. Editors redraw when the mode or palette changes.
+- `src/fluff-wordmark.svg` builds FLUFF from overlapping puffs with a palette-tinted underside and a slow displacement drift; reduced motion shows it still.
 
 ## Verification and limits
 
 - `src/fluff-presets.test.ts` checks that all twelve tracks build, validate and stay in key.
 - Each track was rendered offline in headless Chrome and measured for peak level, loudness and band balance; none clips. Sidechain ducking of roughly 4–5 dB per kick was confirmed on Cotton. Nothing has been judged by ear.
 - Shared sessions do not carry `mode` until the sessions Worker is redeployed with the updated schema, so a Fluff project joined through a session plays with Grain voices.
-- Frame rate of the Fluff visualizer on phones is unchecked.
+- During playback in headless Chrome on an Apple M4 Max GPU, the Fluff page held a 16.7 ms median and p95 frame interval at 1440 × 1100 and at 375 × 812 with 4× CPU throttling; at 6× throttling, 2 of 345 frames exceeded 33 ms. Real phones are unchecked.
+- Grain renders pixel-identically to the previous release at 1440 × 1100 and 375 × 812, including after switching to Fluff and back.

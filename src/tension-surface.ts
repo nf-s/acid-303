@@ -1,5 +1,6 @@
 import { noteName, scaleNotes } from "./model";
 import type { MusicalScale } from "./model";
+import { canvasFont, canvasTheme, watchCanvasTheme } from "./canvas-theme";
 import type { TensionParameter, TensionTrack } from "./tension-model";
 
 export interface TensionGesture {
@@ -51,6 +52,7 @@ export class TensionSurface {
   private frame = 0;
   private signature = "";
   private destroyed = false;
+  private readonly unwatchTheme = watchCanvasTheme(() => this.draw());
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -166,6 +168,7 @@ export class TensionSurface {
   destroy(): void {
     this.stop();
     this.destroyed = true;
+    this.unwatchTheme();
     this.observer.disconnect();
     this.canvas.removeEventListener("pointerdown", this.pointerDown);
     this.canvas.removeEventListener("pointermove", this.pointerMove);
@@ -383,16 +386,19 @@ export class TensionSurface {
     const top = 18,
       height = Math.max(1, this.height - 50);
     ctx.setTransform(this.ratio, 0, 0, this.ratio, 0, 0);
-    ctx.fillStyle = "#101315";
+    const theme = canvasTheme();
+    const colours = theme.tension;
+    ctx.clearRect(0, 0, this.width, this.height);
+    ctx.fillStyle = colours.background;
     ctx.fillRect(0, 0, this.width, this.height);
-    ctx.strokeStyle = "#48535c";
+    ctx.strokeStyle = colours.frame;
     ctx.beginPath();
     ctx.moveTo(12, top);
     ctx.lineTo(this.width - 12, top);
     ctx.moveTo(12, top + height);
     ctx.lineTo(this.width - 12, top + height);
     ctx.stroke();
-    ctx.font = '10px "IBM Plex Mono", monospace';
+    ctx.font = canvasFont(theme, 10);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     this.notes.forEach((note, index) => {
@@ -409,10 +415,10 @@ export class TensionSurface {
         : 0;
       ctx.strokeStyle =
         pull || amplitude > 0.4
-          ? "#f2f6fa"
+          ? colours.stringActive
           : index === this.selected
-            ? "#b7c7d3"
-            : "#748793";
+            ? colours.stringSelected
+            : colours.string;
       ctx.lineWidth = 1.2 + (6 - index) * 0.12;
       ctx.beginPath();
       for (let segment = 0; segment <= 48; segment++) {
@@ -439,7 +445,7 @@ export class TensionSurface {
       }
       ctx.stroke();
       if (pull) {
-        ctx.fillStyle = "#dbe8f2";
+        ctx.fillStyle = colours.pick;
         ctx.beginPath();
         ctx.arc(
           x + pull.displacement,
@@ -450,7 +456,8 @@ export class TensionSurface {
         );
         ctx.fill();
       }
-      ctx.fillStyle = index === this.selected ? "#f0f5fa" : "#9caebb";
+      ctx.fillStyle =
+        index === this.selected ? colours.textSelected : colours.text;
       ctx.fillText(noteName(note), x, this.height - 14);
     });
   }

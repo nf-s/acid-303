@@ -1,6 +1,12 @@
 import { noteName, scaleNotes } from "./model";
 import type { PatternViewport } from "./pattern-controls";
 import type { BassStep, MusicalScale } from "./model";
+import {
+  canvasFont,
+  canvasTheme,
+  fillCell,
+  watchCanvasTheme,
+} from "./canvas-theme";
 
 export type MatrixParameter = "pitch" | "gate" | "accent" | "slide";
 export type MatrixTool = "draw" | "line";
@@ -65,6 +71,7 @@ export class NoteMatrix {
   private stepCount = 0;
   private automationViewPreference: MatrixAutomationView = "page";
   private loopBars = 1;
+  private readonly unwatchTheme = watchCanvasTheme(() => this.draw());
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -237,6 +244,7 @@ export class NoteMatrix {
   }
   destroy(): void {
     this.cancelPointers();
+    this.unwatchTheme();
     this.observer.disconnect();
     this.canvas.removeEventListener("pointerdown", this.pointerDown);
     this.canvas.removeEventListener("pointermove", this.pointerMove);
@@ -605,23 +613,26 @@ export class NoteMatrix {
     const ctx = this.context;
     if (!ctx) return;
     ctx.setTransform(this.ratio, 0, 0, this.ratio, 0, 0);
-    ctx.fillStyle = "#131415";
+    const theme = canvasTheme();
+    const colours = theme.matrix;
+    ctx.clearRect(0, 0, this.width, this.height);
+    ctx.fillStyle = colours.background;
     ctx.fillRect(0, 0, this.width, this.height);
-    ctx.font = '9px "IBM Plex Mono", monospace';
+    ctx.font = canvasFont(theme, 9);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     if (this.overview) {
       const barWidth = (this.width - LEFT - RIGHT) / this.loopBars;
       for (let bar = 0; bar < this.loopBars; bar++) {
         const x = LEFT + bar * barWidth;
-        ctx.fillStyle = bar % 2 === 0 ? "#1c1e20" : "#161819";
+        ctx.fillStyle = bar % 2 === 0 ? colours.bandEven : colours.bandOdd;
         ctx.fillRect(x, TOP, barWidth, this.plotHeight);
-        ctx.strokeStyle = "#555a60";
+        ctx.strokeStyle = colours.lineMajor;
         ctx.beginPath();
         ctx.moveTo(x + 0.5, TOP);
         ctx.lineTo(x + 0.5, this.height - BOTTOM);
         ctx.stroke();
-        ctx.fillStyle = "#aab0b6";
+        ctx.fillStyle = colours.barText;
         ctx.fillText(
           String(bar + 1),
           x + barWidth / 2,
@@ -631,7 +642,7 @@ export class NoteMatrix {
       }
       if (this.current >= 0) {
         const x = LEFT + (this.current + 0.5) * this.cellWidth;
-        ctx.fillStyle = "#b9bec8";
+        ctx.fillStyle = colours.playLine;
         ctx.fillRect(x - 0.75, TOP, 1.5, this.plotHeight);
       }
     } else {
@@ -639,18 +650,21 @@ export class NoteMatrix {
         const x = LEFT + index * this.cellWidth;
         ctx.fillStyle =
           this.viewStart + index === this.current
-            ? "#44484c"
+            ? colours.bandCurrent
             : Math.floor(index / this.groupSize) % 2 === 0
-              ? "#1c1e20"
-              : "#161819";
+              ? colours.bandEven
+              : colours.bandOdd;
         ctx.fillRect(x, TOP, this.cellWidth, this.plotHeight);
-        ctx.strokeStyle = index % this.groupSize === 0 ? "#555a60" : "#303438";
+        ctx.strokeStyle =
+          index % this.groupSize === 0 ? colours.lineMajor : colours.lineMinor;
         ctx.beginPath();
         ctx.moveTo(x + 0.5, TOP);
         ctx.lineTo(x + 0.5, this.height - BOTTOM);
         ctx.stroke();
         ctx.fillStyle =
-          this.viewStart + index === this.current ? "#fff" : "#969a9e";
+          this.viewStart + index === this.current
+            ? colours.stepTextCurrent
+            : colours.stepText;
         ctx.fillText(
           String(this.viewStart + index + 1).padStart(2, "0"),
           x + this.cellWidth / 2,
@@ -660,7 +674,8 @@ export class NoteMatrix {
     }
     this.notes.forEach((note, row) => {
       const y = this.noteY(note);
-      ctx.strokeStyle = note % 12 === 0 ? "#34393e" : "#25282b";
+      ctx.strokeStyle =
+        note % 12 === 0 ? colours.noteLineOctave : colours.noteLine;
       ctx.beginPath();
       ctx.moveTo(LEFT, y);
       ctx.lineTo(this.width - RIGHT, y);
@@ -669,20 +684,20 @@ export class NoteMatrix {
         !this.automation &&
         (row % 3 === 0 || row === this.notes.length - 1)
       ) {
-        ctx.fillStyle = "#9da2a7";
+        ctx.fillStyle = colours.noteText;
         ctx.fillText(noteName(note), LEFT / 2, y);
       }
     });
     if (this.automation) {
       for (const value of [1, 0.5, 0]) {
         const y = TOP + (1 - value) * this.plotHeight;
-        ctx.fillStyle = "#aab0b6";
+        ctx.fillStyle = colours.valueText;
         ctx.fillText(this.automation.format(value), LEFT / 2, y, LEFT - 6);
       }
     }
     if (!this.automation && this.parameter !== "pitch") {
       const middle = TOP + this.plotHeight / 2;
-      ctx.strokeStyle = "#757b81";
+      ctx.strokeStyle = colours.midline;
       ctx.setLineDash([2, 6]);
       ctx.beginPath();
       ctx.moveTo(LEFT, middle);
@@ -692,7 +707,7 @@ export class NoteMatrix {
     }
     ctx.globalAlpha = (this.muted ? 0.35 : 1) * (this.automation ? 0.46 : 1);
     if (this.overview) {
-      ctx.strokeStyle = "#727e89";
+      ctx.strokeStyle = colours.overviewPitch;
       ctx.lineWidth = 1;
       ctx.beginPath();
       this.visibleSteps.forEach((step, index) => {
@@ -701,7 +716,7 @@ export class NoteMatrix {
         if (index === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
         if (step.on) {
-          ctx.fillStyle = "#8d969e";
+          ctx.fillStyle = colours.overviewGate;
           ctx.fillRect(
             x,
             this.height - BOTTOM + 4,
@@ -720,16 +735,16 @@ export class NoteMatrix {
       }
       this.visibleSteps.forEach((step, index) => {
         const center = LEFT + (index + 0.5) * this.cellWidth;
-        ctx.fillStyle = step.on ? "#aab0b6" : "#697077";
-        ctx.font = `${this.cellWidth < 28 ? 7 : 9}px "IBM Plex Mono", monospace`;
+        ctx.fillStyle = step.on ? colours.stepNoteOn : colours.stepNoteOff;
+        ctx.font = canvasFont(theme, this.cellWidth < 28 ? 7 : 9);
         ctx.fillText(noteName(step.note), center, this.height - 8);
       });
     }
     ctx.globalAlpha = this.muted ? 0.5 : 1;
     this.drawAutomation(ctx);
     if (this.overview && this.automation) {
-      ctx.font = '9px "IBM Plex Mono", monospace';
-      ctx.fillStyle = "#c5ccd3";
+      ctx.font = canvasFont(theme, 9);
+      ctx.fillStyle = colours.overviewLabel;
       ctx.textAlign = "left";
       const value =
         this.automation.values?.[this.selected] ?? this.automation.base;
@@ -750,16 +765,20 @@ export class NoteMatrix {
     const active = this.active("gate"),
       floor = this.height - BOTTOM,
       width = Math.max(3, this.cellWidth - 6);
+    const theme = canvasTheme();
+    const colours = theme.matrix;
     this.visibleSteps.forEach((step, index) => {
       const x = LEFT + index * this.cellWidth + 3,
         y = this.noteY(step.note);
       if (step.on) {
-        ctx.fillStyle = active ? "#d9dde232" : "#aeb8c112";
-        ctx.fillRect(x, y + 4, width, Math.max(0, floor - y - 4));
-        ctx.fillStyle = active ? "#fff" : "#8d969e";
-        ctx.fillRect(x, floor + 4, width, active ? 6 : 3);
+        ctx.fillStyle = active ? colours.gateFillActive : colours.gateFill;
+        fillCell(ctx, theme, x, y + 4, width, Math.max(0, floor - y - 4));
+        ctx.fillStyle = active ? colours.gateBarActive : colours.gateBar;
+        fillCell(ctx, theme, x, floor + 4, width, active ? 6 : 3);
       } else {
-        ctx.strokeStyle = active ? "#899098" : "#41474d";
+        ctx.strokeStyle = active
+          ? colours.gateOutlineActive
+          : colours.gateOutline;
         ctx.lineWidth = 1;
         ctx.strokeRect(x + 0.5, floor + 4.5, width - 1, 3);
       }
@@ -767,7 +786,9 @@ export class NoteMatrix {
   }
   private drawPitch(ctx: CanvasRenderingContext2D): void {
     const active = this.active("pitch");
-    ctx.strokeStyle = active ? "#d8dee4" : "#727e89";
+    const theme = canvasTheme();
+    const colours = theme.matrix;
+    ctx.strokeStyle = active ? colours.pitchLineActive : colours.pitchLine;
     ctx.lineWidth = active ? 2 : 1;
     ctx.beginPath();
     this.visibleSteps.forEach((step, index) => {
@@ -783,32 +804,33 @@ export class NoteMatrix {
         width = Math.max(3, this.cellWidth - 6);
       ctx.fillStyle = step.on
         ? active
-          ? "#fff"
-          : "#9ba7b1"
+          ? colours.pitchOnActive
+          : colours.pitchOn
         : active
-          ? "#7b858f"
-          : "#515b64";
-      ctx.fillRect(x, y - (active ? 2.5 : 1.5), width, active ? 5 : 3);
+          ? colours.pitchOffActive
+          : colours.pitchOff;
+      fillCell(ctx, theme, x, y - (active ? 2.5 : 1.5), width, active ? 5 : 3);
       if (!step.on) {
-        ctx.fillStyle = "#202427";
+        ctx.fillStyle = colours.pitchOffNotch;
         ctx.fillRect(x + 1, y - 0.5, Math.max(1, width - 2), 1);
       }
     });
   }
   private drawAccents(ctx: CanvasRenderingContext2D): void {
     const active = this.active("accent");
+    const colours = canvasTheme().matrix;
     this.visibleSteps.forEach((step, index) => {
       const x = LEFT + (index + 0.5) * this.cellWidth,
         y = Math.max(TOP + 5, this.noteY(step.note) - 11),
         radius = active && step.accent ? 5 : 3;
       ctx.strokeStyle = step.accent
         ? active
-          ? "#fff"
-          : "#99a4ae"
+          ? colours.accentOnActive
+          : colours.accentOn
         : active
-          ? "#78838d"
-          : "#47515a";
-      ctx.fillStyle = active ? "#fff" : "#99a4ae";
+          ? colours.accentOffActive
+          : colours.accentOff;
+      ctx.fillStyle = active ? colours.accentFillActive : colours.accentFill;
       ctx.lineWidth = active ? 1.5 : 1;
       ctx.beginPath();
       ctx.moveTo(x, y - radius);
@@ -823,7 +845,8 @@ export class NoteMatrix {
   private drawGlides(ctx: CanvasRenderingContext2D): void {
     const active = this.active("slide"),
       bend = Math.min(24, this.cellWidth * 0.4);
-    ctx.strokeStyle = active ? "#fff" : "#84939e";
+    const colours = canvasTheme().matrix;
+    ctx.strokeStyle = active ? colours.glideActive : colours.glide;
     ctx.lineWidth = active ? 3.5 : 1.5;
     const first = this.steps[this.viewStart];
     const previous =
@@ -877,7 +900,8 @@ export class NoteMatrix {
         (1 - (lane.values?.[this.viewStart + index] ?? lane.base));
     const firstX = LEFT + this.cellWidth / 2,
       lastX = LEFT + (this.visibleCount - 0.5) * this.cellWidth;
-    ctx.fillStyle = "#e0e8f016";
+    const colours = canvasTheme().matrix;
+    ctx.fillStyle = colours.automationFill;
     ctx.beginPath();
     ctx.moveTo(firstX, this.height - BOTTOM);
     for (let index = 0; index < this.visibleCount; index++)
@@ -885,7 +909,7 @@ export class NoteMatrix {
     ctx.lineTo(lastX, this.height - BOTTOM);
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = "#fff";
+    ctx.strokeStyle = colours.automationLine;
     ctx.lineWidth = 2.5;
     if (!lane.values) ctx.setLineDash([6, 4]);
     ctx.beginPath();
@@ -900,8 +924,10 @@ export class NoteMatrix {
         continue;
       const x = LEFT + (index + 0.5) * this.cellWidth,
         y = yAt(index);
-      ctx.fillStyle = lane.values ? "#fff" : "#161819";
-      ctx.strokeStyle = "#fff";
+      ctx.fillStyle = lane.values
+        ? colours.automationDot
+        : colours.automationDotEmpty;
+      ctx.strokeStyle = colours.automationLine;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(

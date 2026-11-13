@@ -1,5 +1,11 @@
 import { noteName, scaleNotes } from "./model";
 import type { MusicalScale } from "./model";
+import {
+  canvasFont,
+  canvasTheme,
+  fillCell,
+  watchCanvasTheme,
+} from "./canvas-theme";
 import type { PatternViewport } from "./pattern-controls";
 import { trackPosition, trackStepCount } from "./timing";
 import { joinVocalNote, removeVocalNote, setVocalNote } from "./vocal-model";
@@ -36,6 +42,7 @@ const LEFT = 36,
 export class VocalRoll {
   private readonly context: CanvasRenderingContext2D | null;
   private readonly observer: ResizeObserver;
+  private readonly unwatchTheme = watchCanvasTheme(() => this.draw());
   private readonly controls: HTMLDivElement[] = [];
   private stroke: RollStroke | null = null;
   private viewport: PatternViewport = { start: 0, count: 16 };
@@ -215,6 +222,7 @@ export class VocalRoll {
   };
   destroy(): void {
     this.cancelStroke();
+    this.unwatchTheme();
     this.observer.disconnect();
     this.canvas.removeEventListener("pointerdown", this.pointerDown);
     this.canvas.removeEventListener("pointermove", this.pointerMove);
@@ -514,33 +522,41 @@ export class VocalRoll {
     const ctx = this.context;
     if (!ctx) return;
     ctx.setTransform(this.ratio, 0, 0, this.ratio, 0, 0);
-    ctx.fillStyle = "#131619";
+    const theme = canvasTheme();
+    const colours = theme.roll;
+    ctx.clearRect(0, 0, this.width, this.height);
+    ctx.fillStyle = colours.background;
     ctx.fillRect(0, 0, this.width, this.height);
     const pitches = this.pitches;
-    ctx.font = '9px "IBM Plex Mono", monospace';
+    ctx.font = canvasFont(theme, 9);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     pitches.forEach((note, index) => {
       const y = TOP + (pitches.length - index - 1) * this.rowHeight;
       ctx.fillStyle =
-        note % 12 === this.options.getScale().root ? "#262c32" : "#1a1f23";
+        note % 12 === this.options.getScale().root
+          ? colours.rowRoot
+          : colours.row;
       ctx.fillRect(LEFT, y, this.width - LEFT - RIGHT, this.rowHeight - 1);
-      ctx.fillStyle = "#b7c0c8";
+      ctx.fillStyle = colours.noteText;
       ctx.fillText(noteName(note), LEFT / 2, y + this.rowHeight / 2);
     });
     for (let column = 0; column < this.count; column++) {
       const x = LEFT + column * this.cellWidth,
         index = this.viewport.start + column;
       ctx.strokeStyle =
-        column % (this.viewport.groupSize ?? 4) === 0 ? "#66727b" : "#303940";
+        column % (this.viewport.groupSize ?? 4) === 0
+          ? colours.lineMajor
+          : colours.lineMinor;
       ctx.beginPath();
       ctx.moveTo(x, TOP);
       ctx.lineTo(x, this.height - BOTTOM);
       ctx.stroke();
-      ctx.fillStyle = index === this.playing ? "#fff" : "#a6b0b9";
+      ctx.fillStyle =
+        index === this.playing ? colours.stepTextPlaying : colours.stepText;
       ctx.fillText(String(index + 1), x + this.cellWidth / 2, TOP / 2);
       if (index === this.playing) {
-        ctx.fillStyle = "#c8d8e52b";
+        ctx.fillStyle = colours.playingFill;
         ctx.fillRect(x, TOP, this.cellWidth, this.height - TOP - BOTTOM);
       }
     }
@@ -561,11 +577,23 @@ export class VocalRoll {
         w = note.length * this.cellWidth - 2,
         h = this.rowHeight - 4;
       const selected = note.start === this.selectedStart;
-      ctx.fillStyle = selected ? "#dce4eb" : "#8f9eaa";
-      ctx.fillRect(x, y, w, h);
-      ctx.strokeStyle = selected ? "#fff" : "#c3cdd5";
-      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-      ctx.fillStyle = "#15212a";
+      ctx.fillStyle = selected ? colours.noteSelected : colours.note;
+      fillCell(ctx, theme, x, y, w, h);
+      ctx.strokeStyle = selected
+        ? colours.noteStrokeSelected
+        : colours.noteStroke;
+      if (theme.radius > 0) {
+        ctx.beginPath();
+        ctx.roundRect(
+          x + 0.5,
+          y + 0.5,
+          w - 1,
+          h - 1,
+          Math.min(theme.radius, (w - 1) / 2, (h - 1) / 2),
+        );
+        ctx.stroke();
+      } else ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+      ctx.fillStyle = colours.noteInk;
       if (w > 24) {
         ctx.textAlign = "left";
         ctx.fillText(

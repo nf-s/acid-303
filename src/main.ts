@@ -71,6 +71,7 @@ import "./session.css";
 import "./instrument-automation.css";
 import { AudioEngine } from "./audio";
 import { FluidVisualizer } from "./visualizer";
+import { setThemePalette } from "./canvas-theme";
 import grainWordmark from "./grain-wordmark.svg?raw";
 import fluffWordmark from "./fluff-wordmark.svg?raw";
 import "./fluff-theme.css";
@@ -2816,7 +2817,7 @@ function updateControl(id: string, value: number): void {
     setOutput(id, `${value}%`);
     const stage = document.querySelector("#visualizer-panel");
     if (stage instanceof HTMLElement) {
-      stage.style.opacity = String(value / 100);
+      stage.style.setProperty("--visualizer-intensity", String(value / 100));
       stage.style.visibility = value === 0 ? "hidden" : "visible";
     }
     return;
@@ -2893,6 +2894,7 @@ function setVisualizerPaletteOpen(open: boolean): void {
     ?.setAttribute("aria-expanded", String(open));
 }
 function updateVisualizerPalette(): void {
+  setThemePalette(visualizerPalette);
   const palette = VISUALIZER_PALETTES.find(
     (option) => option.id === visualizerPalette,
   );

@@ -1,5 +1,6 @@
 import { noteName, scaleNotes } from "./model";
 import type { MusicalScale } from "./model";
+import { canvasFont, canvasTheme, watchCanvasTheme } from "./canvas-theme";
 import type { CloudParameter, CloudTrack } from "./cloud-model";
 
 export interface CloudGesture {
@@ -45,6 +46,7 @@ export class CloudSurface {
   private playingNote: number | null = null;
   private signature = "";
   private destroyed = false;
+  private readonly unwatchTheme = watchCanvasTheme(() => this.draw());
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -161,6 +163,7 @@ export class CloudSurface {
   destroy(): void {
     this.stop();
     this.destroyed = true;
+    this.unwatchTheme();
     this.observer.disconnect();
     this.canvas.removeEventListener("pointerdown", this.pointerDown);
     this.canvas.removeEventListener("pointermove", this.pointerMove);
@@ -346,7 +349,10 @@ export class CloudSurface {
       width = Math.max(1, this.width - 48),
       height = Math.max(1, this.height - 40);
     ctx.setTransform(this.ratio, 0, 0, this.ratio, 0, 0);
-    ctx.fillStyle = "#101315";
+    const theme = canvasTheme();
+    const colours = theme.cloud;
+    ctx.clearRect(0, 0, this.width, this.height);
+    ctx.fillStyle = colours.background;
     ctx.fillRect(0, 0, this.width, this.height);
     ctx.save();
     ctx.beginPath();
@@ -355,7 +361,7 @@ export class CloudSurface {
     const phase = active ? now / 1500 : 0;
     for (let row = 0; row < 72; row++) {
       const y = top + (row / 71) * height;
-      ctx.strokeStyle = row % 3 === 0 ? "#60707b" : "#34414b";
+      ctx.strokeStyle = row % 3 === 0 ? colours.ridgeMajor : colours.ridge;
       ctx.lineWidth = row % 3 === 0 ? 0.7 : 0.45;
       ctx.beginPath();
       for (let column = 0; column <= 64; column++) {
@@ -374,16 +380,16 @@ export class CloudSurface {
     }
     const scanX = left + this.scan * width;
     const band = Math.max(5, width * (0.02 + track.size * 0.12));
-    ctx.fillStyle = active ? "#c5d5e22c" : "#c5d5e214";
+    ctx.fillStyle = active ? colours.scanBandActive : colours.scanBand;
     ctx.fillRect(scanX - band / 2, top, band, height);
-    ctx.strokeStyle = "#e4edf4";
+    ctx.strokeStyle = colours.scanLine;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(scanX, top);
     ctx.lineTo(scanX, top + height);
     ctx.stroke();
     ctx.restore();
-    ctx.font = '10px "IBM Plex Mono", monospace';
+    ctx.font = canvasFont(theme, 10);
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
     this.notes.forEach((note, index) => {
@@ -391,19 +397,19 @@ export class CloudSurface {
       const selected = this.busy
         ? index === this.selected
         : now < this.pulseUntil && note === this.playingNote;
-      ctx.fillStyle = selected ? "#f4f7fa" : "#8c9ca9";
+      ctx.fillStyle = selected ? colours.noteSelected : colours.note;
       ctx.fillText(noteName(note), left - 6, y);
-      ctx.strokeStyle = selected ? "#dce7f380" : "#a8bac51c";
+      ctx.strokeStyle = selected ? colours.noteLineSelected : colours.noteLine;
       ctx.beginPath();
       ctx.moveTo(left, y);
       ctx.lineTo(left + width, y);
       ctx.stroke();
       if (selected) {
-        ctx.fillStyle = "#edf3f7";
+        ctx.fillStyle = colours.marker;
         ctx.fillRect(scanX - 3, y - 3, 6, 6);
       }
     });
-    ctx.fillStyle = "#a3b2bd";
+    ctx.fillStyle = colours.label;
     ctx.textAlign = "left";
     ctx.fillText("SCAN", left, this.height - 9);
     ctx.textAlign = "right";
