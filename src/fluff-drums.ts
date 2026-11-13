@@ -2,15 +2,18 @@ import type { DrumId, DrumTrack } from "./model";
 import type { FluffBus } from "./fluff-audio";
 
 /**
- * One bundled Fluff drum sample. Files live in `public/drums/fluff/` as mono
- * 44.1 kHz 16-bit WAV, start within a millisecond of the hit, end with a fade
- * and peak at -1 dBFS. Sources and licences are listed in docs/samples.md.
+ * One bundled Fluff drum sample. Files live in `public/drums/fluff/` as
+ * 44.1 kHz 16-bit WAV (mono, or stereo for the hats and tambourine), start
+ * within a millisecond of the hit, end with a fade and peak at -1 dBFS.
+ * Sources, synthesis and licences are listed in docs/samples.md.
  */
 export interface FluffDrumSample {
   file: string;
+  /** Two channels: a centred body with a different noise take per side. */
+  stereo: boolean;
   /** Exact file length, checked after decoding. */
   seconds: number;
-  /** RMS of the first 50 ms in dBFS, measured on the bundled file. */
+  /** RMS of the first 50 ms in dBFS (over both channels when stereo), measured on the bundled file. */
   loudness: number;
   /** Musical offset from the lane's common level, in dB. */
   trim: number;
@@ -36,13 +39,14 @@ const sample = (
   options: Partial<
     Pick<
       FluffDrumSample,
-      "trim" | "reach" | "fundamental" | "sub" | "polarity" | "hall"
+      "trim" | "reach" | "fundamental" | "sub" | "polarity" | "hall" | "stereo"
     >
   > = {},
 ): FluffDrumSample => ({
   file,
   seconds,
   loudness,
+  stereo: options.stereo ?? false,
   polarity: options.polarity ?? 1,
   trim: options.trim ?? 0,
   reach: options.reach ?? 2,
@@ -72,46 +76,38 @@ export const FLUFF_DRUM_SAMPLES: Readonly<
     sample("kick-lofi", 0.5, -9.7, { sub: 0.75, polarity: -1, trim: -1 }),
   ],
   snare: [
-    sample("snare-house", 0.378, -6.3, {
-      reach: 2.4,
-      hall: 0.05,
-      trim: 1.5,
-    }),
-    sample("snare-rimshot", 0.6, -14.9, { reach: 2.4, hall: 0.04 }),
-    sample("snare-garage", 0.278, -10.7, { reach: 2.4, hall: 0.04 }),
+    sample("snare-house", 0.38, -11.1, { reach: 2.4, hall: 0.05 }),
+    sample("snare-break", 0.42, -6.9, { reach: 2.4, hall: 0.04 }),
+    sample("snare-garage", 0.24, -12.3, { reach: 2.4, hall: 0.03 }),
     sample("snare-dusty", 0.55, -12.9, { reach: 2.4, hall: 0.04 }),
-    sample("snare-roll", 0.197, -14.8, {
-      reach: 2.4,
-      hall: 0.03,
-      trim: -2,
-    }),
+    sample("snare-roll", 0.2, -10.9, { reach: 2.4, hall: 0.03, trim: -2 }),
     sample("snare-ghost", 0.35, -12, { reach: 2.4, trim: -6 }),
     sample("snare-room", 0.75, -13.5, { reach: 2.8, hall: 0.08 }),
   ],
   hat: [
-    sample("hat-closed", 0.229, -13.4, { reach: 2.5 }),
-    sample("hat-open", 1, -11.3, { reach: 3, trim: -2 }),
-    sample("hat-shaker", 0.3, -14.2, { reach: 2.5 }),
-    sample("hat-tick", 0.12, -12.9, { reach: 2 }),
-    sample("hat-ride", 1.8, -16.8, { reach: 6, trim: -4 }),
-    sample("hat-offbeat", 0.45, -12.2, { reach: 3, trim: 3 }),
-    sample("hat-dusty", 0.35, -16.7, { reach: 2.5 }),
-    sample("hat-sizzle", 0.56, -8.8, { reach: 4, trim: -1 }),
+    sample("hat-closed", 0.16, -17.7, { reach: 2, stereo: true }),
+    sample("hat-open", 0.8, -14.3, { reach: 3, trim: -2, stereo: true }),
+    sample("hat-shaker", 0.16, -17.9, { reach: 2, stereo: true }),
+    sample("hat-tick", 0.08, -20.2, { reach: 1, trim: -1, stereo: true }),
+    sample("hat-ride", 1.6, -13.3, { reach: 6, trim: -4, stereo: true }),
+    sample("hat-offbeat", 0.4, -16.4, { reach: 3, trim: 2, stereo: true }),
+    sample("hat-dusty", 0.2, -13.4, { reach: 2, trim: -1, stereo: true }),
+    sample("hat-sizzle", 1.2, -14.4, { reach: 4, trim: -2, stereo: true }),
   ],
   clap: [
-    sample("clap-house", 0.4, -13.1, { reach: 2.4, hall: 0.08 }),
-    sample("clap-tight", 0.16, -14.5, { reach: 2.4, hall: 0.04 }),
-    sample("clap-hall", 0.644, -15.7, { reach: 3, hall: 0.25 }),
+    sample("clap-house", 0.4, -16, { reach: 2.4, hall: 0.08 }),
+    sample("clap-tight", 0.16, -15.7, { reach: 2.4, hall: 0.04 }),
+    sample("clap-hall", 0.65, -15.1, { reach: 3, hall: 0.2 }),
     sample("clap-snap", 0.3, -16.8, { reach: 2.4, hall: 0.04 }),
-    sample("clap-dusty", 0.35, -14.2, { reach: 2.4, hall: 0.06 }),
-    sample("clap-layered", 0.38, -13.9, { reach: 2.4, hall: 0.1 }),
-    sample("clap-soft", 0.35, -14.4, { reach: 2.4, hall: 0.12, trim: -2 }),
+    sample("clap-dusty", 0.35, -11.3, { reach: 2.4, hall: 0.06 }),
+    sample("clap-layered", 0.38, -13.3, { reach: 2.4, hall: 0.1 }),
+    sample("clap-soft", 0.35, -17.3, { reach: 2.4, hall: 0.12, trim: -2 }),
   ],
   rim: [
     sample("perc-rim", 0.25, -19.1, { reach: 2, trim: -2 }),
     sample("perc-tom", 1, -9.6, { reach: 3 }),
     sample("perc-conga", 0.6, -8.5, { reach: 3 }),
-    sample("perc-tamb", 0.6, -16.1, { reach: 4, trim: -4 }),
+    sample("perc-tamb", 0.22, -15.2, { reach: 3, trim: -4, stereo: true }),
     null,
     sample("perc-crash", 2.6, -17, { reach: 4, hall: 0.3, trim: -4 }),
     null,
@@ -121,9 +117,9 @@ export const FLUFF_DRUM_SAMPLES: Readonly<
 /** Common sample level per lane, before the track's volume. */
 const LANE_LEVEL: Readonly<Record<DrumId, number>> = {
   kick: 0.85,
-  snare: 0.6,
-  hat: 0.7,
-  clap: 0.48,
+  snare: 0.75,
+  hat: 1,
+  clap: 0.7,
   rim: 0.5,
 };
 /** Each lane's samples are levelled to this first-50 ms RMS. */
@@ -223,7 +219,7 @@ async function decode(
     (await download(fluffDrumUrl(drum))).slice(0),
   );
   if (
-    buffer.numberOfChannels !== 1 ||
+    buffer.numberOfChannels !== (drum.stereo ? 2 : 1) ||
     !Number.isFinite(buffer.duration) ||
     Math.abs(buffer.duration - drum.seconds) > 0.03
   )
@@ -294,6 +290,38 @@ function driveCurve(drive: number): Float32Array<ArrayBuffer> {
   return curve;
 }
 
+/** The part of a gain parameter the hat choke automates. */
+export type ChokedGain = Pick<
+  AudioParam,
+  "cancelAndHoldAtTime" | "linearRampToValueAtTime"
+>;
+/** The hat lane's sounding hit per bus, so the next hit can cut it. */
+const ringingHat = new WeakMap<
+  object,
+  { gain: ChokedGain; start: number; end: number }
+>();
+/** Seconds the next hat takes to cut the previous one, as on a drum machine's shared hat voice. */
+export const FLUFF_HAT_CHOKE = 0.006;
+
+/**
+ * Hats share one voice per bus: a new hit fades whatever the previous hit is
+ * still playing (an open hat stops at the next closed or open hat). Hits
+ * arrive in time order, so only the most recent one can still be sounding.
+ */
+export function chokeFluffHat(
+  bus: object,
+  gain: ChokedGain,
+  time: number,
+  end: number,
+): void {
+  const previous = ringingHat.get(bus);
+  if (previous && previous.start < time && previous.end > time) {
+    previous.gain.cancelAndHoldAtTime(time);
+    previous.gain.linearRampToValueAtTime(0, time + FLUFF_HAT_CHOKE);
+  }
+  ringingHat.set(bus, { gain, start: time, end });
+}
+
 /**
  * Play one sampled Fluff drum hit through the per-drum controls into the
  * Fluff drum bus. Pitch sets the playback rate, Decay gates the sample, Tone
@@ -327,6 +355,7 @@ export function playFluffDrumSample(
     level.gain.setValueAtTime(peak, time + gate * 0.6);
     level.gain.linearRampToValueAtTime(0, end);
   }
+  if (track.id === "hat") chokeFluffHat(bus, level.gain, time, end);
   // The sample and the optional sub share every control after this point.
   const input = context.createGain();
   source.connect(level);

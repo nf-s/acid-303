@@ -134,17 +134,17 @@ const supersawLead: Patch = {
         level: 0.22,
       },
     ],
-    filter: lowpass(sweep(c.tone, 900, 11000), {
+    filter: lowpass(sweep(c.tone, 700, 7500), {
       keyTrack: 0.4,
-      resonance: 1,
-      envelope: 1.1,
+      resonance: 0.5,
+      envelope: 0.9,
       envAttack: 0.004,
       envDecay: 0.18 + c.decay * 0.3,
       envSustain: 0.35,
       lfo: 1,
     }),
     amp: {
-      attack: Math.max(0.006, c.attack),
+      attack: Math.max(0.014, c.attack),
       decay: 0.35,
       sustain: 0.85,
       release: 0.08 + c.decay * 0.55,
@@ -186,16 +186,16 @@ const pluckLead: Patch = {
         level: 0.32,
       },
     ],
-    filter: lowpass(sweep(c.tone, 260, 3200), {
+    filter: lowpass(sweep(c.tone, 240, 2600), {
       keyTrack: 0.6,
-      resonance: 3,
-      envelope: 3.2,
+      resonance: 1.5,
+      envelope: 2.6,
       envDecay: 0.06 + c.decay * 0.45,
       envSustain: 0,
       lfo: 1,
     }),
     amp: {
-      attack: Math.max(0.003, c.attack),
+      attack: Math.max(0.006, c.attack),
       decay: 0.12 + c.decay * 1.5,
       sustain: 0,
       release: 0.12,
@@ -434,16 +434,16 @@ const squareLead: Patch = {
         cents: -4,
       },
     ],
-    filter: lowpass(sweep(c.tone, 550, 7000), {
+    filter: lowpass(sweep(c.tone, 450, 4800), {
       keyTrack: 0.7,
-      resonance: 3,
-      envelope: 1.6,
+      resonance: 1.8,
+      envelope: 1.3,
       envDecay: 0.12 + c.decay * 0.3,
       envSustain: 0.3,
       lfo: 1,
     }),
     amp: {
-      attack: Math.max(0.004, c.attack),
+      attack: Math.max(0.01, c.attack),
       decay: 0.25,
       sustain: 0.8,
       release: 0.06 + c.decay * 0.4,

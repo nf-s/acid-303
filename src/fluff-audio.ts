@@ -99,10 +99,10 @@ export class FluffBus {
     this.duck = node(context.createGain());
     this.wetDuck = node(context.createGain());
     this.bassDuck = node(context.createGain());
-    // Pads, leads and arps leave 40–150 Hz to the kick and bass.
+    // Pads, leads and arps leave 40–110 Hz to the kick and bass.
     const lowCut = node(context.createBiquadFilter());
     lowCut.type = "highpass";
-    lowCut.frequency.value = 150;
+    lowCut.frequency.value = 110;
     lowCut.Q.value = 0.6;
     const makeup = node(context.createGain());
     makeup.gain.value = 1.3;
@@ -875,9 +875,14 @@ export function fluffLeadTail(track: KeysTrack): number {
   return track.decay * 3.4 + 0.5;
 }
 
+/** Lead sends: some hall and echo even at zero Space, so the lead sits in the room. */
+const leadHall = (track: KeysTrack): number => 0.18 + track.space * 0.8;
+const leadDelay = (track: KeysTrack): number => 0.06 + track.space * 0.55;
+
 /** The Lead instrument: Texture's steps voiced as held, tied melodic notes. */
 export class FluffLead {
   private readonly level: GainNode;
+  private readonly presence: BiquadFilterNode;
   private readonly hall: GainNode;
   private readonly delay: GainNode;
   private readonly rack: FluffRack;
@@ -891,7 +896,14 @@ export class FluffLead {
     this.level = context.createGain();
     this.level.gain.value = 0;
     this.rack = new FluffRack(context, bus.modulation);
-    this.rack.output.connect(this.level);
+    // A broad dip in the 2–5 kHz bite keeps the lead behind the drums and chords.
+    this.presence = context.createBiquadFilter();
+    this.presence.type = "peaking";
+    this.presence.frequency.value = 3200;
+    this.presence.Q.value = 0.7;
+    this.presence.gain.value = -4;
+    this.rack.output.connect(this.presence);
+    this.presence.connect(this.level);
     this.hall = context.createGain();
     this.delay = context.createGain();
     this.hall.gain.value = 0;
@@ -915,8 +927,8 @@ export class FluffLead {
     if (this.firstStep) this.level.gain.setValueAtTime(target, time);
     else this.level.gain.setTargetAtTime(target, time, 0.004);
     this.firstStep = false;
-    this.hall.gain.setTargetAtTime(0.1 + track.space * 0.75, time, 0.02);
-    this.delay.gain.setTargetAtTime(track.space * 0.55, time, 0.02);
+    this.hall.gain.setTargetAtTime(leadHall(track), time, 0.02);
+    this.delay.gain.setTargetAtTime(leadDelay(track), time, 0.02);
     const step = track.steps[stepIndex];
     if (!step?.on || track.muted) return;
     const count = track.steps.length;
@@ -994,8 +1006,8 @@ export class FluffLead {
   preview(track: KeysTrack, time: number): void {
     this.level.gain.cancelAndHoldAtTime(time);
     this.level.gain.setValueAtTime(track.volume * 1.15, time);
-    this.hall.gain.setValueAtTime(0.1 + track.space * 0.75, time);
-    this.delay.gain.setValueAtTime(track.space * 0.55, time);
+    this.hall.gain.setValueAtTime(leadHall(track), time);
+    this.delay.gain.setValueAtTime(leadDelay(track), time);
     this.firstStep = true;
   }
 
@@ -1007,7 +1019,8 @@ export class FluffLead {
   destroy(): void {
     this.stop();
     this.rack.destroy();
-    for (const node of [this.level, this.hall, this.delay]) node.disconnect();
+    for (const node of [this.presence, this.level, this.hall, this.delay])
+      node.disconnect();
   }
 }
 

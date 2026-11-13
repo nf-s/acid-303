@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   FLUFF_DRUM_SAMPLES,
+  FLUFF_HAT_CHOKE,
+  chokeFluffHat,
   fluffDrumGate,
   fluffDrumRate,
   fluffDrumSample,
@@ -78,6 +80,35 @@ describe("Fluff drum samples", () => {
     expect(fluffDrumGate(drum, 1.5)).toBe(drum.seconds);
   });
 
+  it("cuts a sounding hat at the next hat on the same bus only", () => {
+    const gain = () => ({
+      cancelAndHoldAtTime: vi.fn(),
+      linearRampToValueAtTime: vi.fn(),
+    });
+    const bus = {};
+    const open = gain();
+    const closed = gain();
+    const later = gain();
+    chokeFluffHat(bus, open, 1, 1.4);
+    chokeFluffHat({}, gain(), 1.1, 1.2);
+    expect(open.cancelAndHoldAtTime).not.toHaveBeenCalled();
+    chokeFluffHat(bus, closed, 1.25, 1.3);
+    expect(open.cancelAndHoldAtTime).toHaveBeenCalledWith(1.25);
+    expect(open.linearRampToValueAtTime).toHaveBeenCalledWith(
+      0,
+      1.25 + FLUFF_HAT_CHOKE,
+    );
+    // The closed hat has finished by the next hit, so nothing is cut.
+    chokeFluffHat(bus, later, 1.5, 1.9);
+    expect(closed.cancelAndHoldAtTime).not.toHaveBeenCalled();
+  });
+
+  it("marks the hats and tambourine stereo and the rest mono", () => {
+    for (const drum of FLUFF_DRUM_SAMPLES.hat) expect(drum?.stereo).toBe(true);
+    expect(fluffDrumSample("rim", 3)?.stereo).toBe(true);
+    expect(fluffDrumSample("snare", 1)?.stereo).toBe(false);
+  });
+
   it("reports render tails for sampled slots only", () => {
     const [kick] = createProject().drums;
     if (!kick) throw new Error("The project has a kick");
@@ -123,7 +154,16 @@ describe("Fluff drum samples", () => {
       );
       vi.stubGlobal("fetch", fetcher);
       const drums = await import("./fluff-drums");
-      const target = decoder((file) => (file === "hat-ride" ? 2 : 1));
+      // Stereo slots decode to two channels; the ride arrives as mono and fails.
+      const stereo = new Set(
+        Object.values(FLUFF_DRUM_SAMPLES)
+          .flat()
+          .flatMap((drum) => (drum?.stereo ? [drum.file] : [])),
+      );
+      expect(stereo.has("hat-ride")).toBe(true);
+      const target = decoder((file) =>
+        file !== "hat-ride" && stereo.has(file) ? 2 : 1,
+      );
       expect(drums.cachedFluffDrum(target, "kick", 0)).toBeNull();
       await drums.loadFluffDrums(target);
       expect(drums.cachedFluffDrum(target, "kick", 0)?.drum.file).toBe(
