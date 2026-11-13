@@ -46,14 +46,23 @@ export const FLUFF_SOUNDS: ModeSounds = {
     "Long",
     "Reese",
     "Organ",
-    "Donk",
+    "FM",
     "Growl",
     "Warm",
     "Garage",
   ],
-  keys: ["Supersaw", "Pluck", "Bell", "Piano", "Stab", "Chip", "Soft", "Vox"],
-  arp: ["Pluck", "Super", "Glass", "Pizz", "Chip", "Dream", "Rave", "Mallet"],
-  pad: ["Super", "Air", "Choir", "Glass", "Haze", "Warm", "Phase", "Organ"],
+  keys: [
+    "Supersaw",
+    "Pluck",
+    "Bell",
+    "Piano",
+    "Organ",
+    "Square",
+    "Soft",
+    "Voice",
+  ],
+  arp: ["Pluck", "Super", "Glass", "Keys", "Pulse", "Dream", "Poly", "Mallet"],
+  pad: ["Super", "Air", "Choir", "Glass", "Tape", "Warm", "Phase", "Organ"],
 };
 
 export interface ModeLabels {

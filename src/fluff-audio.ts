@@ -6,10 +6,26 @@ import {
   fluffSampleTail,
   playFluffDrumSample,
 } from "./fluff-drums";
+import {
+  FLUFF_REVERB_SECONDS,
+  FluffPingPong,
+  fluffGlue,
+  fluffReverb,
+} from "./fluff-effects";
+import { FLUFF_LEAD_LEVELS, FLUFF_LEAD_PATCHES } from "./fluff-patches";
+import type { MelodicControls, Patch } from "./fluff-patches";
+import {
+  FluffRack,
+  createModulation,
+  playSynthVoice,
+  randomStream,
+  setWave,
+} from "./fluff-synth";
+import type { Wave } from "./fluff-synth";
+import type { FluffModulation } from "./fluff-synth";
 
 const MIN_GAIN = 0.0001;
-export const FLUFF_HALL_SECONDS = 3.4;
-const FLUFF_PLATE_SECONDS = 1.1;
+export const FLUFF_HALL_SECONDS = FLUFF_REVERB_SECONDS.hall;
 
 type Source = OscillatorNode | AudioBufferSourceNode;
 
@@ -21,86 +37,6 @@ function softClipCurve(drive: number): Float32Array<ArrayBuffer> {
     curve[index] = Math.tanh(value * amount) / Math.tanh(amount);
   }
   return curve;
-}
-
-/** A dense, darkening noise tail; both channels are decorrelated for width. */
-function reverbImpulse(
-  context: BaseAudioContext,
-  seconds: number,
-  brightness: number,
-  seed: number,
-): AudioBuffer {
-  const length = Math.ceil(context.sampleRate * seconds);
-  const buffer = context.createBuffer(2, length, context.sampleRate);
-  for (let channel = 0; channel < 2; channel++) {
-    const data = buffer.getChannelData(channel);
-    let state = (seed + channel * 7919) >>> 0;
-    let low = 0;
-    let energy = 0;
-    for (let index = 0; index < length; index++) {
-      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
-      const white = state / 2147483648 - 1;
-      const progress = index / length;
-      // The one-pole coefficient falls over time, so highs die before lows.
-      const coefficient = brightness * (1 - progress * 0.82) + 0.04;
-      low += (white - low) * coefficient;
-      const build = Math.min(1, index / (context.sampleRate * 0.012));
-      const value = low * build * Math.exp(-progress * 6.2);
-      data[index] = value;
-      energy += value * value;
-    }
-    const scale = 1 / Math.sqrt(Math.max(1e-9, energy));
-    for (let index = 0; index < length; index++)
-      data[index] = (data[index] ?? 0) * scale;
-  }
-  return buffer;
-}
-
-const sawCache = new WeakMap<BaseAudioContext, PeriodicWave[]>();
-/** Phase-offset saws stop a unison stack from starting as one hard transient. */
-function sawWaves(context: BaseAudioContext): PeriodicWave[] {
-  const cached = sawCache.get(context);
-  if (cached) return cached;
-  const waves: PeriodicWave[] = [];
-  for (let wave = 0; wave < 8; wave++) {
-    const phase = ((wave * 0.6180339887) % 1) * Math.PI * 2;
-    const real = new Float32Array(40);
-    const imaginary = new Float32Array(40);
-    for (let harmonic = 1; harmonic < real.length; harmonic++) {
-      real[harmonic] = Math.sin(harmonic * phase) / harmonic;
-      imaginary[harmonic] = Math.cos(harmonic * phase) / harmonic;
-    }
-    waves.push(context.createPeriodicWave(real, imaginary));
-  }
-  sawCache.set(context, waves);
-  return waves;
-}
-export function fluffSaw(
-  context: BaseAudioContext,
-  oscillator: OscillatorNode,
-  index: number,
-): void {
-  const waves = sawWaves(context);
-  const wave = waves[((index % waves.length) + waves.length) % waves.length];
-  if (wave) oscillator.setPeriodicWave(wave);
-  else oscillator.type = "sawtooth";
-}
-
-const pulseCache = new WeakMap<BaseAudioContext, PeriodicWave>();
-function pulseWave(context: BaseAudioContext): PeriodicWave {
-  const cached = pulseCache.get(context);
-  if (cached) return cached;
-  const duty = 0.25;
-  const real = new Float32Array(40);
-  const imaginary = new Float32Array(40);
-  for (let harmonic = 1; harmonic < real.length; harmonic++) {
-    real[harmonic] =
-      (2 / (harmonic * Math.PI)) * Math.sin(harmonic * Math.PI * duty);
-    imaginary[harmonic] = 0;
-  }
-  const wave = context.createPeriodicWave(real, imaginary);
-  pulseCache.set(context, wave);
-  return wave;
 }
 
 const noiseCache = new WeakMap<BaseAudioContext, AudioBuffer>();
@@ -137,7 +73,10 @@ export class FluffBus {
   private readonly duck: GainNode;
   private readonly wetDuck: GainNode;
   private readonly bassDuck: GainNode;
-  private readonly delays: DelayNode[];
+  /** Vibrato, drift, filter and chorus LFOs shared by every melodic voice. */
+  readonly modulation: FluffModulation;
+  private readonly echo: FluffPingPong;
+  private readonly lfos: OscillatorNode[] = [];
   private readonly nodes: AudioNode[] = [];
   private bpm = 0;
 
@@ -169,75 +108,24 @@ export class FluffBus {
     makeup.gain.value = 1.3;
     this.music.connect(lowCut);
     lowCut.connect(makeup);
-    makeup.connect(this.duck);
+    fluffGlue(context, makeup, this.duck, this.nodes);
     this.duck.connect(output);
     this.wetDuck.connect(output);
     this.bass.connect(this.bassDuck);
     this.bassDuck.connect(output);
     this.drums.connect(drumOutput);
 
-    const reverb = (
-      send: GainNode,
-      seconds: number,
-      brightness: number,
-      lowCut: number,
-      level: number,
-      destination: AudioNode,
-    ): void => {
-      const predelay = node(context.createDelay(0.1));
-      predelay.delayTime.value = 0.018;
-      const cut = node(context.createBiquadFilter());
-      cut.type = "highpass";
-      cut.frequency.value = lowCut;
-      cut.Q.value = 0.5;
-      const convolver = node(context.createConvolver());
-      convolver.normalize = false;
-      convolver.buffer = reverbImpulse(context, seconds, brightness, 5381);
-      const wet = node(context.createGain());
-      wet.gain.value = level;
-      send.connect(predelay);
-      predelay.connect(cut);
-      cut.connect(convolver);
-      convolver.connect(wet);
-      wet.connect(destination);
-    };
-    reverb(this.hall, FLUFF_HALL_SECONDS, 0.5, 260, 1.5, this.wetDuck);
-    reverb(this.plate, FLUFF_PLATE_SECONDS, 0.75, 420, 1.2, output);
-
-    const left = node(context.createDelay(2));
-    const right = node(context.createDelay(2));
-    this.delays = [left, right];
-    const damping = node(context.createBiquadFilter());
-    damping.type = "lowpass";
-    damping.frequency.value = 4800;
-    damping.Q.value = 0.5;
-    const rumble = node(context.createBiquadFilter());
-    rumble.type = "highpass";
-    rumble.frequency.value = 320;
-    rumble.Q.value = 0.5;
-    const feedback = node(context.createGain());
-    feedback.gain.value = 0.42;
-    const panLeft = node(context.createStereoPanner());
-    const panRight = node(context.createStereoPanner());
-    panLeft.pan.value = -0.75;
-    panRight.pan.value = 0.75;
+    // Reverb and echo returns are ducked a little less than the dry sound.
+    fluffReverb(context, "hall", this.hall, this.wetDuck, 1.5, this.nodes);
+    fluffReverb(context, "plate", this.plate, this.wetDuck, 1.2, this.nodes);
     const echo = node(context.createGain());
-    echo.gain.value = 0.8;
     const echoHall = node(context.createGain());
     echoHall.gain.value = 0.22;
-    this.delay.connect(rumble);
-    rumble.connect(damping);
-    damping.connect(left);
-    left.connect(panLeft);
-    left.connect(right);
-    right.connect(panRight);
-    right.connect(feedback);
-    feedback.connect(damping);
-    panLeft.connect(echo);
-    panRight.connect(echo);
+    this.echo = new FluffPingPong(context, this.delay, echo, this.nodes);
     echo.connect(this.wetDuck);
     echo.connect(echoHall);
     echoHall.connect(this.hall);
+    this.modulation = createModulation(context, this.nodes, this.lfos);
     this.setTempo(bpm, context.currentTime);
   }
 
@@ -246,11 +134,7 @@ export class FluffBus {
     const immediate = this.bpm === 0;
     this.bpm = bpm;
     // Dotted eighths on each side make the repeats land between the beats.
-    const seconds = Math.min(1.9, (60 / bpm) * 0.75);
-    for (const delay of this.delays) {
-      if (immediate) delay.delayTime.value = seconds;
-      else delay.delayTime.setTargetAtTime(seconds, time, 0.05);
-    }
+    this.echo.setTime(Math.min(1.9, (60 / bpm) * 0.75), time, immediate);
   }
 
   /**
@@ -274,7 +158,7 @@ export class FluffBus {
     if (depth <= 0) return;
     const amount = Math.min(0.92, depth * 0.92);
     dip(this.duck.gain, amount, 0.08, 0.15);
-    dip(this.wetDuck.gain, amount * 0.6, 0.08, 0.15);
+    dip(this.wetDuck.gain, amount * 0.45, 0.08, 0.15);
   }
 
   /** An instrument channel with fixed hall and delay sends. */
@@ -294,71 +178,23 @@ export class FluffBus {
   }
 
   destroy(): void {
+    for (const lfo of this.lfos) {
+      lfo.stop();
+      lfo.disconnect();
+    }
     for (const node of this.nodes) node.disconnect();
   }
 }
 
-export type FluffPatch =
-  | "supersaw"
-  | "superpluck"
-  | "pluck"
-  | "bell"
-  | "glass"
-  | "piano"
-  | "stab"
-  | "rave"
-  | "chip"
-  | "soft"
-  | "vox"
-  | "pizz"
-  | "dream"
-  | "mallet";
-
-export const FLUFF_LEAD_PATCHES: readonly FluffPatch[] = [
-  "supersaw",
-  "pluck",
-  "bell",
-  "piano",
-  "stab",
-  "chip",
-  "soft",
-  "vox",
-];
-/** Per-slot trims that level every lead patch against the kick. */
-const FLUFF_LEAD_LEVELS: readonly number[] = [
-  2.24, 2.24, 1.26, 1.41, 2.0, 2.51, 1.26, 1.26,
-];
-/** Per-slot trims that level every arp patch under the lead. */
-export const FLUFF_ARP_LEVELS: readonly number[] = [
-  2.56, 5.1, 1.71, 2.29, 3.22, 1.14, 2.88, 1.44,
-];
-export const FLUFF_ARP_PATCHES: readonly FluffPatch[] = [
-  "pluck",
-  "superpluck",
-  "glass",
-  "pizz",
-  "chip",
-  "dream",
-  "rave",
-  "mallet",
-];
-
 export interface FluffNote {
-  patch: FluffPatch;
+  patch: Patch;
   frequency: number;
   /** Extra chord tones for stacked patches. */
   chord?: readonly number[];
   time: number;
   /** Seconds the note is held before its release. */
   gate: number;
-  decay: number;
-  attack: number;
-  tone: number;
-  resonance: number;
-  shape: number;
-  width: number;
-  motion: number;
-  grit: number;
+  controls: MelodicControls;
   level: number;
   pan: number;
   accent: boolean;
@@ -368,430 +204,26 @@ export interface FluffVoice {
   stop(time: number): void;
 }
 
-const VOWELS: ReadonlyArray<readonly [number, number, number]> = [
-  [340, 760, 2700],
-  [480, 880, 2830],
-  [820, 1250, 2900],
-  [600, 1900, 2850],
-  [310, 2350, 3100],
-];
-function vowel(position: number): [number, number, number] {
-  const scaled = Math.max(0, Math.min(1, position)) * (VOWELS.length - 1);
-  const lower = Math.floor(scaled);
-  const fraction = scaled - lower;
-  const first = VOWELS[lower] ?? [820, 1250, 2900];
-  const second = VOWELS[Math.min(VOWELS.length - 1, lower + 1)] ?? first;
-  return [
-    first[0] + (second[0] - first[0]) * fraction,
-    first[1] + (second[1] - first[1]) * fraction,
-    first[2] + (second[2] - first[2]) * fraction,
-  ];
-}
-
-/** One polyphonic Fluff voice; every source owns its cleanup. */
+/** One polyphonic Fluff voice: the patch's sound through the instrument's rack. */
 export function playFluffNote(
   context: BaseAudioContext,
-  output: AudioNode,
+  rack: FluffRack,
   note: FluffNote,
 ): FluffVoice {
-  const { patch, frequency, time } = note;
-  const sources: Source[] = [];
-  const nodes: AudioNode[] = [];
-  const amp = context.createGain();
-  amp.gain.value = 0;
-  nodes.push(amp);
-  const maximum = Math.min(18000, context.sampleRate * 0.45);
-  const base = Math.min(maximum, 180 * 2 ** (note.tone * 6.4));
-  const decay = Math.max(0.03, note.decay);
-  const gate = Math.max(0.02, note.gate);
-
-  const vibrato = context.createGain();
-  vibrato.gain.value = 0;
-  const wobble = context.createGain();
-  wobble.gain.value = 0;
-  nodes.push(vibrato, wobble);
-  const lfo = context.createOscillator();
-  lfo.frequency.value = 5.4;
-  lfo.connect(vibrato);
-  lfo.connect(wobble);
-  sources.push(lfo);
-
-  const filters: BiquadFilterNode[] = [];
-  /** A filtered stereo position; unison patches use one per side. */
-  const side = (pan: number): BiquadFilterNode => {
-    const filter = context.createBiquadFilter();
-    filter.type = "lowpass";
-    const panner = context.createStereoPanner();
-    panner.pan.value = Math.max(-1, Math.min(1, note.pan + pan));
-    filter.connect(panner);
-    panner.connect(amp);
-    wobble.connect(filter.detune);
-    filters.push(filter);
-    nodes.push(filter, panner);
-    return filter;
-  };
-  const oscillator = (
-    type: OscillatorType | "saw" | "pulse",
-    ratio: number,
-    level: number,
-    target: AudioNode,
-    detune = 0,
-    phase = 0,
-  ): OscillatorNode => {
-    const source = context.createOscillator();
-    if (type === "saw") fluffSaw(context, source, phase);
-    else if (type === "pulse") source.setPeriodicWave(pulseWave(context));
-    else source.type = type;
-    source.frequency.value = frequency * ratio;
-    source.detune.value = detune;
-    vibrato.connect(source.detune);
-    const gain = context.createGain();
-    gain.gain.value = level;
-    source.connect(gain);
-    gain.connect(target);
-    sources.push(source);
-    nodes.push(gain);
-    return source;
-  };
-  const sweep = (peak: number, floor: number, seconds: number): void => {
-    for (const filter of filters) {
-      filter.frequency.setValueAtTime(
-        Math.min(maximum, Math.max(40, peak)),
-        time,
-      );
-      filter.frequency.setTargetAtTime(
-        Math.min(maximum, Math.max(40, floor)),
-        time,
-        Math.max(0.004, seconds),
-      );
-    }
-  };
-  const resonance = (value: number): void => {
-    for (const filter of filters) filter.Q.value = value;
-  };
-  const modulate = (
-    carrier: OscillatorNode,
-    ratio: number,
-    index: number,
-    seconds: number,
-    floor = 0,
-  ): void => {
-    const modulator = context.createOscillator();
-    modulator.frequency.value = frequency * ratio;
-    const depth = context.createGain();
-    depth.gain.setValueAtTime(frequency * index, time);
-    depth.gain.setTargetAtTime(
-      frequency * index * floor,
-      time,
-      Math.max(0.004, seconds),
-    );
-    modulator.connect(depth);
-    depth.connect(carrier.frequency);
-    sources.push(modulator);
-    nodes.push(depth);
-  };
-
-  let peak = 0.3;
-  let attack = Math.max(0.002, note.attack);
-  let sustain = 0;
-  let fall = decay;
-  let release = decay;
-  let vibratoDepth = note.motion * 22;
-  let vibratoDelay = 0.12;
-  const spread = 6 + note.shape * 26;
-  const wide = 0.25 + note.width * 0.7;
-
-  if (patch === "supersaw" || patch === "superpluck") {
-    const leftFilter = side(-wide);
-    const rightFilter = side(wide);
-    const voices = patch === "supersaw" ? 7 : 5;
-    for (let voice = 0; voice < voices; voice++) {
-      const position = (voice / (voices - 1)) * 2 - 1;
-      oscillator(
-        "saw",
-        1,
-        position === 0 ? 0.2 : 0.15,
-        voice % 2 === 0 ? leftFilter : rightFilter,
-        position * spread,
-        voice + Math.round(frequency),
-      );
-    }
-    oscillator("saw", 2, 0.05 + note.shape * 0.06, leftFilter, 5, 3);
-    oscillator("saw", 2, 0.05 + note.shape * 0.06, rightFilter, -5, 6);
-    resonance(0.6 + note.resonance * 5);
-    if (patch === "supersaw") {
-      sweep(base * 1.7, base, 0.14);
-      sustain = 0.86;
-      fall = 0.25;
-      peak = 0.36;
-      attack = Math.max(0.006, note.attack);
-    } else {
-      sweep(base * (2.5 + note.shape * 3), base * 0.55, decay * 0.3);
-      sustain = 0.22;
-      fall = decay * 0.5;
-      release = decay * 0.8;
-      peak = 0.42;
-    }
-  } else if (patch === "pluck") {
-    const left = side(-wide * 0.5);
-    const right = side(wide * 0.5);
-    oscillator("saw", 1, 0.3, left, -7, 1);
-    oscillator("saw", 1, 0.3, right, 7, 4);
-    oscillator("square", 0.5, 0.1 + note.shape * 0.16, left);
-    oscillator("triangle", 1, 0.2, right);
-    resonance(1 + note.resonance * 9);
-    sweep(base * (3.2 + note.shape * 5), base * 0.45, decay * 0.2);
-    peak = 0.5;
-  } else if (patch === "bell" || patch === "glass") {
-    const filter = side(0);
-    filter.frequency.value = maximum;
-    const body = oscillator("sine", 1, 0.5, filter);
-    const glassy = patch === "glass";
-    modulate(
-      body,
-      glassy ? 7 : 2 + Math.round(note.shape * 4) * 0.5 + 1.5,
-      (glassy ? 0.9 : 1.8) * (0.5 + note.tone),
-      decay * (glassy ? 0.08 : 0.3),
-      0.04,
-    );
-    const shimmer = oscillator(
-      "sine",
-      glassy ? 3 : 2,
-      glassy ? 0.2 : 0.22,
-      filter,
-      glassy ? 4 : 3,
-    );
-    modulate(shimmer, glassy ? 5.02 : 1, 0.6 * note.shape, decay * 0.2);
-    if (glassy) oscillator("sine", 5.02, 0.07, filter);
-    fall = decay * (glassy ? 1.2 : 1.7);
-    attack = 0.002;
-    peak = 0.42;
-  } else if (patch === "piano") {
-    const left = side(-wide * 0.3);
-    const right = side(wide * 0.3);
-    const body = oscillator("triangle", 1, 0.5, left);
-    modulate(body, 1, 1.3 + note.shape * 1.5, 0.05, 0.12);
-    oscillator("saw", 1, 0.16 + note.shape * 0.12, right, 4, 2);
-    oscillator("sine", 2, 0.2, right, -3);
-    oscillator("sine", 0.5, 0.12, left);
-    resonance(0.7 + note.resonance * 2);
-    sweep(base * 4.5, base * 0.8, decay * 0.25);
-    sustain = 0.18;
-    fall = decay * 0.7;
-    release = 0.16;
-    attack = 0.002;
-    peak = 0.52;
-  } else if (patch === "stab" || patch === "rave") {
-    const left = side(-wide);
-    const right = side(wide);
-    const tones = [1, ...(note.chord ?? []).map((tone) => tone / frequency)];
-    const level = 0.26 / Math.sqrt(tones.length);
-    tones.forEach((ratio, index) => {
-      oscillator("saw", ratio, level, left, -spread * 0.5, index * 2);
-      oscillator("saw", ratio, level, right, spread * 0.5, index * 2 + 1);
-      if (patch === "rave")
-        oscillator("pulse", ratio * 0.5, level * 0.7, index % 2 ? left : right);
-      else oscillator("sine", ratio, level * 0.9, index % 2 ? left : right);
-    });
-    if (patch === "stab") {
-      // A rounded house stab: low resonance and a short, soft filter fall.
-      resonance(0.7 + note.resonance * 2);
-      sweep(base * 2.6, base * 0.75, 0.06 + decay * 0.12);
-      sustain = 0.4;
-      fall = 0.08 + decay * 0.3;
-      release = Math.min(0.4, 0.06 + decay * 0.4);
-    } else {
-      resonance(1 + note.resonance * 6);
-      sweep(base * 4, base * 0.6, decay * 0.25);
-      sustain = 0.12;
-      fall = decay * 0.5;
-      release = decay * 0.5;
-      for (const source of sources)
-        if (source instanceof OscillatorNode && source !== lfo) {
-          source.detune.setValueAtTime(source.detune.value + 45, time);
-          source.detune.setTargetAtTime(source.detune.value, time, 0.012);
-        }
-    }
-    attack = 0.003;
-    peak = 0.6;
-  } else if (patch === "chip") {
-    const filter = side(0);
-    filter.frequency.value = Math.min(maximum, base * 2.4 + 600);
-    oscillator("pulse", 1, 0.3, filter);
-    oscillator("square", 2, 0.05 + note.shape * 0.1, filter);
-    oscillator("triangle", 0.5, 0.12, filter);
-    sustain = 0.8;
-    fall = 0.06;
-    release = Math.min(0.3, decay * 0.4);
-    attack = 0.002;
-    vibratoDepth = 6 + note.motion * 26;
-    vibratoDelay = 0.16;
-    peak = 0.34;
-  } else if (patch === "soft") {
-    // Two close saws and a sub-octave triangle through a gentle lowpass.
-    const left = side(-wide * 0.4);
-    const right = side(wide * 0.4);
-    oscillator("saw", 1, 0.32, left, -4 - note.shape * 6, 2);
-    oscillator("saw", 1, 0.32, right, 4 + note.shape * 6, 5);
-    oscillator("triangle", 0.5, 0.22, left);
-    oscillator("sine", 1, 0.3, right);
-    resonance(0.8 + note.resonance * 2);
-    sweep(base * 2.2, base * 0.9, 0.12 + decay * 0.2);
-    sustain = 0.75;
-    fall = 0.2 + decay * 0.4;
-    release = Math.max(0.12, decay * 0.6);
-    attack = Math.max(0.01, note.attack);
-    vibratoDepth = 4 + note.motion * 24;
-    vibratoDelay = 0.28;
-    peak = 0.42;
-  } else if (patch === "vox") {
-    const output = side(0);
-    output.frequency.value = Math.min(maximum, 5200 + base);
-    const source = context.createGain();
-    nodes.push(source);
-    oscillator("saw", 1, 0.5, source, -4, 2);
-    oscillator("pulse", 1, 0.35, source, 5);
-    oscillator("saw", 2, 0.08, source, 3, 5);
-    const breath = context.createBufferSource();
-    breath.buffer = noiseBuffer(context);
-    breath.loop = true;
-    const air = context.createGain();
-    air.gain.value = 0.03 + note.grit * 0.12;
-    breath.connect(air);
-    air.connect(source);
-    sources.push(breath);
-    nodes.push(air);
-    // Each note opens from a rounder vowel, which reads as a sung syllable.
-    const target = vowel(0.2 + note.shape * 0.8);
-    const onset = vowel(Math.max(0, note.shape * 0.8 - 0.15));
-    const higher = (frequency / 330) ** 0.18 * 1.12;
-    [1, 0.6, 0.34].forEach((level, index) => {
-      const formant = context.createBiquadFilter();
-      formant.type = "bandpass";
-      formant.Q.value = 7 + index * 3 + note.resonance * 6;
-      formant.frequency.setValueAtTime((onset[index] ?? 800) * higher, time);
-      formant.frequency.setTargetAtTime(
-        (target[index] ?? 800) * higher,
-        time,
-        0.05,
-      );
-      const gain = context.createGain();
-      gain.gain.value = level * 2.4;
-      source.connect(formant);
-      formant.connect(gain);
-      gain.connect(output);
-      nodes.push(formant, gain);
-    });
-    sustain = 0.88;
-    fall = 0.12;
-    attack = Math.max(0.018, note.attack);
-    vibratoDepth = 10 + note.motion * 32;
-    vibratoDelay = 0.2;
-    peak = 0.5;
-  } else if (patch === "pizz") {
-    const filter = side(0);
-    oscillator("triangle", 1, 0.5, filter);
-    oscillator("saw", 1, 0.12 + note.shape * 0.2, filter, 3, 1);
-    oscillator("sine", 2, 0.1, filter);
-    resonance(0.8 + note.resonance * 4);
-    sweep(base * 5, base * 0.5, 0.03);
-    fall = Math.min(0.35, decay);
-    attack = 0.0015;
-    peak = 0.5;
-  } else if (patch === "dream") {
-    const left = side(-wide * 0.6);
-    const right = side(wide * 0.6);
-    left.frequency.value = Math.min(maximum, base * 2 + 900);
-    right.frequency.value = Math.min(maximum, base * 2 + 900);
-    oscillator("sine", 1, 0.36, left, -6);
-    oscillator("sine", 1, 0.36, right, 6);
-    oscillator("sine", 2, 0.1 + note.shape * 0.16, left, 3);
-    oscillator("triangle", 3, 0.03 + note.shape * 0.06, right, -3);
-    fall = decay * 2;
-    attack = Math.max(0.012, note.attack);
-    peak = 0.4;
-  } else {
-    const filter = side(0);
-    filter.frequency.value = Math.min(maximum, base * 3 + 1500);
-    oscillator("sine", 1, 0.55, filter);
-    const overtone = context.createGain();
-    overtone.gain.setValueAtTime(0.3 + note.shape * 0.3, time);
-    overtone.gain.setTargetAtTime(0, time, 0.045);
-    overtone.connect(filter);
-    nodes.push(overtone);
-    oscillator("sine", 4, 1, overtone);
-    oscillator("sine", 10, 0.25, overtone);
-    fall = decay;
-    attack = 0.0015;
-    peak = 0.5;
-  }
-
-  const level = peak * note.level * (note.accent ? 1.22 : 1);
-  const gain = amp.gain;
-  gain.setValueAtTime(0, time);
-  gain.linearRampToValueAtTime(level, time + attack);
-  let end: number;
-  if (sustain <= 0.001) {
-    gain.setTargetAtTime(0, time + attack, fall / 4.6);
-    end = time + attack + fall * 1.25;
-  } else {
-    const hold = Math.max(time + attack + 0.004, time + gate);
-    gain.setTargetAtTime(level * sustain, time + attack, fall / 3);
-    gain.cancelAndHoldAtTime(hold);
-    gain.setTargetAtTime(0, hold, release / 4.6);
-    end = hold + release * 1.25;
-  }
-  gain.cancelAndHoldAtTime(end - 0.012);
-  gain.linearRampToValueAtTime(0, end);
-
-  if (vibratoDepth > 0) {
-    vibrato.gain.setValueAtTime(0, time);
-    vibrato.gain.setTargetAtTime(vibratoDepth, time + vibratoDelay, 0.12);
-  }
-  if (note.motion > 0 && (patch === "supersaw" || patch === "stab")) {
-    lfo.frequency.value = 0.4 + note.motion * 5;
-    wobble.gain.value = note.motion * 900;
-  }
-
-  let last: AudioNode = amp;
-  if (note.grit > 0 && patch !== "vox") {
-    const shaper = context.createWaveShaper();
-    shaper.curve = softClipCurve(note.grit);
-    const trim = context.createGain();
-    trim.gain.value = 1 / (1 + note.grit * 0.6);
-    amp.connect(shaper);
-    shaper.connect(trim);
-    last = trim;
-    nodes.push(shaper, trim);
-  }
-  last.connect(output);
-
-  let remaining = sources.length;
-  for (const source of sources) {
-    source.onended = () => {
-      source.disconnect();
-      remaining--;
-      if (remaining === 0) for (const node of nodes) node.disconnect();
-    };
-    if (source instanceof AudioBufferSourceNode)
-      source.start(time, (frequency * 0.0137) % 1.5);
-    else source.start(time);
-    source.stop(end + 0.01);
-  }
-  const voice: FluffVoice = {
-    end,
-    stop(stopTime: number): void {
-      if (stopTime >= voice.end) return;
-      gain.cancelAndHoldAtTime(stopTime);
-      gain.linearRampToValueAtTime(0, stopTime + 0.012);
-      voice.end = stopTime + 0.012;
-      for (const source of sources) source.stop(stopTime + 0.02);
-    },
-  };
-  return voice;
+  const spec = note.patch.voice(note.controls);
+  return playSynthVoice(context, rack, rack.input, {
+    spec: { ...spec, level: spec.level * note.level },
+    frequencies: [note.frequency, ...(note.chord ?? [])],
+    time: note.time,
+    gate: note.gate,
+    accent: note.accent,
+    width: note.controls.width,
+    pan: note.pan,
+    seed: Math.round(note.time * 9973 + note.frequency * 31),
+  });
 }
 
-type BassWave = "sine" | "triangle" | "square" | "saw";
+type BassWave = Wave;
 interface BassTone {
   wave: BassWave;
   ratio: number;
@@ -806,18 +238,22 @@ interface FluffBassProfile {
   subSustain: number;
   /** The mid layer, high-passed above the sub so the two never fight. */
   mid: number;
-  tones: readonly [BassTone, BassTone, BassTone];
+  tones: readonly [BassTone, BassTone, BassTone, BassTone];
   fm: number;
   fmRatio: number;
   drive: number;
   /** Multiplier on the Cutoff control. */
   cutoff: number;
+  /** How far the cutoff follows the note (0–1), around A2. */
+  keyTrack: number;
   /** Filter envelope depth in octaves at full Envelope. */
   envelope: number;
   /** Filter decay as a multiple of the Decay control. */
   filterDecay: number;
   /** Multiplier on the Resonance control. */
   resonance: number;
+  /** Cents of slow filter movement at full Shape. */
+  lfo: number;
   attack: number;
   /** Level the mid layer decays to while held. */
   sustain: number;
@@ -829,9 +265,11 @@ interface FluffBassProfile {
 }
 
 const SAW: BassWave = "saw";
-/** Sub, Offbeat, Rolling, Pluck, Long, Reese, Organ, Donk, Growl, Warm, Garage. */
+const SILENT: BassTone = { wave: "sine", ratio: 1, level: 0, detune: 0 };
+/** Sub, Offbeat, Rolling, Pluck, Long, Reese, Organ, FM, Growl, Warm, Garage. */
 const FLUFF_BASSES: readonly FluffBassProfile[] = [
   {
+    // A sine sub with a soft triangle and low harmonics so it reads on small speakers.
     sub: 1,
     subSustain: 0.95,
     mid: 0.45,
@@ -839,14 +277,17 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
       { wave: "triangle", ratio: 1, level: 0.6, detune: 0 },
       { wave: "sine", ratio: 2, level: 0.4, detune: 0 },
       { wave: "sine", ratio: 3, level: 0.12, detune: 0 },
+      SILENT,
     ],
     fm: 0,
     fmRatio: 1,
-    drive: 0.2,
+    drive: 0.25,
     cutoff: 1,
+    keyTrack: 0.3,
     envelope: 0.4,
     filterDecay: 1,
     resonance: 0.2,
+    lfo: 0,
     attack: 0.006,
     sustain: 0.85,
     decay: 1.5,
@@ -854,21 +295,25 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
     bend: 0,
   },
   {
+    // Trance offbeat: two detuned saws, an octave saw and a square, plucked open.
     sub: 0.95,
     subSustain: 0.85,
     mid: 0.8,
     tones: [
-      { wave: SAW, ratio: 1, level: 0.5, detune: -9 },
-      { wave: SAW, ratio: 1, level: 0.5, detune: 9 },
+      { wave: SAW, ratio: 1, level: 0.5, detune: -10 },
+      { wave: SAW, ratio: 1, level: 0.5, detune: 10 },
       { wave: SAW, ratio: 2, level: 0.14, detune: 4 },
+      { wave: "square", ratio: 1, level: 0.2, detune: 0 },
     ],
     fm: 0,
     fmRatio: 1,
-    drive: 0.2,
+    drive: 0.3,
     cutoff: 1.1,
+    keyTrack: 0.5,
     envelope: 2.2,
     filterDecay: 0.55,
     resonance: 0.8,
+    lfo: 0,
     attack: 0.003,
     sustain: 0.45,
     decay: 1,
@@ -876,21 +321,25 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
     bend: 0,
   },
   {
+    // Rolling progressive mid-bass: saw and square a few cents apart through a 24 dB filter.
     sub: 0.95,
     subSustain: 0.7,
     mid: 0.75,
     tones: [
-      { wave: SAW, ratio: 1, level: 0.6, detune: 0 },
+      { wave: SAW, ratio: 1, level: 0.6, detune: -4 },
       { wave: "square", ratio: 1, level: 0.35, detune: 5 },
       { wave: SAW, ratio: 2, level: 0.1, detune: -4 },
+      { wave: SAW, ratio: 1, level: 0.25, detune: 9 },
     ],
     fm: 0,
     fmRatio: 1,
-    drive: 0.25,
+    drive: 0.3,
     cutoff: 1,
+    keyTrack: 0.5,
     envelope: 2.5,
     filterDecay: 0.45,
     resonance: 1,
+    lfo: 0,
     attack: 0.002,
     sustain: 0.3,
     decay: 0.8,
@@ -898,6 +347,7 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
     bend: 0,
   },
   {
+    // Pluck bass: a short, deep filter fall over detuned saws.
     sub: 1,
     subSustain: 0.85,
     mid: 0.85,
@@ -905,14 +355,17 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
       { wave: SAW, ratio: 1, level: 0.5, detune: -8 },
       { wave: SAW, ratio: 1, level: 0.5, detune: 8 },
       { wave: "square", ratio: 2, level: 0.12, detune: 0 },
+      SILENT,
     ],
     fm: 0,
     fmRatio: 1,
-    drive: 0.12,
+    drive: 0.15,
     cutoff: 0.9,
+    keyTrack: 0.5,
     envelope: 3.2,
     filterDecay: 0.35,
     resonance: 1.2,
+    lfo: 0,
     attack: 0.002,
     sustain: 0.12,
     decay: 1,
@@ -920,6 +373,7 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
     bend: 0,
   },
   {
+    // Long gated saws that breathe with a slow filter drift.
     sub: 0.95,
     subSustain: 1,
     mid: 0.7,
@@ -927,36 +381,43 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
       { wave: SAW, ratio: 1, level: 0.5, detune: -11 },
       { wave: SAW, ratio: 1, level: 0.5, detune: 11 },
       { wave: SAW, ratio: 2, level: 0.15, detune: 6 },
+      { wave: SAW, ratio: 1, level: 0.3, detune: 0 },
     ],
     fm: 0,
     fmRatio: 1,
-    drive: 0.15,
+    drive: 0.2,
     cutoff: 1.1,
+    keyTrack: 0.4,
     envelope: 1.2,
     filterDecay: 1.4,
     resonance: 0.7,
+    lfo: 450,
     attack: 0.008,
     sustain: 0.85,
     decay: 1.6,
-    release: 0.12,
+    release: 0.1,
     bend: 0,
   },
   {
+    // Reese: three saws drifting against each other, a square for body, slow filter movement.
     sub: 1,
     subSustain: 1,
     mid: 0.72,
     tones: [
-      { wave: SAW, ratio: 1, level: 0.5, detune: -18 },
-      { wave: SAW, ratio: 1, level: 0.5, detune: 18 },
-      { wave: "square", ratio: 1, level: 0.22, detune: 7 },
+      { wave: SAW, ratio: 1, level: 0.5, detune: -17 },
+      { wave: SAW, ratio: 1, level: 0.5, detune: 17 },
+      { wave: SAW, ratio: 1, level: 0.35, detune: -5 },
+      { wave: "square", ratio: 1, level: 0.2, detune: 7 },
     ],
     fm: 0,
     fmRatio: 1,
-    drive: 0.35,
+    drive: 0.4,
     cutoff: 0.9,
+    keyTrack: 0.3,
     envelope: 0.6,
     filterDecay: 1.5,
     resonance: 0.6,
+    lfo: 600,
     attack: 0.01,
     sustain: 0.95,
     decay: 2,
@@ -964,6 +425,7 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
     bend: 0,
   },
   {
+    // House organ bass: drawbar partials with a quick decay and a little click.
     sub: 0.85,
     subSustain: 0.6,
     mid: 0.8,
@@ -971,14 +433,17 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
       { wave: "sine", ratio: 2, level: 0.6, detune: 0 },
       { wave: "sine", ratio: 3, level: 0.38, detune: 0 },
       { wave: "sine", ratio: 4, level: 0.3, detune: 0 },
+      { wave: "sine", ratio: 8, level: 0.08, detune: 0 },
     ],
     fm: 0,
     fmRatio: 1,
-    drive: 0.15,
+    drive: 0.2,
     cutoff: 3,
+    keyTrack: 0.3,
     envelope: 0.5,
     filterDecay: 0.5,
     resonance: 0.3,
+    lfo: 0,
     attack: 0.002,
     sustain: 0.45,
     decay: 0.9,
@@ -986,6 +451,7 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
     bend: 0,
   },
   {
+    // Deep house FM bass: an octave sine with a decaying FM bite over a triangle.
     sub: 0.85,
     subSustain: 0.5,
     mid: 0.75,
@@ -993,14 +459,17 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
       { wave: "sine", ratio: 2, level: 0.7, detune: 0 },
       { wave: "triangle", ratio: 1, level: 0.3, detune: 0 },
       { wave: "sine", ratio: 4, level: 0.1, detune: 0 },
+      SILENT,
     ],
     fm: 2.2,
     fmRatio: 1,
     drive: 0.2,
     cutoff: 2.5,
+    keyTrack: 0.5,
     envelope: 1,
     filterDecay: 0.5,
     resonance: 0.6,
+    lfo: 0,
     attack: 0.001,
     sustain: 0.2,
     decay: 0.7,
@@ -1008,6 +477,7 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
     bend: 0,
   },
   {
+    // Dark melodic house growl: driven saw and square, resonant, an octave saw on top.
     sub: 1,
     subSustain: 0.9,
     mid: 0.7,
@@ -1015,14 +485,17 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
       { wave: SAW, ratio: 1, level: 0.55, detune: -6 },
       { wave: "square", ratio: 1, level: 0.4, detune: 6 },
       { wave: SAW, ratio: 2, level: 0.12, detune: 0 },
+      { wave: "pulse", ratio: 1, level: 0.2, detune: 12 },
     ],
     fm: 0,
     fmRatio: 1,
-    drive: 0.55,
+    drive: 0.6,
     cutoff: 0.8,
+    keyTrack: 0.4,
     envelope: 1.6,
     filterDecay: 0.9,
     resonance: 1.4,
+    lfo: 250,
     attack: 0.004,
     sustain: 0.6,
     decay: 1.2,
@@ -1030,6 +503,7 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
     bend: 0,
   },
   {
+    // Warm round bass: triangle and octave sine with a hint of saw.
     sub: 1,
     subSustain: 0.85,
     mid: 0.6,
@@ -1037,14 +511,17 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
       { wave: "triangle", ratio: 1, level: 0.6, detune: 0 },
       { wave: "sine", ratio: 2, level: 0.4, detune: 0 },
       { wave: SAW, ratio: 1, level: 0.12, detune: 5 },
+      SILENT,
     ],
     fm: 0,
     fmRatio: 1,
-    drive: 0.25,
+    drive: 0.3,
     cutoff: 0.8,
+    keyTrack: 0.4,
     envelope: 0.8,
     filterDecay: 0.8,
     resonance: 0.4,
+    lfo: 0,
     attack: 0.006,
     sustain: 0.6,
     decay: 1.2,
@@ -1052,6 +529,7 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
     bend: 0,
   },
   {
+    // UK garage: a bendy square with light FM and an octave sine.
     sub: 0.9,
     subSustain: 0.7,
     mid: 0.8,
@@ -1059,14 +537,17 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
       { wave: "square", ratio: 1, level: 0.5, detune: 0 },
       { wave: SAW, ratio: 1, level: 0.35, detune: 6 },
       { wave: "sine", ratio: 2, level: 0.2, detune: 0 },
+      SILENT,
     ],
     fm: 0.6,
     fmRatio: 1,
     drive: 0.3,
     cutoff: 1.1,
+    keyTrack: 0.5,
     envelope: 2,
     filterDecay: 0.5,
     resonance: 1,
+    lfo: 0,
     attack: 0.002,
     sustain: 0.4,
     decay: 0.9,
@@ -1076,7 +557,7 @@ const FLUFF_BASSES: readonly FluffBassProfile[] = [
 ];
 /** Per-slot trims that level every bass patch against the kick. */
 const FLUFF_BASS_LEVELS: readonly number[] = [
-  1.1, 1, 1, 1, 0.95, 0.89, 0.86, 1.1, 0.92, 1.1, 1,
+  1.09, 1.16, 1.2, 1.07, 1.09, 1.01, 1.08, 1.29, 0.99, 1.08, 1.17,
 ];
 
 /** Fold any note into the sub octave so every pattern has weight at 40–80 Hz. */
@@ -1118,6 +599,8 @@ export class FluffBass {
   private readonly wet: GainNode;
   private readonly lowpass: readonly [BiquadFilterNode, BiquadFilterNode];
   private readonly highpass: BiquadFilterNode;
+  private readonly lfo: GainNode;
+  private readonly slow: AudioNode;
   private readonly midGain: GainNode;
   private readonly level: GainNode;
   private readonly sources: OscillatorNode[] = [];
@@ -1156,7 +639,7 @@ export class FluffBass {
     this.modulation = gain(0);
     this.modulator.connect(this.modulation);
     this.sources.push(this.modulator);
-    for (let index = 0; index < 3; index++) {
+    for (let index = 0; index < 4; index++) {
       const oscillator = context.createOscillator();
       const level = gain(0);
       oscillator.connect(level);
@@ -1169,6 +652,7 @@ export class FluffBass {
     this.wet = gain(0);
     const shaper = context.createWaveShaper();
     shaper.curve = bassSaturation(context);
+    shaper.oversample = "2x";
     this.nodes.push(shaper);
     mix.connect(this.dry);
     mix.connect(shaper);
@@ -1180,6 +664,11 @@ export class FluffBass {
     this.wet.connect(this.lowpass[0]);
     this.lowpass[0].connect(this.lowpass[1]);
     this.lowpass[1].connect(this.highpass);
+    // Slow filter movement for long and Reese basses.
+    this.slow = bus.modulation.slow;
+    this.lfo = gain(0);
+    this.slow.connect(this.lfo);
+    for (const lowpass of this.lowpass) this.lfo.connect(lowpass.detune);
     this.midGain = gain(0);
     this.highpass.connect(this.midGain);
     this.midGain.connect(this.level);
@@ -1191,7 +680,9 @@ export class FluffBass {
         registry.delete(source);
         source.disconnect();
         remaining--;
-        if (remaining === 0) for (const node of this.nodes) node.disconnect();
+        if (remaining !== 0) return;
+        this.slow.disconnect(this.lfo);
+        for (const node of this.nodes) node.disconnect();
       };
       source.start();
     }
@@ -1275,15 +766,15 @@ export class FluffBass {
       MIN_GAIN,
       levels.reduce((sum, value) => sum + value, 0),
     );
+    const drift = randomStream(Math.round(time * 1000));
     this.tones.forEach((tone, index) => {
       const configuration = profile.tones[index];
       if (!configuration) return;
-      if (configuration.wave === "saw")
-        fluffSaw(this.context, tone.oscillator, index * 3 + 1);
-      else tone.oscillator.type = configuration.wave;
+      setWave(this.context, tone.oscillator, configuration.wave);
       tone.ratio = configuration.ratio;
+      // A few cents of random drift per note keeps repeated notes from sounding identical.
       tone.oscillator.detune.setValueAtTime(
-        configuration.detune * (0.3 + shape * 1.4),
+        configuration.detune * (0.3 + shape * 1.4) + (drift() - 0.5) * 4,
         start,
       );
       tone.gain.gain.setValueAtTime((levels[index] ?? 0) / total, start);
@@ -1308,7 +799,12 @@ export class FluffBass {
     this.wet.gain.setValueAtTime(drive * 0.9, start);
     this.highpass.frequency.setValueAtTime(Math.max(85, sub * 1.6), start);
 
-    const base = Math.max(40, Math.min(12000, track.cutoff * profile.cutoff));
+    const tracked = (frequency / 110) ** profile.keyTrack;
+    const base = Math.max(
+      40,
+      Math.min(12000, track.cutoff * profile.cutoff * tracked),
+    );
+    this.lfo.gain.setTargetAtTime(profile.lfo * (0.3 + shape), start, 0.05);
     const octaves =
       track.envelope * profile.envelope * (0.5 + shape) + (accent ? 0.8 : 0);
     const peak = Math.min(16000, base * 2 ** octaves);
@@ -1375,7 +871,8 @@ export class FluffBass {
 
 export function fluffLeadTail(track: KeysTrack): number {
   if (track.muted) return 0;
-  return track.decay * 2.5 + 0.05;
+  // Bells and pianos ring for up to about three times Decay.
+  return track.decay * 3.4 + 0.5;
 }
 
 /** The Lead instrument: Texture's steps voiced as held, tied melodic notes. */
@@ -1383,6 +880,7 @@ export class FluffLead {
   private readonly level: GainNode;
   private readonly hall: GainNode;
   private readonly delay: GainNode;
+  private readonly rack: FluffRack;
   private readonly voices = new Set<FluffVoice>();
   private firstStep = true;
 
@@ -1392,6 +890,8 @@ export class FluffLead {
   ) {
     this.level = context.createGain();
     this.level.gain.value = 0;
+    this.rack = new FluffRack(context, bus.modulation);
+    this.rack.output.connect(this.level);
     this.hall = context.createGain();
     this.delay = context.createGain();
     this.hall.gain.value = 0;
@@ -1455,30 +955,35 @@ export class FluffLead {
     scale: MusicalScale,
     legato = false,
   ): void {
-    const patch = FLUFF_LEAD_PATCHES[track.sound] ?? "supersaw";
+    const patch = FLUFF_LEAD_PATCHES[track.sound] ?? FLUFF_LEAD_PATCHES[0];
+    if (!patch) return;
     for (const voice of this.voices)
       if (voice.end <= time) this.voices.delete(voice);
-    const chord =
-      patch === "stab"
-        ? scaleNotes(scale, midi, midi + 24)
-            .filter((_, index) => index === 2 || index === 4)
-            .map(midiFrequency)
-        : undefined;
+    const steps = patch.chord;
+    const chord = steps
+      ? scaleNotes(scale, midi, midi + 24)
+          .filter((_, index) => steps.includes(index))
+          .map(midiFrequency)
+      : undefined;
+    const controls: MelodicControls = {
+      tone: track.tone,
+      decay: track.decay,
+      attack: track.attack ** 2 * 0.6 + (legato ? 0.03 : 0),
+      resonance: 0.2,
+      shape: track.width,
+      width: track.width,
+      motion: track.motion,
+      grit: track.grit,
+    };
+    this.rack.set(patch.rack(controls), time);
     this.voices.add(
-      playFluffNote(this.context, this.level, {
+      playFluffNote(this.context, this.rack, {
         patch,
         frequency: midiFrequency(midi),
         chord,
         time,
         gate,
-        decay: track.decay,
-        attack: 0.004 + track.attack ** 2 * 0.5 + (legato ? 0.03 : 0),
-        tone: track.tone,
-        resonance: 0.2,
-        shape: track.width,
-        width: track.width,
-        motion: track.motion,
-        grit: track.grit,
+        controls,
         level: FLUFF_LEAD_LEVELS[track.sound] ?? 1,
         pan: 0,
         accent,
@@ -1501,6 +1006,7 @@ export class FluffLead {
 
   destroy(): void {
     this.stop();
+    this.rack.destroy();
     for (const node of [this.level, this.hall, this.delay]) node.disconnect();
   }
 }

@@ -10,12 +10,11 @@ import {
 } from "./arp-model";
 import type { ArpEvent, ArpTrack } from "./arp-model";
 import type { MusicalScale } from "./model";
-import {
-  FLUFF_ARP_LEVELS,
-  FLUFF_ARP_PATCHES,
-  playFluffNote,
-} from "./fluff-audio";
+import { playFluffNote } from "./fluff-audio";
 import type { FluffBus, FluffVoice } from "./fluff-audio";
+import { FLUFF_ARP_LEVELS, FLUFF_ARP_PATCHES } from "./fluff-patches";
+import type { MelodicControls } from "./fluff-patches";
+import { FluffRack } from "./fluff-synth";
 
 interface ArpProfile {
   first: OscillatorType;
@@ -200,12 +199,13 @@ export class ArpInstrument {
   private readonly voices = new Set<ArpVoice>();
   private readonly fluffVoices = new Set<FluffVoice>();
   private readonly sends: { hall: GainNode; delay: GainNode } | null;
+  private readonly rack: FluffRack | null;
   private firstStep = true;
 
   constructor(
     private readonly context: BaseAudioContext,
     output: AudioNode,
-    private readonly fluff: FluffBus | null = null,
+    fluff: FluffBus | null = null,
   ) {
     this.level = context.createGain();
     this.level.gain.value = 0;
@@ -220,9 +220,12 @@ export class ArpInstrument {
       hall.connect(fluff.hall);
       delay.connect(fluff.delay);
       this.sends = { hall, delay };
+      this.rack = new FluffRack(context, fluff.modulation);
+      this.rack.output.connect(this.level);
     } else {
       this.level.connect(output);
       this.sends = null;
+      this.rack = null;
     }
   }
 
@@ -303,6 +306,7 @@ export class ArpInstrument {
     this.level.disconnect();
     this.sends?.hall.disconnect();
     this.sends?.delay.disconnect();
+    this.rack?.destroy();
   }
 
   private note(
@@ -313,25 +317,30 @@ export class ArpInstrument {
     bpm: number,
   ): void {
     const context = this.context;
-    if (this.fluff) {
+    const patch = FLUFF_ARP_PATCHES[track.sound] ?? FLUFF_ARP_PATCHES[0];
+    if (this.rack && patch) {
       for (const voice of this.fluffVoices)
         if (voice.end <= time) this.fluffVoices.delete(voice);
+      const controls: MelodicControls = {
+        tone: track.tone,
+        decay: track.decay,
+        attack: 0.0015,
+        resonance: track.resonance,
+        shape: track.shape,
+        width: track.width,
+        motion: 0,
+        grit: 0,
+      };
+      this.rack.set(patch.rack(controls), time);
       this.fluffVoices.add(
-        playFluffNote(context, this.level, {
-          patch: FLUFF_ARP_PATCHES[track.sound] ?? "pluck",
+        playFluffNote(context, this.rack, {
+          patch,
           frequency: midiFrequency(event.note),
           time,
           gate,
-          decay: track.decay,
-          attack: 0.002,
-          tone: track.tone,
-          resonance: track.resonance,
-          shape: track.shape,
-          width: track.width,
-          motion: 0,
-          grit: 0,
-          level: FLUFF_ARP_LEVELS[track.sound] ?? 0.9,
-          pan: Math.sin(event.eventIndex * 2.399963) * track.width * 0.5,
+          controls,
+          level: FLUFF_ARP_LEVELS[track.sound] ?? 1,
+          pan: Math.sin(event.eventIndex * 2.399963) * track.width * 0.35,
           accent: event.accent,
         }),
       );
