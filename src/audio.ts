@@ -39,6 +39,8 @@ import {
   fluffDrumVoice,
   fluffLeadTail,
 } from "./fluff-audio";
+import { FLUFF_REVERB_SECONDS, fluffImpulse } from "./fluff-effects";
+import type { ReverbKind } from "./fluff-effects";
 import type { ProjectMode } from "./mode";
 import { PadInstrument, padTailDuration } from "./pad-audio";
 import type {
@@ -133,16 +135,19 @@ interface PerformanceFxProfile {
   roomSmoothing: number;
   echoBeats: readonly [number, number];
   pingPong: boolean;
+  /** Fluff uses its generated plate and hall; Grain builds its own rooms. */
+  impulses: readonly [ReverbKind, ReverbKind] | null;
 }
 /** Grain keeps its dub chain; Fluff gets a resonant sweep, plate/hall and ping-pong. */
 function performanceFxProfile(mode: ProjectMode): PerformanceFxProfile {
   return mode === "fluff"
     ? {
         filterQ: 2.4,
-        rooms: [1.4, 6],
+        rooms: [FLUFF_REVERB_SECONDS.plate, FLUFF_REVERB_SECONDS.hall],
         roomSmoothing: 0.6,
         echoBeats: [0.5, 0.75],
         pingPong: true,
+        impulses: ["plate", "hall"],
       }
     : {
         filterQ: 0.7,
@@ -150,6 +155,7 @@ function performanceFxProfile(mode: ProjectMode): PerformanceFxProfile {
         roomSmoothing: 0.35,
         echoBeats: [1 / 3, 0.75],
         pingPong: false,
+        impulses: null,
       };
 }
 export function performanceFxTail(project: Project): number {
@@ -220,11 +226,19 @@ class PerformanceFx {
     this.roomGain = context.createGain();
     this.washGain = context.createGain();
     const smoothing = this.profile.roomSmoothing;
-    for (const [duration, gain] of [
-      [this.profile.rooms[0], this.roomGain],
-      [this.profile.rooms[1], this.washGain],
-    ] satisfies Array<[number, GainNode]>) {
+    for (const [duration, gain, kind] of [
+      [this.profile.rooms[0], this.roomGain, this.profile.impulses?.[0]],
+      [this.profile.rooms[1], this.washGain, this.profile.impulses?.[1]],
+    ] satisfies Array<[number, GainNode, ReverbKind | undefined]>) {
       const convolver = context.createConvolver();
+      if (kind) {
+        convolver.buffer = fluffImpulse(context, kind);
+        bus.connect(convolver);
+        convolver.connect(gain);
+        gain.connect(this.output);
+        this.nodes.push(convolver, gain);
+        continue;
+      }
       const buffer = context.createBuffer(
         2,
         Math.ceil(context.sampleRate * duration),

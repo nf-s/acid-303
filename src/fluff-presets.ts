@@ -1507,7 +1507,7 @@ const TRACKS: readonly FluffPreset[] = [
       sweep: [0.3, 0.46],
     },
     pad: {
-      sound: 4,
+      sound: 6,
       volume: 0.24,
       tone: 0.34,
       space: 0.55,

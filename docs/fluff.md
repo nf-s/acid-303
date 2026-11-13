@@ -6,15 +6,53 @@ Fluff is a prototype second voice for the same studio. The Grain / Fluff switch 
 
 Every sound slot is reused, so saved sound numbers are valid in both modes; only the voices and names differ (`FLUFF_SOUNDS` in `src/mode.ts`).
 
-- `src/fluff-audio.ts` holds the Fluff bus, drum kit, bass, lead and the shared note synth used by the lead and arpeggiator. `BassVoice` in `src/audio.ts` hands every Fluff bass step to `FluffBass`.
+- `src/fluff-audio.ts` holds the Fluff bus, drum kit, bass and lead. `BassVoice` in `src/audio.ts` hands every Fluff bass step to `FluffBass`.
+- `src/fluff-synth.ts` is the melodic voice engine shared by the lead, arp and pads: unison oscillator stacks, FM pairs, filtered noise, key-tracked 12 or 24 dB filters with exponential envelopes, and a per-instrument rack (drive, ensemble chorus, vibrato and slow filter and pitch movement). `src/fluff-patches.ts` defines every lead, arp and pad patch as a function from the instrument's controls to a voice. `src/fluff-pad.ts` is the Fluff pad chord voice. `src/fluff-effects.ts` generates the reverb impulses and holds the ping-pong delay and melodic bus glue.
 - Kicks: Trance, Prog, Deep, Tight, Breaks, Boom and Dusty. Each is tuned to the root or fifth of the project key nearest its designed pitch (46–58 Hz); the Pitch control still offsets it.
 - Snares (House, Break, Garage, Dusty, Roll, Ghost, Fat) and claps (House, Tight, Hall, Snap, Dusty, Layered, Soft) have a tuned 180–330 Hz body under the noise.
-- Bass: Sub, Offbeat, Rolling, Pluck, Long, Reese, Organ, Donk, Growl, Warm and Garage. Every patch is two layers: a clean mono sine sub that is always folded into 40–80 Hz, whatever note is written, and a mid layer (saws, squares, organ partials or FM) that is driven, low-passed by Cutoff/Resonance/Envelope and high-passed just above the sub. Held steps tie into one note; a held step with a new pitch glides.
-- Lead replaces Texture: Supersaw, Pluck, Bell, Piano, Stab, Chip, Soft and Vox. A step followed by a held step of the same note ties into one longer note.
-- Arp: Pluck, Super, Glass, Pizz, Chip, Dream, Rave and Mallet. Pads: Super, Air, Choir, Glass, Haze, Warm, Phase and Organ, with unison saws on the wide patches.
-- Effects: the master Crunch control becomes Pump, a kick-triggered sidechain that ducks everything melodic. The bass has its own shorter duck that always runs, so kick and sub never overlap even with Pump at zero. Pads, leads, arps and vocals pass a 150 Hz high-pass so 40–150 Hz belongs to the kick and bass. Instrument Space sends feed a shared plate and hall; echoes are a tempo-synced ping-pong delay. The performance dials become a resonant sweep, Plate/Hall and 1/8 or dotted ping-pong.
+- Bass: Sub, Offbeat, Rolling, Pluck, Long, Reese, Organ, FM, Growl, Warm and Garage. Every patch is two layers: a clean mono sine sub that is always folded into 40–80 Hz, whatever note is written, and a mono mid layer of up to four oscillators (saws, squares, pulses, organ partials or FM) that is driven through a 2× oversampled soft clipper, low-passed by a key-tracked 24 dB filter (Cutoff/Resonance/Envelope) and high-passed just above the sub. Long and Reese drift their filter slowly, and each note gets a few cents of random tuning. Held steps tie into one note; a held step with a new pitch glides.
+- Lead replaces Texture: Supersaw, Pluck, Bell, Piano, Organ, Square, Soft and Voice. A step followed by a held step of the same note ties into one longer note. Organ plays a three-note house chord on every step.
+- Arp: Pluck, Super, Glass, Keys, Pulse, Dream, Poly and Mallet. Pads: Super, Air, Choir, Glass, Tape, Warm, Phase and Organ.
+- Effects: the master Crunch control becomes Pump, a kick-triggered sidechain that ducks everything melodic. The bass has its own shorter duck that always runs, so kick and sub never overlap even with Pump at zero. Pads, leads, arps and vocals pass a 150 Hz high-pass so 40–150 Hz belongs to the kick and bass, then a gentle bus compressor. Instrument Space sends feed a shared plate and hall (generated impulses; returns are low-cut at 250 Hz and ducked a little by Pump); echoes are a tempo-synced ping-pong delay whose feedback is filtered and softly saturated. The performance dials become a resonant sweep, Plate/Hall (the same impulses) and 1/8 or dotted ping-pong.
 
-Patch levels were calibrated from offline renders: each lead, arp, pad and bass patch was rendered alone at a fixed level and trimmed so that patches in a slot are interchangeable without re-mixing.
+### Patches
+
+| Lead     | Patch                                                                                           |
+| -------- | ----------------------------------------------------------------------------------------------- |
+| Supersaw | Seven detuned saws (supersaw spacing) plus an octave of three, 24 dB filter with a short bloom. |
+| Pluck    | Five saws over an octave-down square, resonant 24 dB filter falling fast; progressive pluck.    |
+| Bell     | Two FM pairs (harmonic body, 3.5:1 shimmer) and a fast-fading fourth partial.                   |
+| Piano    | House piano: hollow wave pair, FM hammer brightness, felt thump; filter closes as it decays.    |
+| Organ    | Drawbar organ chord stab with key click and third-harmonic percussion.                          |
+| Square   | Two narrow pulses and a square through a resonant 24 dB filter, delayed vibrato.                |
+| Soft     | Detuned triangles with a saw edge that grows with Tone; gentle 12 dB filter.                    |
+| Voice    | Saws and a pulse through gliding vowel formants with breath; Tone opens the vowel.              |
+
+| Arp    | Patch                                                              |
+| ------ | ------------------------------------------------------------------ |
+| Pluck  | Three saws and a sub-octave square, resonant 24 dB pluck envelope. |
+| Super  | Seven-saw supersaw, gated with a short bloom; trance arps.         |
+| Glass  | FM glass bell with a fifth-and-octave shimmer.                     |
+| Keys   | Electric piano: FM tine strike over a sine body, chorused.         |
+| Pulse  | Two narrow pulses through a resonant 24 dB filter; eighties pluck. |
+| Dream  | Soft FM bell and sines with a long ring.                           |
+| Poly   | Two saws and a square, 24 dB filter and wide chorus; detuned poly. |
+| Mallet | Sine with an FM strike and a marimba-like fourth partial.          |
+
+| Pad   | Patch                                                           |
+| ----- | --------------------------------------------------------------- |
+| Super | Five-saw supersaw per note, slow filter drift.                  |
+| Air   | Detuned triangles, an octave of saws and filtered noise.        |
+| Choir | Saws and a pulse through vowel formants; Shape picks the vowel. |
+| Glass | Two sustained FM pairs; Tone and Shape set the FM depth.        |
+| Tape  | Soft electric piano chord with slow tape wow and hiss.          |
+| Warm  | Analog strings: three saws and an octave, deep ensemble chorus. |
+| Phase | String ensemble through a slow four-stage phaser.               |
+| Organ | Drawbar organ chord with a sub-octave and ensemble vibrato.     |
+
+Controls keep their meaning on every patch. Lead: Tone is the filter (and FM depth or vowel where there is no filter to speak of), Decay the decay or release, Width the unison detune and stereo spread, Motion delayed vibrato plus slow filter movement, Grit the rack drive, Attack the amp attack. Arp: Tone, Resonance, Shape (detune, FM depth or layer balance), Width, Decay and Gate. Pads: Tone, Shape, Motion (filter drift, phaser, pitch wander), Spread (stereo width), Attack and Release.
+
+Patch levels were calibrated from offline renders: each lead, arp, pad and bass patch was rendered alone with a fixed test pattern and level, and trimmed (`FLUFF_*_LEVELS` in `src/fluff-patches.ts`, `FLUFF_BASS_LEVELS` in `src/fluff-audio.ts`) to the median integrated loudness of the previous patches in that slot, so patches are interchangeable and the examples keep their balance.
 
 ## Sound design notes
 
@@ -27,6 +65,10 @@ Working reference distilled from producer tutorials and genre breakdowns; the va
 - **Leads and plucks.** Progressive pluck: detuned saws, filter envelope from about 3–5 kHz down to 1–2 kHz over 150–300 ms, dotted-eighth delay. Supersaw: 5–7 detuned saws with a gentle filter. Hooks repeat a one- or two-bar rhythmic motif and change only the last notes; large leaps and long scale runs read as cheesy.
 - **Snares and claps.** Layer a 180–230 Hz tuned body with noise high-passed around 400–900 Hz; reverb is a short send, not the sound. Future bass snares are a snare and clap together on beat 3 of a half-time bar.
 - **Sidechain.** House and progressive: the melodic bus dips 6–10 dB per kick and recovers by the offbeat. Future bass and Prydz-style tracks pump deeper.
+- **Supersaw.** Seven saws with the side voices spaced unevenly (closer near the centre, the outer pair far out, as on the JP-8000), the centre voice slightly quieter than the sides, random start phases so the stack never begins as one hard edge, and the side voices split hard left and right. Around 12–40 cents to the outer voice reads as trance; more turns into chorus mush.
+- **Why synths sound cheap.** Bare oscillators with linear envelopes and a static filter read as chiptune. What makes them sound like records: band-limited waves with full harmonics (browser oscillators are band-limited per pitch; custom waves with only a few dozen harmonics sound dull and boxy), several detuned voices with slow independent pitch drift, a filter envelope shaped exponentially in pitch, key tracking so high notes are not muffled, small per-note differences (start phase, tuning), gentle saturation for density, ensemble chorus for width, and a long, smooth, dark reverb.
+- **Classic keys.** House piano and electric piano are bright at the strike and darken quickly: an FM or filter envelope that closes over 0.2–0.4 s, plus a short noise or high-ratio FM strike for the hammer or tine. House organ is drawbars 8', 4', 2⅔' and 2' with a key click and a decaying third-harmonic percussion.
+- **Reverb.** A smooth tail is noise with a different exponential decay per band (highs die first), equal energy per band at the start, a soft build-up and, for a hall, a few sparse early reflections before it. Pre-delay of 10–30 ms keeps the dry attack clear; a 250 Hz low cut on the send keeps the low end mono and the kick clean.
 - **Balance.** Measured on a whole loop, a club mix carries most of its energy below 120 Hz. Targets used here, as each band's share of total power: 30–120 Hz combined −1 to −3 dB (the kick fundamental usually lands in 30–60 Hz, so that band alone can read −2 to −7 dB), 120–300 Hz −7 to −11 dB, 300 Hz–2 kHz −7 to −13 dB, 2–16 kHz −15 to −21 dB. Below 150 Hz the mix stays mono. Tempos: deep and lo-fi house 118–124, progressive house 124–128, breaks and garage 128–134, trance 132–140, fast trance 140–150, future bass 140–160 in half time, J-pop trance 160–175.
 
 ## Examples
@@ -60,6 +102,7 @@ Grain lays one visualizer canvas over the whole page with `mix-blend-mode: diffe
 
 - `src/fluff-presets.test.ts` checks that all twelve tracks build, validate, stay in key and have 8-bar basslines and 8- or 16-bar chord loops.
 - Each track was rendered offline in headless Chrome (full mix, kick alone, bass alone, bass with the sidechain running) and measured for peak, integrated loudness, band balance against the targets above, low-frequency stereo correlation, bass ducking at each kick and recovery by the offbeat, and kick/bass summing. Nothing has been judged by ear.
+- `src/fluff-patches.test.ts` checks that every lead, arp and pad patch builds finite, audible voices at the extremes of every control. Every patch was also rendered alone at default, darkest/shortest and brightest/longest settings, across low and high registers, and checked on spectrograms and by measurement: loudness, stereo width and mono sum, spectral centroid movement, inharmonic energy on a held high note (aliasing) and onset transients. The plate measures about 1.8 s RT60 in the mids falling to 1.3 s at 8 kHz, the hall about 4.8 s falling to 3.6 s; both decay as straight lines (within 0.4 dB from −5 to −35 dB) with no periodic peaks in the tail. Grain renders sample-identical (within 16-bit rounding) to the previous release.
 - The chord progression holds exactly four chords; longer progressions would need a schema change.
 - Shared sessions do not carry `mode` until the sessions Worker is redeployed with the updated schema, so a Fluff project joined through a session plays with Grain voices.
 - During playback in headless Chrome on an Apple M4 Max GPU, the Fluff page held a 16.7 ms median and p95 frame interval at 1440 × 1100 and at 375 × 812 with 4× CPU throttling; at 6× throttling, 2 of 345 frames exceeded 33 ms. Real phones are unchecked.
