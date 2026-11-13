@@ -24,8 +24,8 @@ export interface ModeSounds {
 
 /** Fluff reuses every sound slot, so saved sound numbers stay valid in both modes. */
 export const FLUFF_SOUNDS: ModeSounds = {
-  kick: ["Trance", "Prog", "Soft", "Tight", "Breaks", "Boom", "Dusty"],
-  snare: ["Crisp", "Break", "Snap", "Dusty", "Tight", "Ghost", "Big"],
+  kick: ["Trance", "Prog", "Deep", "Tight", "Breaks", "Boom", "Dusty"],
+  snare: ["House", "Break", "Garage", "Dusty", "Roll", "Ghost", "Fat"],
   hat: [
     "Closed",
     "Open",
@@ -36,31 +36,22 @@ export const FLUFF_SOUNDS: ModeSounds = {
     "Dusty",
     "Sizzle",
   ],
-  clap: ["Classic", "Tight", "Hall", "Snap", "Dusty", "Layered", "Soft"],
+  clap: ["House", "Tight", "Hall", "Snap", "Dusty", "Layered", "Soft"],
   rim: ["Rim", "Tom", "Conga", "Tamb", "Blip", "Crash", "Sweep"],
   bass: [
     "Sub",
     "Offbeat",
-    "Roller",
+    "Rolling",
     "Pluck",
-    "Saw",
+    "Long",
     "Reese",
     "Organ",
-    "FM",
-    "Square",
+    "Donk",
+    "Growl",
     "Warm",
     "Garage",
   ],
-  keys: [
-    "Supersaw",
-    "Pluck",
-    "Bell",
-    "Piano",
-    "Stab",
-    "Chip",
-    "Whistle",
-    "Vox",
-  ],
+  keys: ["Supersaw", "Pluck", "Bell", "Piano", "Stab", "Chip", "Soft", "Vox"],
   arp: ["Pluck", "Super", "Glass", "Pizz", "Chip", "Dream", "Rave", "Mallet"],
   pad: ["Super", "Air", "Choir", "Glass", "Haze", "Warm", "Phase", "Organ"],
 };
