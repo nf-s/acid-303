@@ -33,14 +33,28 @@ describe("Fluff examples", () => {
   );
 
   it.each(FLUFF_PRESETS.map((preset) => preset.id))(
-    "gives %s a multi-bar bassline and chord loop",
+    "gives %s an eight-bar bassline, a long chord loop and a kick",
     (id) => {
       const project = createFluffPreset(id);
-      expect(project.bass.timing.bars).toBeGreaterThanOrEqual(4);
-      expect(project.progression.timing.bars).toBeGreaterThanOrEqual(4);
-      expect(project.drums.some((track) => track.steps.some(Boolean))).toBe(
-        true,
-      );
+      expect(project.bass.timing.bars).toBe(8);
+      expect(project.bass.muted).toBe(false);
+      expect(project.progression.timing.bars).toBeGreaterThanOrEqual(8);
+      const kick = project.drums.find((track) => track.id === "kick");
+      expect(kick?.muted).toBe(false);
+      expect(kick?.steps.some(Boolean)).toBe(true);
+    },
+  );
+
+  it.each(FLUFF_PRESETS.map((preset) => preset.id))(
+    "keeps the %s bassline in the bass register",
+    (id) => {
+      const project = createFluffPreset(id);
+      const notes = project.bass.steps
+        .filter((step) => step.on)
+        .map((step) => step.note);
+      // C1 to E3: octave jumps allowed, but every line starts from the low end.
+      expect(Math.min(...notes)).toBeGreaterThanOrEqual(24);
+      expect(Math.max(...notes)).toBeLessThanOrEqual(52);
     },
   );
 });

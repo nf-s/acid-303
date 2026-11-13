@@ -32,6 +32,7 @@ import {
 import { ArpInstrument, arpTailDuration } from "./arp-audio";
 import {
   FLUFF_HALL_SECONDS,
+  FluffBass,
   FluffBus,
   FluffLead,
   fluffDrumTail,
@@ -1405,244 +1406,6 @@ function bassProfile(sound: number): BassProfile {
   };
 }
 
-/** Fluff bass slots: Sub, Offbeat, Roller, Pluck, Saw, Reese, Organ, FM, Square, Warm, Garage. */
-const FLUFF_BASS_PROFILES: readonly BassProfile[] = [
-  {
-    tones: [
-      { type: "sine", multiplier: 1, level: 0.85, detune: 0, pan: 0 },
-      { type: "triangle", multiplier: 1, level: 0.1, detune: 0, pan: 0 },
-      { type: "sine", multiplier: 2, level: 0.05, detune: 0, pan: 0 },
-    ],
-    level: 0.35,
-    attack: 0.008,
-    sustain: 0.9,
-    gate: 0.98,
-    release: 1.6,
-    cutoff: 0.9,
-    resonance: 0.05,
-    envelope: 0.4,
-    brightness: 120,
-    accentBrightness: 220,
-    filterDecay: 1,
-    fm: 0,
-    fmRatio: 2,
-    drive: 0,
-  },
-  {
-    tones: [
-      { type: "sawtooth", multiplier: 1, level: 0.5, detune: 0, pan: 0 },
-      { type: "square", multiplier: 0.5, level: 0.28, detune: 0, pan: 0 },
-      { type: "sine", multiplier: 1, level: 0.4, detune: 0, pan: 0 },
-    ],
-    level: 0.65,
-    attack: 0.004,
-    sustain: 0.55,
-    gate: 0.82,
-    release: 1.1,
-    cutoff: 1,
-    resonance: 0.12,
-    envelope: 2.2,
-    brightness: 700,
-    accentBrightness: 1100,
-    filterDecay: 0.6,
-    fm: 0,
-    fmRatio: 2,
-    drive: 0.1,
-  },
-  {
-    tones: [
-      { type: "sawtooth", multiplier: 1, level: 0.5, detune: 0, pan: 0 },
-      { type: "sawtooth", multiplier: 1, level: 0.3, detune: 6, pan: 0 },
-      { type: "sine", multiplier: 1, level: 0.45, detune: 0, pan: 0 },
-    ],
-    level: 0.85,
-    attack: 0.002,
-    sustain: 0.14,
-    gate: 0.62,
-    release: 0.6,
-    cutoff: 1,
-    resonance: 0.16,
-    envelope: 4,
-    brightness: 900,
-    accentBrightness: 1500,
-    filterDecay: 0.35,
-    fm: 0,
-    fmRatio: 2,
-    drive: 0.12,
-  },
-  {
-    tones: [
-      { type: "square", multiplier: 1, level: 0.42, detune: 0, pan: 0 },
-      { type: "sawtooth", multiplier: 1, level: 0.32, detune: 5, pan: 0 },
-      { type: "sine", multiplier: 1, level: 0.35, detune: 0, pan: 0 },
-    ],
-    level: 0.89,
-    attack: 0.002,
-    sustain: 0.08,
-    gate: 0.7,
-    release: 0.5,
-    cutoff: 0.9,
-    resonance: 0.2,
-    envelope: 6,
-    brightness: 1800,
-    accentBrightness: 2600,
-    filterDecay: 0.3,
-    fm: 0,
-    fmRatio: 2,
-    drive: 0,
-  },
-  {
-    tones: [
-      { type: "sawtooth", multiplier: 1, level: 0.42, detune: 0, pan: 0 },
-      { type: "sawtooth", multiplier: 1, level: 0.3, detune: 9, pan: 0.3 },
-      { type: "sawtooth", multiplier: 1, level: 0.3, detune: -9, pan: -0.3 },
-    ],
-    level: 0.75,
-    attack: 0.006,
-    sustain: 0.9,
-    gate: 1,
-    release: 1.6,
-    cutoff: 1.6,
-    resonance: 0.08,
-    envelope: 0.6,
-    brightness: 400,
-    accentBrightness: 800,
-    filterDecay: 0.8,
-    fm: 0,
-    fmRatio: 2,
-    drive: 0.06,
-  },
-  {
-    tones: [
-      { type: "sawtooth", multiplier: 1, level: 0.42, detune: -14, pan: -0.25 },
-      { type: "sawtooth", multiplier: 1, level: 0.42, detune: 14, pan: 0.25 },
-      { type: "sine", multiplier: 1, level: 0.4, detune: 0, pan: 0 },
-    ],
-    level: 0.67,
-    attack: 0.01,
-    sustain: 0.95,
-    gate: 1,
-    release: 1.8,
-    cutoff: 0.9,
-    resonance: 0.1,
-    envelope: 0.5,
-    brightness: 300,
-    accentBrightness: 600,
-    filterDecay: 1,
-    fm: 0,
-    fmRatio: 2,
-    drive: 0.2,
-  },
-  {
-    tones: [
-      { type: "sine", multiplier: 1, level: 0.6, detune: 0, pan: 0 },
-      { type: "sine", multiplier: 2, level: 0.3, detune: 0, pan: 0 },
-      { type: "sine", multiplier: 3, level: 0.16, detune: 0, pan: 0 },
-    ],
-    level: 0.56,
-    attack: 0.004,
-    sustain: 0.85,
-    gate: 0.9,
-    release: 1,
-    cutoff: 2,
-    resonance: 0.04,
-    envelope: 0.3,
-    brightness: 200,
-    accentBrightness: 400,
-    filterDecay: 0.6,
-    fm: 0.25,
-    fmRatio: 1,
-    drive: 0.08,
-  },
-  {
-    tones: [
-      { type: "sine", multiplier: 1, level: 0.7, detune: 0, pan: 0 },
-      { type: "triangle", multiplier: 1, level: 0.2, detune: 0, pan: 0 },
-      { type: "sine", multiplier: 0.5, level: 0.2, detune: 0, pan: 0 },
-    ],
-    level: 0.79,
-    attack: 0.002,
-    sustain: 0.3,
-    gate: 0.8,
-    release: 0.8,
-    cutoff: 1.6,
-    resonance: 0.06,
-    envelope: 1,
-    brightness: 500,
-    accentBrightness: 900,
-    filterDecay: 0.5,
-    fm: 1.5,
-    fmRatio: 2,
-    drive: 0.05,
-  },
-  {
-    tones: [
-      { type: "square", multiplier: 1, level: 0.45, detune: 0, pan: 0 },
-      { type: "square", multiplier: 2, level: 0.14, detune: 0, pan: 0 },
-      { type: "sine", multiplier: 1, level: 0.4, detune: 0, pan: 0 },
-    ],
-    level: 0.39,
-    attack: 0.004,
-    sustain: 0.7,
-    gate: 0.9,
-    release: 1.1,
-    cutoff: 0.9,
-    resonance: 0.1,
-    envelope: 1.6,
-    brightness: 500,
-    accentBrightness: 900,
-    filterDecay: 0.7,
-    fm: 0,
-    fmRatio: 2,
-    drive: 0,
-  },
-  {
-    tones: [
-      { type: "triangle", multiplier: 1, level: 0.55, detune: 0, pan: 0 },
-      { type: "sawtooth", multiplier: 1, level: 0.22, detune: 4, pan: 0 },
-      { type: "sine", multiplier: 1, level: 0.4, detune: 0, pan: 0 },
-    ],
-    level: 0.46,
-    attack: 0.008,
-    sustain: 0.8,
-    gate: 0.95,
-    release: 1.3,
-    cutoff: 0.7,
-    resonance: 0.06,
-    envelope: 0.9,
-    brightness: 300,
-    accentBrightness: 500,
-    filterDecay: 0.9,
-    fm: 0,
-    fmRatio: 2,
-    drive: 0,
-  },
-  {
-    tones: [
-      { type: "triangle", multiplier: 1, level: 0.6, detune: 0, pan: 0 },
-      { type: "square", multiplier: 2, level: 0.12, detune: 0, pan: 0 },
-      { type: "sine", multiplier: 1, level: 0.35, detune: 0, pan: 0 },
-    ],
-    level: 0.78,
-    attack: 0.002,
-    sustain: 0.25,
-    gate: 0.75,
-    release: 0.7,
-    cutoff: 1.1,
-    resonance: 0.1,
-    envelope: 2.4,
-    brightness: 900,
-    accentBrightness: 1400,
-    filterDecay: 0.4,
-    fm: 0.6,
-    fmRatio: 1,
-    drive: 0.1,
-  },
-];
-function fluffBassProfile(sound: number): BassProfile {
-  return FLUFF_BASS_PROFILES[sound] ?? bassProfile(0);
-}
-
 class BassVoice {
   private readonly tones: Array<{
     oscillator: OscillatorNode;
@@ -1660,9 +1423,14 @@ class BassVoice {
   private readonly modulationGain: GainNode;
   private sliding = false;
   private firstStep = true;
+  /** Fluff has its own sub-and-mid bass synth. */
+  private readonly fluff: FluffBass | null;
 
   constructor(private readonly graph: AudioGraph) {
     const context = graph.context;
+    this.fluff = graph.fluff
+      ? new FluffBass(context, graph.fluff, graph.sources)
+      : null;
     const mix = context.createGain();
     this.shaper = context.createWaveShaper();
     this.shaper.curve = localDriveCurve(1);
@@ -1718,9 +1486,10 @@ class BassVoice {
       previous = filter;
       nodes.push(filter);
     }
+    if (this.fluff) return;
     previous.connect(this.gain);
     this.gain.connect(this.level);
-    this.level.connect(graph.fluff?.music ?? graph.input);
+    this.level.connect(graph.input);
     let remaining = this.sources.length;
     for (const source of this.sources) {
       graph.sources.add(source);
@@ -1740,6 +1509,10 @@ class BassVoice {
     time: number,
     duration: number,
   ): void {
+    if (this.fluff) {
+      this.fluff.schedule(track, stepIndex, time, duration);
+      return;
+    }
     const step = track.steps[stepIndex];
     const envelope = this.gain.gain;
     this.level.gain.cancelAndHoldAtTime(time);
@@ -1758,9 +1531,7 @@ class BassVoice {
       this.sliding = false;
       return;
     }
-    const profile = this.graph.fluff
-      ? fluffBassProfile(track.sound)
-      : bassProfile(track.sound);
+    const profile = bassProfile(track.sound);
     const incomingSlide = this.sliding;
     const outgoingSlide = tiesNextStep(track.steps, stepIndex);
     const frequency = midiFrequency(step.note);
@@ -1904,6 +1675,10 @@ class BassVoice {
   }
 
   stop(time = this.graph.context.currentTime): void {
+    if (this.fluff) {
+      this.fluff.stop(time);
+      return;
+    }
     this.gain.gain.cancelAndHoldAtTime(time);
     this.gain.gain.linearRampToValueAtTime(0, time + 0.008);
     for (const source of this.sources) source.stop(time + 0.012);
