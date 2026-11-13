@@ -103,10 +103,10 @@ export class FluffWordmarkMotion {
       const sway = Math.sin(this.phase * 1.1 + index * 1.3) * this.energy;
       const bob = Math.cos(this.phase * 0.9 + index * 1.9) * this.energy;
       const side = index % 2 === 0 ? 1 : -1;
-      const scale = 1 + letter.swell * 0.16 + letter.rock * 0.04;
-      const x = letter.x + sway * 4;
-      const y = PIVOT_Y - letter.swell * 6 - bob * 3;
-      const angle = side * letter.rock * 5 + sway * 2;
+      const scale = 1 + letter.swell * 0.26 + letter.rock * 0.06;
+      const x = letter.x + sway * 6;
+      const y = PIVOT_Y - letter.swell * 9 - bob * 4;
+      const angle = side * letter.rock * 8 + sway * 3;
       letter.element.setAttribute(
         "transform",
         `translate(${x.toFixed(2)} ${y.toFixed(2)}) rotate(${angle.toFixed(2)}) scale(${scale.toFixed(4)}) translate(${-letter.x} ${-PIVOT_Y})`,
@@ -124,7 +124,7 @@ export class FluffWordmarkMotion {
     );
     this.billowMap?.setAttribute(
       "scale",
-      (this.energy * 6 + this.billow * 10).toFixed(2),
+      (this.energy * 9 + this.billow * 15).toFixed(2),
     );
     this.belly?.setAttribute("opacity", (1 - this.shimmer * 0.45).toFixed(3));
   }
