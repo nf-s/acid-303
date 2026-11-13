@@ -15,6 +15,20 @@ interface DrumPulse {
   decay: number;
 }
 
+/** Fluff's drum response, eased again so the clouds and title swell and drift rather than jump. */
+export interface FluffLevels {
+  /** Kick: a slow swell. */
+  swell: number;
+  /** Snare and clap: extra billowing in the warp. */
+  billow: number;
+  /** Hats: a soft shimmer on cloud edges. */
+  shimmer: number;
+  /** Overall activity over the last second or two. */
+  energy: number;
+  /** Continuous drift position; its speed follows energy. */
+  phase: number;
+}
+
 interface FluidFrame {
   phase: number;
   swirl: number;
@@ -135,7 +149,11 @@ void main() {
   }
 }`;
 
-// Fluff draws soft pastel clouds and drifting bokeh straight into colour, with no film grain.
+/*
+ * Fluff draws a multiply layer for the whole page: white leaves the interface as it is,
+ * pastel cloud masses tint and shade it. Large domain-warped masses drift and morph
+ * continuously; uHits carries eased levels (swell, billow, shimmer, energy), never raw hits.
+ */
 const FLUFF_SHADER = `
 precision highp float;
 varying vec2 vUv;
@@ -181,55 +199,44 @@ vec3 tone(float t, float shift) {
   float position = uPaletteMode > 0.5 ? fract(t * 0.7 + shift) : clamp(t, 0.0, 1.0);
   return texture2D(uPalette, vec2(position, 0.5)).rgb;
 }
-vec3 glow(float shift) {
-  vec3 colour = tone(1.0, shift);
-  return uPaletteMode > 0.5 ? mix(colour, vec3(1.0), 0.6) : colour;
+// The palette hue at a set depth, so every palette shades the interface by the same amount.
+// A third of the depth is a neutral shade, which keeps strong hues soft rather than neon.
+vec3 tint(float t, float shift, float depth) {
+  vec3 colour = tone(t, shift);
+  vec3 hue = colour / max(max(colour.r, colour.g), max(colour.b, 0.001));
+  float shade = 1.0 - dot(hue, vec3(0.2126, 0.7152, 0.0722));
+  vec3 tinted = max(vec3(0.0), 1.0 - (1.0 - hue) * min(6.0, depth / max(shade, 0.001)));
+  return mix(tinted, vec3(1.0 - depth), 0.33);
 }
 void main() {
   vec2 aspect = uSize / min(uSize.x, uSize.y);
   vec2 uv = (vUv - 0.5) * aspect;
-  float time = uPhase * 0.22;
-  float kick = uHits.x;
-  float hat = uHits.z;
-  float puff = max(uHits.y, uHits.w);
-  float shift = time * 0.18 + vUv.x * 0.12;
-  vec2 p = uv * (1.5 / (1.0 + kick * 0.1));
-  vec2 centre = vec2(sin(time * 0.53) * 0.45, cos(time * 0.41) * 0.3);
-  p = whirl(p, centre, uSwirl * (2.6 + sin(time * 0.9) * 0.9));
-  p = whirl(p, vec2(0.0), uRim * 0.7);
-  vec2 drift = vec2(time * 0.32, -time * 0.1);
-  vec2 q = vec2(fbm(p * 0.8 + drift), fbm(p * 0.8 + vec2(5.2, 1.3) - drift * 0.7));
-  vec2 flow = p * 1.15 + q * 1.0 + vec2(-time * 0.18, time * 0.07);
-  float billow = fbm(flow);
-  float above = fbm(flow + vec2(0.0, 0.07));
-  float back = fbm(p * 0.5 + q * 0.7 - drift * 0.45 + 3.0);
-  vec2 puffCentre = vec2(sin(time * 0.31) * 0.35, cos(time * 0.27) * 0.18);
-  float puffRadius = mix(0.95, 0.35, puff);
-  float puffGlow = exp(-dot(uv - puffCentre, uv - puffCentre) / (puffRadius * puffRadius)) * puff;
-  float cloud = smoothstep(0.43, 0.74, billow + puffGlow * 0.22);
-  float lit = clamp((billow - above) * 7.0 + 0.45 + kick * 0.15, 0.0, 1.0);
-  float haze = smoothstep(0.3, 0.8, back);
-  vec3 sky = tone(0.02 + vUv.y * 0.14 + haze * 0.2, shift);
-  vec3 body = mix(tone(0.5 + haze * 0.1, shift + 0.15), glow(shift + 0.3), lit);
-  vec3 colour = mix(sky, body, cloud * 0.94);
-  colour += cloud * lit * hat * 0.06;
-  float bokeh = 0.0;
-  for (int i = 0; i < 12; i++) {
-    float index = float(i);
-    vec2 seed = vec2(index * 1.37 + 0.4, index * 2.71 + 1.1);
-    float rise = time * 0.05 * (0.6 + hash(seed + 7.0));
-    vec2 spot = vec2(hash(seed) - 0.5, fract(hash(seed + 3.1) + rise) - 0.5) * aspect * 1.1;
-    spot += vec2(sin(time * 0.6 + index * 1.7), cos(time * 0.5 + index * 2.3)) * 0.05;
-    float radius = mix(0.03, 0.1, hash(seed + 11.0)) * (1.0 + kick * 0.3);
-    float gap = length(uv - spot);
-    float disc = 1.0 - smoothstep(radius * 0.82, radius, gap);
-    float ring = smoothstep(radius * 0.55, radius * 0.9, gap) * disc;
-    float sparkle = 0.16 + hat * 0.6 * hash(seed + 5.0);
-    bokeh += (disc * 0.6 + ring * 0.4) * sparkle;
-  }
-  colour = mix(colour, glow(shift + 0.4), clamp(bokeh, 0.0, 0.8));
-  float bloom = kick * 0.22 * (1.0 - smoothstep(0.0, 1.1, length(uv)));
-  colour = mix(colour, glow(shift), bloom);
+  float time = uPhase;
+  float swell = uHits.x;
+  float billow = uHits.y;
+  float shimmer = uHits.z;
+  float energy = uHits.w;
+  float shift = time * 0.035 + vUv.x * 0.14 - vUv.y * 0.06;
+  vec2 centre = vec2(sin(time * 0.11) * 0.45, cos(time * 0.087) * 0.28);
+  vec2 p = uv * 1.5;
+  p = centre + (p - centre) / (1.0 + swell * 0.07);
+  p = whirl(p, centre, uSwirl * (2.4 + sin(time * 0.21) * 0.8) + uRim * 0.4);
+  p = whirl(p, vec2(-centre.y, centre.x) * 1.6, -uSwirl * (1.7 + cos(time * 0.17) * 0.6));
+  vec2 drift = vec2(time * 0.05, -time * 0.021);
+  vec2 q = vec2(fbm(p * 0.85 + drift), fbm(p * 0.85 + vec2(5.2, 1.3) - drift * 0.8));
+  float warp = 1.5 + billow * 0.45 + energy * 0.25;
+  vec2 r = vec2(fbm(p + q * warp + vec2(1.7, 9.2) + drift * 0.6),
+                fbm(p + q * warp + vec2(8.3, 2.8) - drift * 0.5));
+  float body = fbm(p * 1.1 + r * 1.35 + vec2(-time * 0.028, time * 0.012));
+  float density = smoothstep(0.44 - swell * 0.07 - energy * 0.04, 0.64, body);
+  float belly = smoothstep(0.35, 0.8, r.y);
+  float lining = density * (1.0 - density) * 4.0;
+  vec3 wash = tint(0.55 + q.y * 0.4, shift, 0.26);
+  vec3 deep = tint(0.08 + r.x * 0.5, shift + 0.22, 0.58);
+  float amount = density * (0.66 + belly * 0.26 + swell * 0.08);
+  vec3 colour = mix(vec3(1.0), wash, 0.3 + q.x * 0.25);
+  colour = mix(colour, mix(wash, deep, 0.4 + belly * 0.6), amount);
+  colour = mix(colour, vec3(1.0), lining * (0.18 + shimmer * 0.22));
   gl_FragColor = vec4(colour, 1.0);
 }`;
 
@@ -624,6 +631,15 @@ export class FluidVisualizer {
   private mode: ProjectMode = "grain";
   private paletteLookup = createPaletteLookup("mono");
   private swirl = 0;
+  private readonly fluffLevels: FluffLevels = {
+    swell: 0,
+    billow: 0,
+    shimmer: 0,
+    energy: 0,
+    phase: 1.2,
+  };
+  private fluffRim = 0;
+  private levelListener: ((levels: FluffLevels | null) => void) | null = null;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.context = canvas.getContext("2d", { alpha: false });
@@ -681,8 +697,16 @@ export class FluidVisualizer {
     this.draw();
   }
 
+  /** Receives Fluff's eased levels on every drawn frame, and null when motion stops. */
+  setLevelListener(
+    listener: ((levels: FluffLevels | null) => void) | null,
+  ): void {
+    this.levelListener = listener;
+  }
+
   destroy(): void {
     this.destroyed = true;
+    this.levelListener?.(null);
     cancelAnimationFrame(this.animationId);
     this.animationId = 0;
     this.observer.disconnect();
@@ -723,6 +747,7 @@ export class FluidVisualizer {
       document.hidden
     ) {
       for (const pulse of Object.values(this.pulses)) pulse.target = 0;
+      this.levelListener?.(null);
       return;
     }
     this.animationId = requestAnimationFrame(this.animate);
@@ -749,8 +774,32 @@ export class FluidVisualizer {
       seconds *
       (1.6 + this.pulses.kick.value * 0.9 + this.pulses.snare.value * 0.5) *
       (1 + this.swirl * 1.4);
+    this.easeFluff(seconds);
     this.draw();
+    this.levelListener?.(this.fluffLevels);
   };
+
+  private easeFluff(seconds: number): void {
+    const ease = (value: number, target: number, time: number): number =>
+      value + (target - value) * (1 - Math.exp(-seconds / time));
+    const levels = this.fluffLevels;
+    const { kick, snare, hat, clap, rim } = this.pulses;
+    levels.swell = ease(levels.swell, kick.value, 0.14);
+    levels.billow = ease(levels.billow, Math.max(snare.value, clap.value), 0.2);
+    levels.shimmer = ease(levels.shimmer, hat.value, 0.16);
+    levels.energy = ease(
+      levels.energy,
+      Math.min(
+        1,
+        (kick.value + Math.max(snare.value, clap.value) + hat.value * 0.5) *
+          0.75,
+      ),
+      1.4,
+    );
+    this.fluffRim = ease(this.fluffRim, rim.value * this.rimTurn, 0.4);
+    levels.phase +=
+      seconds * (0.9 + levels.energy * 0.6) * (1 + this.swirl * 0.9);
+  }
 
   private drawFallback(frame: FluidFrame): void {
     const context = this.fallbackContext;
@@ -848,17 +897,15 @@ export class FluidVisualizer {
     }
   }
 
-  private paletteColour(position: number, alpha: number, white = 0): string {
+  private paletteColour(position: number, alpha: number): string {
     const index = Math.round(Math.max(0, Math.min(1, position)) * 255) * 4;
-    const lift = (value: number): number =>
-      Math.round(value + (255 - value) * white);
-    const red = lift(this.paletteLookup[index] ?? 255);
-    const green = lift(this.paletteLookup[index + 1] ?? 255);
-    const blue = lift(this.paletteLookup[index + 2] ?? 255);
+    const red = this.paletteLookup[index] ?? 255;
+    const green = this.paletteLookup[index + 1] ?? 255;
+    const blue = this.paletteLookup[index + 2] ?? 255;
     return `rgb(${red} ${green} ${blue} / ${Math.max(0, Math.min(1, alpha))})`;
   }
 
-  /** Canvas Fluff layers soft radial puffs and bokeh on a small canvas, then scales it up. */
+  /** Canvas Fluff drifts soft palette puffs over white on a small canvas, then scales it up. */
   private drawFluffFallback(frame: FluidFrame, animated: boolean): void {
     const context = this.fallbackContext;
     const output = this.context;
@@ -866,22 +913,19 @@ export class FluidVisualizer {
     const width = this.fallback.width;
     const height = this.fallback.height;
     const size = Math.min(width, height);
-    const time = frame.phase * 0.22;
+    const time = frame.phase * 0.35;
     const tone = (position: number, alpha: number): string =>
       this.paletteColour(
-        animated ? (((position * 0.7 + time * 0.18) % 1) + 1) % 1 : position,
+        animated ? (((position * 0.7 + time * 0.1) % 1) + 1) % 1 : position,
         alpha,
       );
-    const glow = (alpha: number): string =>
-      animated
-        ? this.paletteColour((0.7 + time * 0.18) % 1, alpha, 0.6)
-        : tone(1, alpha);
-    const puff = Math.max(frame.snare, frame.clap);
-    const sky = context.createLinearGradient(0, 0, 0, height);
-    sky.addColorStop(0, tone(0.3, 1));
-    sky.addColorStop(1, tone(0.1, 1));
     context.globalCompositeOperation = "source-over";
-    context.fillStyle = sky;
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
+    const wash = context.createLinearGradient(0, 0, width, height);
+    wash.addColorStop(0, tone(0.6, 0.35));
+    wash.addColorStop(1, tone(0.4, 0.3));
+    context.fillStyle = wash;
     context.fillRect(0, 0, width, height);
     const centreX = width * 0.5;
     const centreY = height * 0.5;
@@ -914,7 +958,7 @@ export class FluidVisualizer {
       context.fillStyle = gradient;
       context.fillRect(px - radius, py - radius, radius * 2, radius * 2);
     };
-    const swell = 1 + frame.kick * 0.12;
+    const swell = 1 + frame.kick * 0.08 + frame.clap * 0.04;
     const span = width + size;
     for (let index = 0; index < 7; index++) {
       const speed = 0.04 + (index % 3) * 0.015;
@@ -923,43 +967,17 @@ export class FluidVisualizer {
       const y =
         height * (0.2 + ((index * 0.37) % 1) * 0.65) +
         Math.sin(time * 0.5 + index) * size * 0.04;
-      const radius = size * (0.28 + (index % 4) * 0.06) * swell;
+      const radius = size * (0.3 + (index % 4) * 0.07) * swell;
+      const position = 0.12 + (index % 3) * 0.14;
       for (let lobe = 0; lobe < 3; lobe++) {
         blob(
           x + (lobe - 1) * radius * 0.55,
           y - (lobe === 1 ? radius * 0.18 : 0),
           radius * (lobe === 1 ? 0.85 : 0.65),
-          tone(0.55 + (index % 3) * 0.12, 0.42),
-          tone(0.55 + (index % 3) * 0.12, 0),
+          tone(position, 0.55 + frame.snare * 0.1),
+          tone(position, 0),
         );
       }
-    }
-    if (puff > 0.01) {
-      const radius = size * (0.95 - puff * 0.55);
-      blob(
-        centreX + Math.sin(time * 0.31) * size * 0.35,
-        centreY - Math.cos(time * 0.27) * size * 0.18,
-        radius,
-        tone(0.85, puff * 0.45),
-        tone(0.85, 0),
-      );
-    }
-    for (let index = 0; index < 10; index++) {
-      const seedX = (Math.sin(index * 12.9898) * 43758.5453) % 1;
-      const seedY = (Math.sin(index * 78.233) * 12345.678) % 1;
-      const x =
-        (Math.abs(seedX) * 1.1 - 0.05) * width +
-        Math.sin(time * 0.6 + index * 1.7) * size * 0.05;
-      const rise =
-        (Math.abs(seedY) + time * 0.05 * (0.6 + (index % 4) * 0.2)) % 1;
-      const y = (1 - rise) * height * 1.1 - height * 0.05;
-      const radius =
-        size * (0.035 + (index % 5) * 0.018) * (1 + frame.kick * 0.3);
-      const alpha = 0.18 + frame.hat * 0.5 * (((index * 7) % 5) / 4);
-      blob(x, y, radius, glow(alpha), glow(0));
-    }
-    if (frame.kick > 0.01) {
-      blob(centreX, centreY, size * 1.1, glow(frame.kick * 0.22), glow(0));
     }
     output.imageSmoothingEnabled = true;
     output.imageSmoothingQuality = "high";
@@ -993,14 +1011,15 @@ export class FluidVisualizer {
 
   private drawFluff(): void {
     if (!this.context) return;
+    const levels = this.fluffLevels;
     const frame: FluidFrame = {
-      phase: this.phase,
+      phase: levels.phase,
       swirl: this.swirl,
-      kick: this.pulses.kick.value,
-      snare: this.pulses.snare.value,
-      hat: this.pulses.hat.value,
-      clap: this.pulses.clap.value,
-      rim: this.pulses.rim.value * this.rimTurn,
+      kick: levels.swell,
+      snare: levels.billow,
+      hat: levels.shimmer,
+      clap: levels.energy,
+      rim: this.fluffRim,
     };
     const animated =
       VISUALIZER_PALETTES.find((palette) => palette.id === this.palette)
