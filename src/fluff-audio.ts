@@ -104,10 +104,22 @@ export class FluffBus {
     lowCut.type = "highpass";
     lowCut.frequency.value = 110;
     lowCut.Q.value = 0.6;
+    // A low shelf puts body back into the chords' 110–300 Hz after the cut.
+    const warmth = node(context.createBiquadFilter());
+    warmth.type = "lowshelf";
+    warmth.frequency.value = 280;
+    warmth.gain.value = 3;
+    // A gentle high shelf lifts the chords' presence above 3 kHz.
+    const air = node(context.createBiquadFilter());
+    air.type = "highshelf";
+    air.frequency.value = 3000;
+    air.gain.value = 2.5;
     const makeup = node(context.createGain());
     makeup.gain.value = 1.3;
     this.music.connect(lowCut);
-    lowCut.connect(makeup);
+    lowCut.connect(warmth);
+    warmth.connect(air);
+    air.connect(makeup);
     fluffGlue(context, makeup, this.duck, this.nodes);
     this.duck.connect(output);
     this.wetDuck.connect(output);
@@ -797,7 +809,8 @@ export class FluffBass {
     const drive = 1 - (1 - profile.drive) * (1 - track.drive);
     this.dry.gain.setValueAtTime(1 - drive, start);
     this.wet.gain.setValueAtTime(drive * 0.9, start);
-    this.highpass.frequency.setValueAtTime(Math.max(85, sub * 1.6), start);
+    // The mid layer starts just above the sub, so 100–250 Hz carries its body.
+    this.highpass.frequency.setValueAtTime(Math.max(75, sub * 1.35), start);
 
     const tracked = (frequency / 110) ** profile.keyTrack;
     const base = Math.max(
@@ -842,7 +855,7 @@ export class FluffBass {
     const trim = FLUFF_BASS_LEVELS[track.sound] ?? 1;
     const subEnd = envelope(
       this.subGain.gain,
-      profile.sub * trim * boost * 0.36,
+      profile.sub * trim * boost * 0.3,
       Math.max(0.004, profile.attack),
       profile.subSustain,
       Math.max(0.05, track.decay * 2),
@@ -850,7 +863,7 @@ export class FluffBass {
     );
     const midEnd = envelope(
       this.midGain.gain,
-      profile.mid * trim * boost * 0.62,
+      profile.mid * trim * boost * 0.82,
       profile.attack,
       profile.sustain,
       Math.max(0.02, track.decay * profile.decay),
