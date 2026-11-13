@@ -7,8 +7,10 @@ Fluff is a prototype second voice for the same studio. The Grain / Fluff switch 
 Every sound slot is reused, so saved sound numbers are valid in both modes; only the voices and names differ (`FLUFF_SOUNDS` in `src/mode.ts`).
 
 - `src/fluff-audio.ts` holds the Fluff bus, drum kit, bass, lead and the shared note synth used by the lead and arpeggiator. `BassVoice` in `src/audio.ts` hands every Fluff bass step to `FluffBass`.
-- Kicks: Trance, Prog, Deep, Tight, Breaks, Boom and Dusty. Each is tuned to the root or fifth of the project key nearest its designed pitch (46–58 Hz); the Pitch control still offsets it.
-- Snares (House, Break, Garage, Dusty, Roll, Ghost, Fat) and claps (House, Tight, Hall, Snap, Dusty, Layered, Soft) have a tuned 180–330 Hz body under the noise.
+- Drums are recorded samples (`src/fluff-drums.ts`; files, sources and licences in `docs/samples.md`). Kicks: Click, Round, Deep, Tight, Acoustic, Boom and Lo-fi. Snares: House, Rimshot, Garage, Dusty, Roll, Ghost and Room. Hats: Closed, Open, Shaker, Tick, Ride, Offbeat, Dusty and Sizzle. Claps: House, Tight, Hall, Snap, Dusty, Layered and Soft. Perc: Rim, Tom, Conga, Tamb, Blip, Crash and Sweep; Blip and Sweep stay synthesized.
+- Pitch sets the playback rate, Decay gates the sample (held, then faded over the last 40% of the gate), Tone tilts a 1.8 kHz shelf, then Drive, Attack, Pan, Space and a fixed per-slot hall send. Each slot carries a measured loudness and a trim, so slots in a lane are interchangeable at the same Volume.
+- Kicks with a measured fundamental (Click, Round, Deep, Tight, Boom: 46–65 Hz) are retuned by playback rate to the root or fifth of the project key nearest that fundamental, at most 3.5 semitones. Acoustic and Lo-fi carry their weight at 84 Hz, so a clean sine sub, tuned to the key near 52 Hz and started in the polarity that sums with the sample's 30–120 Hz band, plays under them.
+- Samples load when the Fluff audio graph is created. Play waits up to 1.5 s for them; any hit whose sample has not decoded, or failed to load, uses the previous synthesized voice for that slot. Export decodes every sample into its offline context before rendering.
 - Bass: Sub, Offbeat, Rolling, Pluck, Long, Reese, Organ, Donk, Growl, Warm and Garage. Every patch is two layers: a clean mono sine sub that is always folded into 40–80 Hz, whatever note is written, and a mid layer (saws, squares, organ partials or FM) that is driven, low-passed by Cutoff/Resonance/Envelope and high-passed just above the sub. Held steps tie into one note; a held step with a new pitch glides.
 - Lead replaces Texture: Supersaw, Pluck, Bell, Piano, Stab, Chip, Soft and Vox. A step followed by a held step of the same note ties into one longer note.
 - Arp: Pluck, Super, Glass, Pizz, Chip, Dream, Rave and Mallet. Pads: Super, Air, Choir, Glass, Haze, Warm, Phase and Organ, with unison saws on the wide patches.
@@ -59,6 +61,7 @@ Grain lays one visualizer canvas over the whole page with `mix-blend-mode: diffe
 ## Verification and limits
 
 - `src/fluff-presets.test.ts` checks that all twelve tracks build, validate, stay in key and have 8-bar basslines and 8- or 16-bar chord loops.
+- `src/fluff-drums.test.ts` checks that every Fluff drum slot maps to a bundled file (or is one of the two synthesized slots), that kick tuning stays in 40–70 Hz, Decay gating, render tails and the loader's caching, validation and retry.
 - Each track was rendered offline in headless Chrome (full mix, kick alone, bass alone, bass with the sidechain running) and measured for peak, integrated loudness, band balance against the targets above, low-frequency stereo correlation, bass ducking at each kick and recovery by the offbeat, and kick/bass summing. Nothing has been judged by ear.
 - The chord progression holds exactly four chords; longer progressions would need a schema change.
 - Shared sessions do not carry `mode` until the sessions Worker is redeployed with the updated schema, so a Fluff project joined through a session plays with Grain voices.

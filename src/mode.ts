@@ -24,8 +24,8 @@ export interface ModeSounds {
 
 /** Fluff reuses every sound slot, so saved sound numbers stay valid in both modes. */
 export const FLUFF_SOUNDS: ModeSounds = {
-  kick: ["Trance", "Prog", "Deep", "Tight", "Breaks", "Boom", "Dusty"],
-  snare: ["House", "Break", "Garage", "Dusty", "Roll", "Ghost", "Fat"],
+  kick: ["Click", "Round", "Deep", "Tight", "Acoustic", "Boom", "Lo-fi"],
+  snare: ["House", "Rimshot", "Garage", "Dusty", "Roll", "Ghost", "Room"],
   hat: [
     "Closed",
     "Open",

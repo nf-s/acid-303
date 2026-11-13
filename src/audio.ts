@@ -6,6 +6,7 @@ import type { CloudTrack } from "./cloud-model";
 import type { TensionTrack } from "./tension-model";
 import { VocalInstrument, vocalTailDuration } from "./vocal-audio";
 import { loadVocalSample, vocalSourceKey } from "./vocal-samples";
+import { fluffDrumsReady, loadFluffDrums } from "./fluff-drums";
 import type { LoadedVocalSample, VocalSampleStatus } from "./vocal-samples";
 import { resolveVocalTrim } from "./vocal-model";
 import type { VocalTrack } from "./vocal-model";
@@ -413,6 +414,8 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   const fluff = fluffMode
     ? new FluffBus(context, melodicInput, input, project.bpm)
     : null;
+  // Hits fall back to synthesized drums until the samples have decoded.
+  if (fluffMode) void loadFluffDrums(context);
   compressor.connect(master);
   master.connect(safety);
   safety.connect(analyser);
@@ -2816,6 +2819,7 @@ export class AudioEngine {
       muted: project.vocal.muted,
     };
     const graph = await this.prepare(project, generation);
+    if (graph.fluff) await fluffDrumsReady(graph.context, 1500);
     const loaded = project.vocal.muted
       ? null
       : await this.loadPlayingVocal(graph, project.vocal, generation);
@@ -3367,6 +3371,7 @@ export class AudioEngine {
         );
     if (this.silent) throw new Error("Export audio from the session host.");
     const graph = createGraph(context, project);
+    if (graph.fluff) await loadFluffDrums(context);
     const vocal = loaded
       ? new VocalInstrument(
           context,

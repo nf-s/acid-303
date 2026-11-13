@@ -1,6 +1,11 @@
 import { midiFrequency } from "./audio";
 import { scaleNotes } from "./model";
 import type { BassTrack, DrumTrack, KeysTrack, MusicalScale } from "./model";
+import {
+  cachedFluffDrum,
+  fluffSampleTail,
+  playFluffDrumSample,
+} from "./fluff-drums";
 
 const MIN_GAIN = 0.0001;
 export const FLUFF_HALL_SECONDS = 3.4;
@@ -1916,6 +1921,9 @@ const CLAPS: readonly ClapProfile[] = [
 ];
 
 export function fluffDrumTail(track: DrumTrack): number {
+  return Math.max(fluffSynthDrumTail(track), fluffSampleTail(track));
+}
+function fluffSynthDrumTail(track: DrumTrack): number {
   if (track.id === "hat") {
     const profile = HATS[track.sound] ?? HATS[0];
     return profile
@@ -1927,7 +1935,11 @@ export function fluffDrumTail(track: DrumTrack): number {
   return track.decay * 1.7 + 0.1;
 }
 
-/** Fluff drum kit: every sound slot has its own synthesis, mixed for 4/4 and breaks. */
+/**
+ * Fluff drum kit. Sampled slots play their bundled sample once it has
+ * decoded; until then, and for the synthesized slots, each sound has its own
+ * synthesis, mixed for 4/4 and breaks.
+ */
 export function fluffDrumVoice(
   context: BaseAudioContext,
   bus: FluffBus,
@@ -1936,6 +1948,19 @@ export function fluffDrumVoice(
   scale: MusicalScale,
 ): void {
   if (track.volume === 0) return;
+  const sampled = cachedFluffDrum(context, track.id, track.sound);
+  if (sampled) {
+    playFluffDrumSample(
+      context,
+      bus,
+      track,
+      time,
+      sampled.drum,
+      sampled.buffer,
+      (target) => rootNear(scale, target),
+    );
+    return;
+  }
   const pitch = 2 ** (track.pitch / 12);
   const decay = track.decay;
   const sources: Source[] = [];
