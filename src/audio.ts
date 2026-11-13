@@ -29,6 +29,8 @@ import {
   snapNote,
   exportPlan,
   playbackFrame,
+  projectUsesFamily,
+  trackFamily,
 } from "./model";
 import { ArpInstrument, arpTailDuration } from "./arp-audio";
 import {
@@ -47,6 +49,7 @@ import { PadInstrument, padTailDuration } from "./pad-audio";
 import type {
   BassTrack,
   DrumTrack,
+  FamilyTrack,
   KeysTrack,
   MusicalScale,
   Project,
@@ -58,7 +61,11 @@ type ScheduledSource = OscillatorNode | AudioBufferSourceNode;
 
 interface AudioGraph {
   mode: ProjectMode;
-  /** Fluff's ducked mix bus and sends; null in Grain. */
+  /**
+   * Fluff's ducked mix bus and sends. A Fluff project builds it with the
+   * graph; a Grain project builds it only when a track first plays a Fluff
+   * sound, and it then feeds Grain's master chain (see `fluffBus`).
+   */
   fluff: FluffBus | null;
   fluffLead: FluffLead | null;
   fluffMaterial: GainNode | null;
@@ -69,6 +76,9 @@ interface AudioGraph {
   input: GainNode;
   cleanInput: GainNode;
   melodicInput: GainNode;
+  /** Where Grain bass and Grain melodic voices go: Grain's inputs, or Fluff's bass and melodic buses. */
+  grainBass: AudioNode;
+  grainMelodic: AudioNode;
   dry: GainNode;
   wet: GainNode;
   distortion: WaveShaperNode;
@@ -372,6 +382,78 @@ class PerformanceFx {
   }
 }
 
+/** Grain's drum and bass input and its melodic input; the input also carries Crunch. */
+const GRAIN_INPUT_LEVEL = 0.6;
+const GRAIN_MELODIC_LEVEL = 0.72;
+const decibels = (value: number): number => 10 ** (value / 20);
+/**
+ * Fluff's master compressor and melodic glue lift quiet material more than
+ * Grain's. These trims, calibrated from solo renders, keep a voice from the
+ * other family about as loud as it is in its own studio.
+ */
+const FLUFF_MASTER_LIFT = decibels(1.9);
+const FLUFF_MELODIC_LIFT = decibels(11);
+
+/**
+ * Grain voices in a Fluff project: the bass joins Fluff's bass bus (no melodic
+ * low cut, its own short duck), Texture, arps and pads join the melodic bus
+ * (low cut, shelves, glue and Pump). Trims keep each voice at the level it has
+ * in Grain. Grain drums keep Grain's drum input, as Fluff's drums do.
+ */
+function grainIntoFluff(
+  context: BaseAudioContext,
+  fluff: FluffBus,
+  texture: GainNode,
+): { bass: GainNode; melodic: GainNode } {
+  const bass = context.createGain();
+  const melodic = context.createGain();
+  const textureTrim = context.createGain();
+  bass.gain.value = GRAIN_INPUT_LEVEL / GRAIN_MELODIC_LEVEL / FLUFF_MASTER_LIFT;
+  melodic.gain.value = 1 / FLUFF_MELODIC_LIFT;
+  textureTrim.gain.value = 1 / GRAIN_MELODIC_LEVEL;
+  bass.connect(fluff.bass);
+  melodic.connect(fluff.music);
+  texture.connect(textureTrim);
+  textureTrim.connect(melodic);
+  return { bass, melodic };
+}
+
+/**
+ * The Fluff bus, built on first use in a Grain project. Its melodic and
+ * return outputs feed Grain's melodic input; its drums and bass feed Grain's
+ * drum input, so Crunch reaches them as it reaches Grain's drums and bass.
+ * Grain never pumps it; a kick only runs the Fluff bass's own short duck.
+ */
+function fluffBus(graph: AudioGraph): FluffBus {
+  if (graph.fluff) return graph.fluff;
+  const bus = new FluffBus(
+    graph.context,
+    graph.melodicInput,
+    graph.input,
+    graph.bpm,
+    {
+      level: FLUFF_MASTER_LIFT,
+      bass: graph.input,
+      bassLevel: (GRAIN_MELODIC_LEVEL / GRAIN_INPUT_LEVEL) * FLUFF_MASTER_LIFT,
+    },
+  );
+  graph.fluff = bus;
+  return bus;
+}
+
+function usesFluffDrums(project: Project): boolean {
+  return project.drums.some(
+    (track) => trackFamily(project.mode, track) === "fluff",
+  );
+}
+
+function fluffLead(graph: AudioGraph): FluffLead {
+  if (graph.fluffLead) return graph.fluffLead;
+  const lead = new FluffLead(graph.context, fluffBus(graph));
+  graph.fluffLead = lead;
+  return lead;
+}
+
 function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   const input = context.createGain();
   const cleanInput = context.createGain();
@@ -385,8 +467,8 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   const safety = context.createWaveShaper();
   const analyser = context.createAnalyser();
   const fluffMode = project.mode === "fluff";
-  input.gain.value = 0.6;
-  melodicInput.gain.value = 0.72;
+  input.gain.value = GRAIN_INPUT_LEVEL;
+  melodicInput.gain.value = GRAIN_MELODIC_LEVEL;
   cleanInput.gain.value = project.keys.muted
     ? 0
     : 0.72 * automatedKeys(project.keys, 0).volume;
@@ -422,12 +504,15 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   input.connect(distortion);
   distortion.connect(wet);
   wet.connect(highpass);
-  cleanInput.connect(highpass);
+  if (!fluffMode) cleanInput.connect(highpass);
   melodicInput.connect(highpass);
   const fx = new PerformanceFx(context, highpass, compressor, project);
   const fluff = fluffMode
     ? new FluffBus(context, melodicInput, input, project.bpm)
     : null;
+  const grain = fluff
+    ? grainIntoFluff(context, fluff, cleanInput)
+    : { bass: input, melodic: melodicInput };
   // Hits fall back to synthesized drums until the samples have decoded.
   if (fluffMode) void loadFluffDrums(context);
   compressor.connect(master);
@@ -454,6 +539,8 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
     input,
     cleanInput,
     melodicInput,
+    grainBass: grain.bass,
+    grainMelodic: grain.melodic,
     dry,
     wet,
     distortion,
@@ -485,7 +572,7 @@ function updateGraph(
   graph.bpm = project.bpm;
   graph.scale = project.scale;
   graph.fluff?.setTempo(project.bpm, now);
-  if (!graph.fluff && graph.drive !== project.drive) {
+  if (graph.mode === "grain" && graph.drive !== project.drive) {
     graph.distortion.curve = distortionCurve(project.drive);
     graph.dry.gain.setTargetAtTime(1 - project.drive * 0.45, now, 0.015);
     graph.wet.gain.setTargetAtTime(project.drive * 0.45, now, 0.015);
@@ -615,10 +702,15 @@ function hatDuration(sound: number, decay: number): number {
   return Math.max(0.018, Math.min(profile.maximum, decay * profile.length));
 }
 
-function drumVoice(graph: AudioGraph, track: DrumTrack, time: number): void {
+function drumVoice(
+  graph: AudioGraph,
+  track: DrumTrack,
+  time: number,
+  family: ProjectMode,
+): void {
   if (track.volume === 0) return;
-  if (graph.fluff) {
-    fluffDrumVoice(graph.context, graph.fluff, track, time, graph.scale);
+  if (family === "fluff") {
+    fluffDrumVoice(graph.context, fluffBus(graph), track, time, graph.scale);
     return;
   }
   const context = graph.context;
@@ -1443,11 +1535,15 @@ class BassVoice {
   /** Fluff has its own sub-and-mid bass synth. */
   private readonly fluff: FluffBass | null;
 
-  constructor(private readonly graph: AudioGraph) {
+  constructor(
+    private readonly graph: AudioGraph,
+    family: ProjectMode,
+  ) {
     const context = graph.context;
-    this.fluff = graph.fluff
-      ? new FluffBass(context, graph.fluff, graph.sources)
-      : null;
+    this.fluff =
+      family === "fluff"
+        ? new FluffBass(context, fluffBus(graph), graph.sources)
+        : null;
     const mix = context.createGain();
     this.shaper = context.createWaveShaper();
     this.shaper.curve = localDriveCurve(1);
@@ -1506,7 +1602,7 @@ class BassVoice {
     if (this.fluff) return;
     previous.connect(this.gain);
     this.gain.connect(this.level);
-    this.level.connect(graph.input);
+    this.level.connect(graph.grainBass);
     let remaining = this.sources.length;
     for (const source of this.sources) {
       graph.sources.add(source);
@@ -1711,72 +1807,70 @@ function keysEchoTail(track: KeysTrack, bpm: number): number {
     : 0;
 }
 
-function fluffTailDuration(project: Project): number {
-  const drums = project.drums
-    .filter((track) => !track.muted && track.volume > 0)
-    .map(fluffDrumTail);
+function grainDrumTail(project: Project, drum: DrumTrack): number {
+  return Array.from({ length: automationStepCount(drum) }, (_, step) =>
+    automatedDrum(drum, step, project.scale),
+  ).reduce((longest, track) => {
+    if (track.muted || track.volume === 0) return longest;
+    let decay = track.decay;
+    if (track.id === "kick" && track.sound === 3)
+      decay = Math.min(2, track.decay * 1.35);
+    if (track.id === "snare" && track.sound === 4)
+      decay = Math.min(2, track.decay * 1.3);
+    if (track.id === "hat") decay = hatDuration(track.sound, track.decay);
+    if (track.id === "snare" && track.sound === 6)
+      decay = Math.min(1.4, track.decay * 1.05) + 0.054;
+    if (track.id === "clap" && track.sound === 6)
+      decay = track.decay * 1.25 + 0.95;
+    if (track.id === "clap" && track.sound === 3)
+      decay = track.decay * 1.2 + 0.945;
+    return Math.max(longest, decay + 0.12 + (track.space > 0 ? 0.92 : 0));
+  }, 0);
+}
+function grainKeysTail(project: Project): number {
+  const automated = Array.from(
+    { length: automationStepCount(project.keys) },
+    (_, step) => automatedKeys(project.keys, step),
+  );
+  return project.keys.muted || automated.every((track) => track.volume === 0)
+    ? 0
+    : Math.max(...automated.map((track) => track.decay)) +
+        Math.max(
+          ...automated.map((track) => keysEchoTail(track, project.bpm)),
+        ) +
+        0.08;
+}
+/** Each track rings out as its own family's voice; Fluff voices also feed the hall. */
+export function exportTailDuration(project: Project): number {
+  const fluff = (track: FamilyTrack): boolean =>
+    trackFamily(project.mode, track) === "fluff";
+  const drums = project.drums.map((track) =>
+    fluff(track)
+      ? track.muted || track.volume === 0
+        ? 0
+        : fluffDrumTail(track)
+      : grainDrumTail(project, track),
+  );
+  const keys = fluff(project.keys)
+    ? fluffLeadTail(project.keys)
+    : grainKeysTail(project);
+  const hall =
+    project.mode === "fluff" || projectUsesFamily(project, "fluff")
+      ? FLUFF_HALL_SECONDS * 0.75
+      : 0;
   return (
     Math.max(
       0.35,
       ...drums,
-      fluffLeadTail(project.keys),
+      keys,
       arpTailDuration(project.arp, project.bpm),
       padTailDuration(project.pad, project.bpm),
       vocalTailDuration(project.vocal, project.bpm),
       cloudTailDuration(project.cloud),
       tensionTailDuration(project.tension),
     ) +
-    FLUFF_HALL_SECONDS * 0.75 +
+    hall +
     performanceFxTail(project)
-  );
-}
-export function exportTailDuration(project: Project): number {
-  if (project.mode === "fluff") return fluffTailDuration(project);
-  const drumTail = project.drums
-    .flatMap((track) =>
-      Array.from({ length: automationStepCount(track) }, (_, step) =>
-        automatedDrum(track, step, project.scale),
-      ),
-    )
-    .reduce((longest, track) => {
-      if (track.muted || track.volume === 0) return longest;
-      let decay = track.decay;
-      if (track.id === "kick" && track.sound === 3)
-        decay = Math.min(2, track.decay * 1.35);
-      if (track.id === "snare" && track.sound === 4)
-        decay = Math.min(2, track.decay * 1.3);
-      if (track.id === "hat") decay = hatDuration(track.sound, track.decay);
-      if (track.id === "snare" && track.sound === 6)
-        decay = Math.min(1.4, track.decay * 1.05) + 0.054;
-      if (track.id === "clap" && track.sound === 6)
-        decay = track.decay * 1.25 + 0.95;
-      if (track.id === "clap" && track.sound === 3)
-        decay = track.decay * 1.2 + 0.945;
-      return Math.max(longest, decay + 0.12 + (track.space > 0 ? 0.92 : 0));
-    }, 0);
-  const automated = Array.from(
-    { length: automationStepCount(project.keys) },
-    (_, step) => automatedKeys(project.keys, step),
-  );
-  const keysTail =
-    project.keys.muted || automated.every((track) => track.volume === 0)
-      ? 0
-      : Math.max(...automated.map((track) => track.decay)) +
-        Math.max(
-          ...automated.map((track) => keysEchoTail(track, project.bpm)),
-        ) +
-        0.08;
-  return (
-    Math.max(
-      0.35,
-      drumTail,
-      keysTail,
-      arpTailDuration(project.arp, project.bpm),
-      padTailDuration(project.pad, project.bpm),
-      vocalTailDuration(project.vocal, project.bpm),
-      cloudTailDuration(project.cloud),
-      tensionTailDuration(project.tension),
-    ) + performanceFxTail(project)
   );
 }
 
@@ -2627,14 +2721,122 @@ export function projectEventsAtTick(
   if (!project.tension.muted) add("tension", project.tension.timing);
   return events.sort((a, b) => a.audibleTick - b.audibleTick);
 }
+interface FamilyVoice<T> {
+  family: ProjectMode;
+  voice: T;
+}
+
+/**
+ * Bass, Texture/Lead, arp and pad voices, each built for its track's sound
+ * family. The project's own voices are built up front, in their original
+ * order; a voice of the other family is built only when its track first
+ * plays, and the voice it replaces is released at that moment.
+ */
+class TrackVoices {
+  private bassVoice: FamilyVoice<BassVoice> | null = null;
+  private keysVoice: FamilyVoice<KeysSequencer | FluffLead> | null = null;
+  private arpVoice: FamilyVoice<ArpInstrument> | null = null;
+  private padVoice: FamilyVoice<PadInstrument> | null = null;
+
+  constructor(
+    private readonly graph: AudioGraph,
+    project: Project,
+  ) {
+    const time = graph.context.currentTime;
+    this.bass(trackFamily(project.mode, project.bass), time);
+    this.keys(trackFamily(project.mode, project.keys), time);
+    this.arp(trackFamily(project.mode, project.arp), time);
+    this.pad(trackFamily(project.mode, project.pad), time);
+  }
+
+  bass(family: ProjectMode, time: number): BassVoice {
+    const current = this.bassVoice;
+    if (current?.family === family) return current.voice;
+    current?.voice.stop(time);
+    const voice = new BassVoice(this.graph, family);
+    this.bassVoice = { family, voice };
+    return voice;
+  }
+
+  keys(family: ProjectMode, time: number): KeysSequencer | FluffLead {
+    const current = this.keysVoice;
+    if (current?.family === family) return current.voice;
+    const previous = current?.voice;
+    if (previous instanceof FluffLead) {
+      previous.stop(time);
+      this.afterwards(time, () => previous.destroy());
+    } else previous?.release(time, 0.015);
+    const voice =
+      family === "fluff"
+        ? new FluffLead(this.graph.context, fluffBus(this.graph))
+        : new KeysSequencer(this.graph);
+    this.keysVoice = { family, voice };
+    return voice;
+  }
+
+  arp(family: ProjectMode, time: number): ArpInstrument {
+    const current = this.arpVoice;
+    if (current?.family === family) return current.voice;
+    const previous = current?.voice;
+    if (previous) {
+      previous.stop(time);
+      this.afterwards(time, () => previous.destroy());
+    }
+    const voice =
+      family === "fluff"
+        ? new ArpInstrument(
+            this.graph.context,
+            this.graph.melodicInput,
+            fluffBus(this.graph),
+          )
+        : new ArpInstrument(this.graph.context, this.graph.grainMelodic);
+    this.arpVoice = { family, voice };
+    return voice;
+  }
+
+  pad(family: ProjectMode, time: number): PadInstrument {
+    const current = this.padVoice;
+    if (current?.family === family) return current.voice;
+    current?.voice.stop(time);
+    const voice =
+      family === "fluff"
+        ? new PadInstrument(
+            this.graph.context,
+            this.graph.melodicInput,
+            fluffBus(this.graph),
+          )
+        : new PadInstrument(this.graph.context, this.graph.grainMelodic);
+    this.padVoice = { family, voice };
+    return voice;
+  }
+
+  stop(time: number): void {
+    this.bassVoice?.voice.stop(time);
+    const arp = this.arpVoice?.voice;
+    if (arp) {
+      arp.stop(time);
+      setTimeout(() => arp.destroy(), 30);
+    }
+    this.padVoice?.voice.stop(time);
+    const keys = this.keysVoice?.voice;
+    if (keys instanceof FluffLead) {
+      keys.stop(time);
+      setTimeout(() => keys.destroy(), 30);
+    }
+  }
+
+  /** A replaced voice is torn down once its release has played. */
+  private afterwards(time: number, action: () => void): void {
+    const delay = Math.max(0, time - this.graph.context.currentTime);
+    setTimeout(action, delay * 1000 + 50);
+  }
+}
+
 function scheduleProjectTick(
   graph: AudioGraph,
   project: Project,
   voices: {
-    bass: BassVoice;
-    keys: KeysSequencer | FluffLead;
-    arp: ArpInstrument;
-    pad: PadInstrument;
+    tracks: TrackVoices;
     vocal: VocalInstrument | null;
     cloud: CloudInstrument;
     tension: TensionInstrument;
@@ -2647,17 +2849,23 @@ function scheduleProjectTick(
       nominalTime + tickSeconds(event.audibleTick - logicalTick, project.bpm);
     const index = event.index;
     if (event.instrument === "bass")
-      voices.bass.schedule(
-        automatedBass(project.bass, event.absoluteStep),
-        index,
-        time,
-        event.duration,
-      );
+      voices.tracks
+        .bass(trackFamily(project.mode, project.bass), time)
+        .schedule(
+          automatedBass(project.bass, event.absoluteStep),
+          index,
+          time,
+          event.duration,
+        );
     else if (event.instrument === "keys") {
       const keys = automatedKeys(project.keys, event.absoluteStep);
-      if (voices.keys instanceof FluffLead)
-        voices.keys.schedule(keys, index, time, event.duration, project.scale);
-      else voices.keys.schedule(keys, index, time, event.duration);
+      const voice = voices.tracks.keys(
+        trackFamily(project.mode, project.keys),
+        time,
+      );
+      if (voice instanceof FluffLead)
+        voice.schedule(keys, index, time, event.duration, project.scale);
+      else voice.schedule(keys, index, time, event.duration);
     } else if (event.instrument === "cloud")
       voices.cloud.scheduleTick(
         project.cloud,
@@ -2687,34 +2895,43 @@ function scheduleProjectTick(
         project.progression,
       );
     else if (event.instrument === "arp")
-      voices.arp.scheduleTick(
-        project.arp,
-        project.scale,
-        logicalTick,
-        time,
-        project.bpm,
-        project.progression,
-        event.audibleTick,
-        project.swing,
-      );
+      voices.tracks
+        .arp(trackFamily(project.mode, project.arp), time)
+        .scheduleTick(
+          project.arp,
+          project.scale,
+          logicalTick,
+          time,
+          project.bpm,
+          project.progression,
+          event.audibleTick,
+          project.swing,
+        );
     else if (event.instrument === "pad")
-      voices.pad.scheduleTick(
-        project.pad,
-        project.scale,
-        event.logicalTick,
-        time,
-        project.bpm,
-        project.swing,
-        project.progression,
-        event.audibleTick,
-      );
+      voices.tracks
+        .pad(trackFamily(project.mode, project.pad), time)
+        .scheduleTick(
+          project.pad,
+          project.scale,
+          event.logicalTick,
+          time,
+          project.bpm,
+          project.swing,
+          project.progression,
+          event.audibleTick,
+        );
     else {
       const drum = project.drums.find((track) => track.id === event.instrument);
       if (drum && !drum.muted && drum.steps[index]) {
         const voiced = automatedDrum(drum, event.absoluteStep, project.scale);
-        drumVoice(graph, voiced, time);
+        drumVoice(graph, voiced, time, trackFamily(project.mode, drum));
+        // Any kick pumps a Fluff project; in Grain a Fluff bass only ducks.
         if (drum.id === "kick" && voiced.volume > 0)
-          graph.fluff?.pump(time, project.drive, project.bpm);
+          graph.fluff?.pump(
+            time,
+            graph.mode === "fluff" ? project.drive : 0,
+            project.bpm,
+          );
       }
     }
   }
@@ -2723,10 +2940,7 @@ function scheduleProjectTick(
 export class AudioEngine {
   private context: AudioContext | null = null;
   private graph: AudioGraph | null = null;
-  private bass: BassVoice | null = null;
-  private keys: KeysSequencer | FluffLead | null = null;
-  private arp: ArpInstrument | null = null;
-  private pad: PadInstrument | null = null;
+  private tracks: TrackVoices | null = null;
   private cloud: CloudInstrument | null = null;
   private tension: TensionInstrument | null = null;
   private cloudPreviewTimer: ReturnType<typeof setInterval> | null = null;
@@ -2791,6 +3005,7 @@ export class AudioEngine {
       this.context = new AudioContext({ latencyHint: "interactive" });
     this.syncGraphMode(project);
     if (!this.graph) this.graph = createGraph(this.context, project);
+    if (usesFluffDrums(project)) void loadFluffDrums(this.context);
     if (this.needsFxReset) {
       this.graph.fx.destroy();
       this.graph.fx = new PerformanceFx(
@@ -2823,6 +3038,16 @@ export class AudioEngine {
     this.needsFxReset = false;
   }
 
+  /** A Grain project drops its Fluff bus when playback starts without a Fluff sound. */
+  private releaseUnusedFluff(graph: AudioGraph, project: Project): void {
+    if (graph.mode === "fluff" || !graph.fluff) return;
+    if (projectUsesFamily(project, "fluff")) return;
+    graph.fluffLead?.destroy();
+    graph.fluff.destroy();
+    graph.fluffLead = null;
+    graph.fluff = null;
+  }
+
   async play(project: Project): Promise<void> {
     if (this.playing) return;
     const generation = ++this.generation;
@@ -2833,7 +3058,8 @@ export class AudioEngine {
       muted: project.vocal.muted,
     };
     const graph = await this.prepare(project, generation);
-    if (graph.fluff) await fluffDrumsReady(graph.context, 1500);
+    if (graph.mode === "fluff" || usesFluffDrums(project))
+      await fluffDrumsReady(graph.context, 1500);
     const loaded = project.vocal.muted
       ? null
       : await this.loadPlayingVocal(graph, project.vocal, generation);
@@ -2858,20 +3084,8 @@ export class AudioEngine {
       graph.context,
       graph.fluffMaterial ?? graph.melodicInput,
     );
-    this.bass = new BassVoice(graph);
-    this.keys = graph.fluff
-      ? new FluffLead(graph.context, graph.fluff)
-      : new KeysSequencer(graph);
-    this.arp = new ArpInstrument(
-      graph.context,
-      graph.melodicInput,
-      graph.fluff,
-    );
-    this.pad = new PadInstrument(
-      graph.context,
-      graph.melodicInput,
-      graph.fluff,
-    );
+    this.releaseUnusedFluff(graph, project);
+    this.tracks = new TrackVoices(graph, project);
     this.vocal = loaded
       ? new VocalInstrument(
           graph.context,
@@ -2893,20 +3107,17 @@ export class AudioEngine {
     const now = graph.context.currentTime;
     // A suspended browser tab must not emit all missed beats at once.
     if (this.nextStepTime < now - LOOKAHEAD) this.nextStepTime = now + 0.01;
-    const bass = this.bass,
-      keys = this.keys,
-      arp = this.arp,
-      pad = this.pad,
+    const tracks = this.tracks,
       cloud = this.cloud,
       tension = this.tension;
-    if (!bass || !keys || !arp || !pad || !cloud || !tension) return;
+    if (!tracks || !cloud || !tension) return;
     while (this.nextStepTime < now + LOOKAHEAD) {
       const tick = this.absoluteTick;
       const time = this.nextStepTime;
       scheduleProjectTick(
         graph,
         project,
-        { bass, keys, arp, pad, vocal: this.vocal, cloud, tension },
+        { tracks, vocal: this.vocal, cloud, tension },
         tick,
         time,
       );
@@ -2968,24 +3179,10 @@ export class AudioEngine {
       const time = graph.context.currentTime;
       graph.master.gain.cancelAndHoldAtTime(time);
       graph.master.gain.linearRampToValueAtTime(0, time + 0.012);
-      this.bass?.stop(time);
-      const arp = this.arp;
-      if (arp) {
-        arp.stop(time);
-        setTimeout(() => arp.destroy(), 30);
-      }
-      this.pad?.stop(time);
-      const keys = this.keys;
-      if (keys instanceof FluffLead) {
-        keys.stop(time);
-        setTimeout(() => keys.destroy(), 30);
-      }
+      this.tracks?.stop(time);
       for (const source of graph.sources) source.stop(time + 0.015);
     }
-    this.bass = null;
-    this.keys = null;
-    this.arp = null;
-    this.pad = null;
+    this.tracks = null;
     if (this.project)
       this.onStep(-1, -1, playbackFrame(this.project, 0, false));
   }
@@ -3019,6 +3216,8 @@ export class AudioEngine {
       project.vocal.muted !== this.vocalConfiguration.muted;
     this.project = project;
     this.syncGraphMode(project);
+    if (this.graph && usesFluffDrums(project))
+      void loadFluffDrums(this.graph.context);
     this.vocalConfiguration = {
       sound: project.vocal.sound,
       sourceKey: vocalSourceKey(project.vocal.sound, project.vocal.recording),
@@ -3296,7 +3495,12 @@ export class AudioEngine {
     if (!this.project)
       throw new Error("Set the project before auditioning a drum.");
     const graph = await this.prepare(this.project);
-    drumVoice(graph, track, graph.context.currentTime + 0.005);
+    drumVoice(
+      graph,
+      track,
+      graph.context.currentTime + 0.005,
+      trackFamily(this.project.mode, track),
+    );
   }
 
   async auditionBass(
@@ -3309,7 +3513,7 @@ export class AudioEngine {
     if (!Number.isInteger(note) || note < 24 || note > 60)
       throw new Error("Choose a bass note between C1 and C4.");
     const graph = await this.prepare(this.project);
-    const voice = new BassVoice(graph);
+    const voice = new BassVoice(graph, trackFamily(this.project.mode, track));
     const preview: BassTrack = {
       ...track,
       muted: false,
@@ -3339,9 +3543,10 @@ export class AudioEngine {
     const graph = await this.prepare(this.project);
     if (track.volume === 0) return;
     const time = graph.context.currentTime + 0.005;
-    if (graph.fluffLead) {
-      graph.fluffLead.preview(track, graph.context.currentTime);
-      graph.fluffLead.play(
+    if (trackFamily(this.project.mode, track) === "fluff") {
+      const lead = fluffLead(graph);
+      lead.preview(track, graph.context.currentTime);
+      lead.play(
         track,
         note,
         accent,
@@ -3385,7 +3590,8 @@ export class AudioEngine {
         );
     if (this.silent) throw new Error("Export audio from the session host.");
     const graph = createGraph(context, project);
-    if (graph.fluff) await loadFluffDrums(context);
+    if (graph.mode === "fluff" || usesFluffDrums(project))
+      await loadFluffDrums(context);
     const vocal = loaded
       ? new VocalInstrument(
           context,
@@ -3393,12 +3599,7 @@ export class AudioEngine {
           loaded,
         )
       : null;
-    const bass = new BassVoice(graph);
-    const keys = graph.fluff
-      ? new FluffLead(context, graph.fluff)
-      : new KeysSequencer(graph);
-    const arp = new ArpInstrument(context, graph.melodicInput, graph.fluff);
-    const pad = new PadInstrument(context, graph.melodicInput, graph.fluff);
+    const tracks = new TrackVoices(graph, project);
     const cloud = new CloudInstrument(
       context,
       graph.fluffMaterial ?? graph.melodicInput,
@@ -3411,7 +3612,7 @@ export class AudioEngine {
       scheduleProjectTick(
         graph,
         project,
-        { bass, keys, arp, pad, vocal, cloud, tension },
+        { tracks, vocal, cloud, tension },
         tick,
         tickSeconds(tick, project.bpm),
       );
@@ -3423,7 +3624,13 @@ export class AudioEngine {
       ),
       loopDuration,
     );
-    bass.stop(loopDuration);
+    tracks
+      .bass(trackFamily(project.mode, project.bass), loopDuration)
+      .stop(loopDuration);
+    const keys = tracks.keys(
+      trackFamily(project.mode, project.keys),
+      loopDuration,
+    );
     // Fluff lead notes are scheduled with their full length and release.
     if (!(keys instanceof FluffLead))
       keys.release(
@@ -3443,11 +3650,13 @@ export class AudioEngine {
           4) !==
       0
     )
-      pad.finish(
-        project.pad,
-        plan.ticks / ticksPerStep(project.pad.timing),
-        loopDuration,
-      );
+      tracks
+        .pad(trackFamily(project.mode, project.pad), loopDuration)
+        .finish(
+          project.pad,
+          plan.ticks / ticksPerStep(project.pad.timing),
+          loopDuration,
+        );
     const rendered = await context.startRendering();
     const channels: Float32Array[] = [];
     for (let index = 0; index < rendered.numberOfChannels; index += 1)

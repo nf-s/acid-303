@@ -10,6 +10,7 @@ export {
   applyProgression as applyPadProgression,
 } from "./progression-model";
 import { z } from "zod";
+import { projectModeSchema } from "./mode";
 import type { AutomationBars } from "./timing";
 import {
   createPadTiming,
@@ -74,6 +75,7 @@ export const padBaseSchema = z.object({
     .min(0)
     .max(PAD_SOUNDS.length - 1)
     .default(0),
+  family: projectModeSchema.optional(),
   muted: z.boolean().default(true),
   chords: z
     .array(z.lazy(() => progressionChordSchema))

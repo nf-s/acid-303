@@ -4,6 +4,7 @@ import {
 } from "./progression-model";
 import type { Progression } from "./progression-model";
 import { z } from "zod";
+import { projectModeSchema } from "./mode";
 import type { AutomationBars } from "./timing";
 import {
   createTiming,
@@ -82,6 +83,7 @@ export const arpBaseSchema = z.object({
     .min(0)
     .max(ARP_SOUNDS.length - 1)
     .default(0),
+  family: projectModeSchema.optional(),
   muted: z.boolean().default(true),
   notes: z
     .array(z.number().int().min(48).max(84))

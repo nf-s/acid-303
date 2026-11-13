@@ -58,6 +58,15 @@ function noiseBuffer(context: BaseAudioContext): AudioBuffer {
   return buffer;
 }
 
+/** How a Fluff bus inside a Grain project meets Grain's mix. */
+export interface FluffGuestOutput {
+  /** Trim on the melodic and return outputs. */
+  level: number;
+  /** The bass leaves with the drums, through Crunch, at this trim. */
+  bass: AudioNode;
+  bassLevel: number;
+}
+
 /**
  * Fluff's mix bus: kick-triggered ducking for everything melodic, a hall, a
  * plate for drums, and a tempo-synced ping-pong delay.
@@ -85,6 +94,7 @@ export class FluffBus {
     output: AudioNode,
     drumOutput: AudioNode,
     bpm: number,
+    guest: FluffGuestOutput | null = null,
   ) {
     const node = <T extends AudioNode>(created: T): T => {
       this.nodes.push(created);
@@ -121,10 +131,22 @@ export class FluffBus {
     warmth.connect(air);
     air.connect(makeup);
     fluffGlue(context, makeup, this.duck, this.nodes);
-    this.duck.connect(output);
-    this.wetDuck.connect(output);
+    let melodic: AudioNode = output;
+    if (guest) {
+      const level = node(context.createGain());
+      level.gain.value = guest.level;
+      level.connect(output);
+      melodic = level;
+    }
+    this.duck.connect(melodic);
+    this.wetDuck.connect(melodic);
     this.bass.connect(this.bassDuck);
-    this.bassDuck.connect(output);
+    if (guest) {
+      const level = node(context.createGain());
+      level.gain.value = guest.bassLevel;
+      this.bassDuck.connect(level);
+      level.connect(guest.bass);
+    } else this.bassDuck.connect(output);
     this.drums.connect(drumOutput);
 
     // Reverb and echo returns are ducked a little less than the dry sound.

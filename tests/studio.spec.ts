@@ -605,7 +605,9 @@ test("all new Texture and drum sounds are directly selectable and persist", asyn
     name: "Texture sound",
     exact: true,
   });
-  await expect(sounds.getByRole("button")).toHaveCount(KEYS_SOUNDS.length);
+  await expect(sounds.locator(":scope > button")).toHaveCount(
+    KEYS_SOUNDS.length,
+  );
   for (const sound of ["Scatter", "Dub", "Frost"]) {
     await sounds.getByRole("button", { name: sound, exact: true }).click();
     await expect(
@@ -618,11 +620,11 @@ test("all new Texture and drum sounds are directly selectable and persist", asyn
   await expect(
     page
       .getByRole("group", { name: "Hi-hat sounds", exact: true })
-      .getByRole("button"),
+      .locator(":scope > button"),
   ).toHaveCount(DRUM_META.hat.sounds.length);
   await page
     .getByRole("group", { name: "Hi-hat sounds", exact: true })
-    .getByRole("button")
+    .locator(":scope > button")
     .last()
     .click();
   await expect
@@ -1197,7 +1199,9 @@ test("phone sound selection, expression controls and tap automation persist with
   await seedFactoryProject(page);
   await page.goto("/");
   const sounds = page.getByRole("group", { name: "Bass sound", exact: true });
-  await expect(sounds.getByRole("button")).toHaveCount(BASS_SOUNDS.length);
+  await expect(sounds.locator(":scope > button")).toHaveCount(
+    BASS_SOUNDS.length,
+  );
   for (const sound of BASS_SOUNDS) {
     await sounds.getByRole("button", { name: sound, exact: true }).tap();
     await expect(
@@ -1218,7 +1222,7 @@ test("phone sound selection, expression controls and tap automation persist with
     .poll(async () => (await savedProject(page)).drums[0]?.drive)
     .toBe(0.1);
   await page.reload();
-  await expect(sounds.getByRole("button").last()).toHaveAttribute(
+  await expect(sounds.locator(":scope > button").last()).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -1501,7 +1505,7 @@ test("share link loads the full track into a fresh browser context", async ({
   await expect
     .poll(async () => (await savedProject(page)).bass.automation.cutoff?.[15])
     .toBeCloseTo(0.8, 1);
-  await page.locator('[data-arp-sound="2"]').click();
+  await page.locator('.arp-sounds > [data-arp-sound="2"]').click();
   await setPadBars(page, 16);
   await page
     .getByRole("button", { name: "Enable chord pads", exact: true })
@@ -1582,7 +1586,7 @@ test("arpeggiator notes, order, rhythm and all eight controls persist with globa
   await expect(
     page
       .getByRole("group", { name: "Arpeggiator sound", exact: true })
-      .getByRole("button"),
+      .locator(":scope > button"),
   ).toHaveCount(ARP_SOUNDS.length);
   await page.locator("[data-arp-clear=notes]").click();
   for (const note of ["E4", "A3", "C4"])
@@ -1639,7 +1643,7 @@ test("shared progression length, chord edits and Pad play position work across b
   await expect(
     page
       .getByRole("group", { name: "Pad sound", exact: true })
-      .getByRole("button"),
+      .locator(":scope > button"),
   ).toHaveCount(PAD_SOUNDS.length);
   await page
     .getByRole("button", { name: "Enable chord pads", exact: true })

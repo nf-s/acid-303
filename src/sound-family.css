@@ -1,0 +1,85 @@
+/*
+ * Sound pickers list the project's own sounds, then the other studio's in a
+ * labelled row styled the way that studio draws its chips.
+ */
+.waveform-switch:has(> .sound-family),
+.sound-buttons:has(> .sound-family) {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.sound-family {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-top: 2px;
+}
+.sound-family-label {
+  flex: none;
+  margin-right: 2px;
+  font: 600 9px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a8a8a;
+}
+.sound-family .sound-family-chip {
+  flex: 0 1 auto;
+}
+
+/* Fluff sounds in Grain: soft lilac pills in a rounded sans. */
+:root[data-mode="grain"] .sound-family .sound-family-chip[data-sound-family] {
+  padding: 4px 10px;
+  font:
+    500 10px ui-rounded,
+    "SF Pro Rounded",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  color: #2b2540;
+  background: #ddd6f0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+}
+:root[data-mode="grain"]
+  .sound-family
+  .sound-family-chip[data-sound-family][aria-pressed="true"] {
+  color: #1d1730;
+  background: #f1d8ea;
+  border-color: #fff;
+  box-shadow: inset 0 0 0 1.5px #8b78c9;
+}
+
+/* Grain sounds in Fluff: square, monospaced and dark. */
+:root[data-mode="fluff"] .sound-family-label {
+  color: var(--fluff-slate);
+}
+:root[data-mode="fluff"]
+  .workspace
+  .sound-family
+  .sound-family-chip[data-sound-family] {
+  padding: 4px 9px;
+  font:
+    10px "IBM Plex Mono",
+    monospace;
+  color: #d8d8d8;
+  background: #353535;
+  border: 1px solid #555;
+  border-right-color: #111;
+  border-bottom-color: #111;
+  border-radius: 0;
+  box-shadow: none;
+}
+:root[data-mode="fluff"]
+  .workspace
+  .sound-family
+  .sound-family-chip[data-sound-family][aria-pressed="true"] {
+  color: #111;
+  background: #c4c4c4;
+  border-color: #eee;
+  border-right-color: #666;
+  border-bottom-color: #666;
+}

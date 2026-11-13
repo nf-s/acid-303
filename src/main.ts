@@ -24,8 +24,8 @@ import {
   drumIdSchema,
   noteName,
   readProject,
-  KEYS_SOUNDS,
-  BASS_SOUNDS,
+  chooseSound,
+  trackFamily,
   normalizedBassValue,
   normalizedKeysValue,
   normalizedDrumValue,
@@ -42,6 +42,7 @@ import type {
   BassAutomationParameter,
   KeysAutomationParameter,
   DrumAutomationParameter,
+  FamilyTrack,
   InstrumentId,
 } from "./model";
 import { DrumEditor, DRUM_CONTROLS } from "./drum-editor";
@@ -78,12 +79,7 @@ import { setThemePalette } from "./canvas-theme";
 import grainWordmark from "./grain-wordmark.svg?raw";
 import fluffWordmark from "./fluff-wordmark.svg?raw";
 import "./fluff-theme.css";
-import {
-  FLUFF_SOUNDS,
-  MODE_LABELS,
-  PROJECT_MODES,
-  projectModeSchema,
-} from "./mode";
+import { MODE_LABELS, PROJECT_MODES, projectModeSchema } from "./mode";
 import type { ProjectMode } from "./mode";
 import {
   VISUALIZER_PALETTES,
@@ -101,8 +97,9 @@ import { createPlaybackRecovery } from "./playback-recovery";
 import { TrackMixer, mixerTrack } from "./track-mixer";
 import { AutomationRecorder } from "./automation-recorder";
 import type { RecordingLane } from "./automation-recorder";
-import { ARP_SOUNDS, normalizedArpValue } from "./arp-model";
-import { PAD_SOUNDS, normalizedPadValue } from "./pad-model";
+import { normalizedArpValue } from "./arp-model";
+import { normalizedPadValue } from "./pad-model";
+import { soundChoice, syncSoundChips } from "./sound-family";
 import { MotionControls } from "./motion-controls";
 import { PatternControls } from "./pattern-controls";
 import type { PatternViewport } from "./pattern-controls";
@@ -127,6 +124,7 @@ import {
   presetsForMode,
 } from "./presets";
 import "./style.css";
+import "./sound-family.css";
 
 type PerformanceParameter = "sweep" | "space" | "echo";
 const PERFORMANCE_CONTROLS: ReadonlyArray<{
@@ -456,12 +454,12 @@ app.innerHTML = `
       </section>
       <section id="bass-panel" class="panel bass-panel" aria-labelledby="bass-title">
         <div class="section-header"><div class="section-title"><span class="section-number">02</span><h2 id="bass-title">Acid bass</h2><span class="small-tag">303</span></div><div class="bass-actions"><button id="bass-mute" class="mute-button" aria-label="Mute acid bass" aria-pressed="${project.bass.muted}">M</button><button class="mute-button solo-button" data-solo="bass" aria-label="Solo acid bass" aria-pressed="false">S</button><button id="generate" class="text-button">${icon("shuffle")} Generate</button></div></div>
-        <div class="bass-meta"><div class="waveform-switch bass-sounds" role="group" aria-label="Bass sound">${BASS_SOUNDS.map((sound, index) => `<button data-bass-sound="${index}">${sound}</button>`).join("")}</div></div>
+        <div class="bass-meta"><div class="waveform-switch bass-sounds" role="group" aria-label="Bass sound"></div></div>
         <div class="acid-controls">${slider("cutoff", "Cutoff", 0, 100, Math.round((Math.log(project.bass.cutoff / 80) / Math.log(100)) * 100), formatFrequency(project.bass.cutoff))}${slider("resonance", "Resonance", 0, 22, project.bass.resonance, `${Math.round((project.bass.resonance / 22) * 100)}%`, "0.1")}${slider("envelope", "Envelope", 0, 100, project.bass.envelope * 100, `${Math.round(project.bass.envelope * 100)}%`)}${slider("bass-decay", "Decay", 50, 1500, project.bass.decay * 1000, `${Math.round(project.bass.decay * 1000)} ms`, "10")}${slider("bass-volume", "Level", 0, 100, project.bass.volume * 100, `${Math.round(project.bass.volume * 100)}%`)}${slider("bass-shape", "Shape", 0, 100, project.bass.shape * 100, `${Math.round(project.bass.shape * 100)}%`)}${slider("bass-drive", "Drive", 0, 100, project.bass.drive * 100, `${Math.round(project.bass.drive * 100)}%`)}${slider("bass-pulse", "Pulse", 0, 100, project.bass.pulse * 100, `${Math.round(project.bass.pulse * 100)}%`)}</div>${matrixMarkup("bass", "Bass")}
       </section>
       <section id="keys-panel" class="panel bass-panel keys-panel" aria-labelledby="keys-title">
         <div class="section-header"><div class="section-title"><span class="section-number">03</span><h2 id="keys-title">Texture</h2></div><div class="bass-actions"><button id="keys-mute" class="mute-button" aria-label="Mute Texture" aria-pressed="${project.keys.muted}">M</button><button class="mute-button solo-button" data-solo="keys" aria-label="Solo Texture" aria-pressed="false">S</button><button id="keys-generate" class="text-button">${icon("shuffle")} New pattern</button></div></div>
-        <div class="bass-meta"><div class="waveform-switch keys-sounds" role="group" aria-label="Texture sound">${KEYS_SOUNDS.map((sound, index) => `<button data-key-sound="${index}">${sound}</button>`).join("")}</div></div>
+        <div class="bass-meta"><div class="waveform-switch keys-sounds" role="group" aria-label="Texture sound"></div></div>
         <div class="acid-controls">${slider("keys-tone", "Tone", 0, 100, project.keys.tone * 100, `${Math.round(project.keys.tone * 100)}%`)}${slider("keys-decay", "Decay", 80, 2000, project.keys.decay * 1000, `${Math.round(project.keys.decay * 1000)} ms`, "10")}${slider("keys-space", "Space", 0, 100, project.keys.space * 100, `${Math.round(project.keys.space * 100)}%`)}${slider("keys-volume", "Level", 0, 100, project.keys.volume * 100, `${Math.round(project.keys.volume * 100)}%`)}${slider("keys-grit", "Grit", 0, 100, project.keys.grit * 100, `${Math.round(project.keys.grit * 100)}%`)}${slider("keys-motion", "Motion", 0, 100, project.keys.motion * 100, `${Math.round(project.keys.motion * 100)}%`)}${slider("keys-width", "Width", 0, 100, project.keys.width * 100, `${Math.round(project.keys.width * 100)}%`)}${slider("keys-attack", "Attack", 0, 100, project.keys.attack * 100, `${Math.round(project.keys.attack * 100)}%`)}</div>
         ${matrixMarkup("keys", "Texture")}
       </section>
@@ -528,7 +526,7 @@ function refreshIcons(): void {
 }
 function renderInstrumentControls(): void {
   drumEditor.render();
-  applySoundLabels();
+  applyInstrumentNames();
 }
 function renderDrumGrid(): void {
   const grid = document.querySelector("#drum-grid");
@@ -852,13 +850,19 @@ async function previewNote(track: NoteTrack, step: BassStep): Promise<void> {
   }
 }
 function renderBass(): void {
-  document
-    .querySelectorAll<HTMLButtonElement>("[data-bass-sound]")
-    .forEach((button) => {
-      const active = Number(button.dataset.bassSound) === project.bass.sound;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", String(active));
-    });
+  const sounds = document.querySelector(".bass-sounds");
+  if (sounds)
+    syncSoundChips(
+      sounds,
+      {
+        instrument: "bass",
+        mode: project.mode,
+        track: project.bass,
+        attributes: (sound) => `data-bass-sound="${sound}"`,
+      },
+      "bassSound",
+    );
+  applyInstrumentNames();
   document
     .querySelector("#bass-mute")
     ?.setAttribute("aria-pressed", String(project.bass.muted));
@@ -867,13 +871,19 @@ function renderBass(): void {
   refreshAutomation("bass");
 }
 function renderKeys(): void {
-  document
-    .querySelectorAll<HTMLButtonElement>("[data-key-sound]")
-    .forEach((button) => {
-      const selected = Number(button.dataset.keySound) === project.keys.sound;
-      button.classList.toggle("active", selected);
-      button.setAttribute("aria-pressed", String(selected));
-    });
+  const sounds = document.querySelector(".keys-sounds");
+  if (sounds)
+    syncSoundChips(
+      sounds,
+      {
+        instrument: "keys",
+        mode: project.mode,
+        track: project.keys,
+        attributes: (sound) => `data-key-sound="${sound}"`,
+      },
+      "keySound",
+    );
+  applyInstrumentNames();
   document
     .querySelector("#keys-mute")
     ?.setAttribute("aria-pressed", String(project.keys.muted));
@@ -938,44 +948,24 @@ function setDialLabel(id: string, label: string, name: string): void {
   const text = control?.closest(".dial-control")?.querySelector(".dial-label");
   if (text) text.textContent = label;
 }
-/** Sound slots are shared by both modes; only their names and voices differ. */
-function applySoundLabels(): void {
-  const fluff = project.mode === "fluff";
-  const names = (
-    selector: string,
-    attribute: string,
-    sounds: readonly string[],
-  ): void => {
-    document.querySelectorAll<HTMLElement>(selector).forEach((button) => {
-      const name = sounds[Number(button.dataset[attribute])];
-      if (name !== undefined && button.textContent !== name)
-        button.textContent = name;
-    });
-  };
-  names(
-    "[data-bass-sound]",
-    "bassSound",
-    fluff ? FLUFF_SOUNDS.bass : BASS_SOUNDS,
-  );
-  names(
-    "[data-key-sound]",
-    "keySound",
-    fluff ? FLUFF_SOUNDS.keys : KEYS_SOUNDS,
-  );
-  names("[data-arp-sound]", "arpSound", fluff ? FLUFF_SOUNDS.arp : ARP_SOUNDS);
-  names("[data-pad-sound]", "padSound", fluff ? FLUFF_SOUNDS.pad : PAD_SOUNDS);
-  for (const id of drumIdSchema.options)
-    names(
-      `[data-sound][data-sound-track="${id}"]`,
-      "sound",
-      fluff ? FLUFF_SOUNDS[id] : DRUM_META[id].sounds,
-    );
-  const labels = MODE_LABELS[project.mode];
-  setText('[data-drum="rim"]', labels.rim);
-  setText('.drum-detail[aria-label="Rimshot editor"] h3', labels.rim);
+/** Bass, Texture/Lead and Rimshot/Perc are named after the family of the sound they play. */
+function applyInstrumentNames(): void {
+  const family = (track: FamilyTrack): ProjectMode =>
+    trackFamily(project.mode, track);
+  const bass = MODE_LABELS[family(project.bass)].bass;
+  const keys = MODE_LABELS[family(project.keys)].keys;
+  const rimTrack = project.drums.find((track) => track.id === "rim");
+  const rim = MODE_LABELS[rimTrack ? family(rimTrack) : project.mode].rim;
+  setText("#bass-title", bass);
+  setText("#keys-title", keys);
+  setText('[data-instrument-jump="keys-panel"]', keys);
+  setText(".mixer-channel:has(#mixer-keys) > span", keys);
+  setText(".mixer-channel:has(#mixer-rim) > span", rim);
+  setText('[data-drum="rim"]', rim);
+  setText('.drum-detail[aria-label="Rimshot editor"] h3', rim);
 }
 function applyMode(): void {
-  applySoundLabels();
+  applyInstrumentNames();
   if (appliedMode === project.mode) return;
   const mode = project.mode;
   const first = appliedMode === null;
@@ -1018,11 +1008,6 @@ function applyMode(): void {
           `<button data-visualizer-palette="${palette.id}"><span class="palette-swatch" style="background:${palette.swatch}" aria-hidden="true"></span><span>${palette.label}</span></button>`,
       )
       .join("");
-  setText("#bass-title", labels.bass);
-  setText("#keys-title", labels.keys);
-  setText('[data-instrument-jump="keys-panel"]', labels.keys);
-  setText(".mixer-channel:has(#mixer-keys) > span", labels.keys);
-  setText(".mixer-channel:has(#mixer-rim) > span", labels.rim);
   setDialLabel("drive", labels.drive, labels.driveName);
   setDialLabel("fx-echo", labels.echo, labels.echoName);
   if (!first) visualizerPalette = storedPalette(mode);
@@ -1706,6 +1691,7 @@ if (!arpContainer || !padContainer)
   throw new Error("Melodic instruments are missing.");
 const arpPanel = createArpPanel(arpContainer, {
   getTrack: () => project.arp,
+  getMode: () => project.mode,
   getProgression: () => project.progression,
   onProgressionEdit: () => openChords(),
   getScale: () => project.scale,
@@ -1714,6 +1700,7 @@ const arpPanel = createArpPanel(arpContainer, {
 });
 const padPanel = createPadPanel(padContainer, {
   getTrack: () => project.pad,
+  getMode: () => project.mode,
   getProgression: () => project.progression,
   onProgressionEdit: () => openChords(),
   getScale: () => project.scale,
@@ -2377,14 +2364,9 @@ document.addEventListener("click", async (event) => {
   }
   if (dataset.sound !== undefined) {
     const track = project.drums.find((item) => item.id === dataset.soundTrack);
-    const value = Number(dataset.sound);
-    if (
-      track &&
-      Number.isInteger(value) &&
-      value >= 0 &&
-      value < DRUM_META[track.id].sounds.length
-    ) {
-      track.sound = value;
+    const choice = track ? soundChoice(button, "sound", track.id) : null;
+    if (track && choice) {
+      chooseSound(track, project.mode, choice.family, choice.sound);
       renderInstrumentControls();
       persist();
       void audition(track.id);
@@ -2569,9 +2551,9 @@ document.addEventListener("click", async (event) => {
     persist();
   }
   if (dataset.bassSound !== undefined) {
-    const sound = Number(dataset.bassSound);
-    if (Number.isInteger(sound) && sound >= 0 && sound < BASS_SOUNDS.length) {
-      project.bass.sound = sound;
+    const choice = soundChoice(button, "bassSound", "bass");
+    if (choice) {
+      chooseSound(project.bass, project.mode, choice.family, choice.sound);
       renderBass();
       persist();
       const step =
@@ -2597,9 +2579,9 @@ document.addEventListener("click", async (event) => {
     persist();
   }
   if (dataset.keySound !== undefined) {
-    const sound = Number(dataset.keySound);
-    if (Number.isInteger(sound) && sound >= 0 && sound < KEYS_SOUNDS.length) {
-      project.keys.sound = sound;
+    const choice = soundChoice(button, "keySound", "keys");
+    if (choice) {
+      chooseSound(project.keys, project.mode, choice.family, choice.sound);
       renderKeys();
       persist();
       if (!engine.isPlaying)

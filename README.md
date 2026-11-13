@@ -4,6 +4,8 @@ A local-first drum machine, 303-inspired bass sequencer, percussion Texture inst
 
 The Grain / Fluff switch in the title bar selects a second, melodic voice for the same studio: trance, progressive house and melodic breaks instruments, a sidechain pump and twelve more examples. See [Fluff mode](docs/fluff.md).
 
+Every drum lane, Bass, Texture/Lead, Arpeggiator and Pads also offers the other studio's sounds, in a second labelled row drawn in that studio's style (square grey chips for Grain, lilac pills for Fluff). A track plays the voice of the sound it uses; the master and performance effects stay those of the project's mode. See [sounds from the other studio](docs/fluff.md#sounds-from-the-other-studio).
+
 ## Development
 
 Run `npm install`, then `npm run dev`. `npm run build` checks TypeScript and creates the static `dist/` output. Run `npm test` for unit checks, `npm run test:e2e` for desktop and touch browser checks (requires Chrome), and `npm run format` before committing. Node 22.12 or later is required. For shared-session browser tests, also run `npm ci` and `npm run dev` inside `workers/sessions`; its isolated tools use Node 24 and serve port 8787. See [session architecture, costs and release steps](docs/sessions.md).
@@ -14,6 +16,7 @@ Run `npm install`, then `npm run dev`. `npm run build` checks TypeScript and cre
 - `src/presets.ts`: twenty authored genre examples and one supplied track with distinct sound palettes and automation.
 - `src/audio.ts`: browser audio synthesis, timing and WAV rendering.
 - `src/mode.ts`, `src/fluff-audio.ts`, `src/fluff-presets.ts` and `src/fluff-theme.css`: the Fluff mode switch, instruments, examples and theme.
+- `src/sound-family.ts` and `src/sound-family.css`: sound pickers that list both studios' sounds.
 - `src/visualizer.ts` and `src/visualizer-palettes.ts`: drum-pattern-driven full-page fluid distortion and colour palettes.
 - `src/beat-canvas.ts`: multi-pointer beat painting and rendering.
 - `src/note-matrix.ts`: scale-locked pitch curves and gate/accent/glide drawing.

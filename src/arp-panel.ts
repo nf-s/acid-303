@@ -14,7 +14,6 @@ import {
 import {
   ARP_DIRECTIONS,
   ARP_RATES,
-  ARP_SOUNDS,
   arpEventsAtTick,
   arpRateTicks,
   resizeArpTrack,
@@ -24,6 +23,10 @@ import {
   retuneArp,
 } from "./arp-model";
 import type { ArpParameter, ArpTrack } from "./arp-model";
+import { chooseSound } from "./model";
+import type { ProjectMode } from "./mode";
+import { soundChipsMarkup, soundChoice, syncSoundChips } from "./sound-family";
+import type { SoundPicker } from "./sound-family";
 import type { Progression } from "./progression-model";
 import {
   progressionChordAtTick,
@@ -46,6 +49,7 @@ type RenderControl = (
 ) => string;
 export interface ArpPanelOptions {
   getTrack: () => ArpTrack;
+  getMode: () => ProjectMode;
   getScale: () => MusicalScale;
   getProgression: () => Progression;
   onProgressionEdit: () => void;
@@ -142,6 +146,12 @@ export function createArpPanel(
   options: ArpPanelOptions,
 ): ArpPanel {
   container.classList.add("arp-instrument");
+  const arpPicker = (track: ArpTrack): SoundPicker => ({
+    instrument: "arp",
+    mode: options.getMode(),
+    track,
+    attributes: (sound) => `data-arp-sound="${sound}"`,
+  });
   let current = -1;
   let swing = 0;
   let noteSignature = "";
@@ -208,7 +218,7 @@ export function createArpPanel(
     const notes = retuneArp(track, scale).notes;
     container.innerHTML = `
       <div class="section-header"><div class="section-title"><span class="section-number">04</span><h2 id="arp-title">Arpeggiator</h2></div><div class="bass-actions"><output id="arp-playing-note" aria-label="Arpeggiator playing note">—</output><button id="arp-mute" class="mute-button" aria-label="Mute Arpeggiator" aria-pressed="${track.muted}">M</button><button class="mute-button solo-button" data-solo="arp" aria-label="Solo Arpeggiator" aria-pressed="false">S</button></div></div>
-      <div class="bass-meta"><div class="waveform-switch arp-sounds" role="group" aria-label="Arpeggiator sound">${ARP_SOUNDS.map((sound, index) => `<button data-arp-sound="${index}" aria-pressed="${track.sound === index}" class="${track.sound === index ? "active" : ""}">${sound}</button>`).join("")}</div></div>
+      <div class="bass-meta"><div class="waveform-switch arp-sounds" role="group" aria-label="Arpeggiator sound" data-sound-mode="${options.getMode()}">${soundChipsMarkup(arpPicker(track))}</div></div>
       <div class="acid-controls arp-controls">${CONTROLS.map((control) => {
         const value = track[control.parameter] * control.multiplier;
         return options.renderControl(
@@ -374,19 +384,19 @@ export function createArpPanel(
       .querySelector("#arp-mute")
       ?.setAttribute("aria-pressed", String(track.muted));
     for (const button of container.querySelectorAll<HTMLElement>(
-      "[data-arp-sound],[data-arp-direction],[data-arp-rate],[data-arp-octaves]",
+      "[data-arp-direction],[data-arp-rate],[data-arp-octaves]",
     )) {
       const active =
-        button.dataset.arpSound !== undefined
-          ? Number(button.dataset.arpSound) === track.sound
-          : button.dataset.arpDirection !== undefined
-            ? button.dataset.arpDirection === track.direction
-            : button.dataset.arpRate !== undefined
-              ? button.dataset.arpRate === track.rate
-              : Number(button.dataset.arpOctaves) === track.octaves;
+        button.dataset.arpDirection !== undefined
+          ? button.dataset.arpDirection === track.direction
+          : button.dataset.arpRate !== undefined
+            ? button.dataset.arpRate === track.rate
+            : Number(button.dataset.arpOctaves) === track.octaves;
       button.setAttribute("aria-pressed", String(active));
       button.classList.toggle("active", active);
     }
+    const sounds = container.querySelector(".arp-sounds");
+    if (sounds) syncSoundChips(sounds, arpPicker(track), "arpSound");
     const scale = options.getScale();
     const notes = retuneArp(track, scale).notes;
     container
@@ -447,13 +457,11 @@ export function createArpPanel(
       track.muted = !track.muted;
       changed = true;
     }
-    if (dataset.arpSound !== undefined) {
-      const sound = Number(dataset.arpSound);
-      if (Number.isInteger(sound) && ARP_SOUNDS[sound] !== undefined) {
-        track.sound = sound;
-        track.muted = false;
-        changed = true;
-      }
+    const choice = soundChoice(button, "arpSound", "arp");
+    if (choice) {
+      chooseSound(track, options.getMode(), choice.family, choice.sound);
+      track.muted = false;
+      changed = true;
     }
     const direction = ARP_DIRECTIONS.find(
       (direction) => direction.id === dataset.arpDirection,

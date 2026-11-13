@@ -10,12 +10,14 @@ import {
 import type { Timing } from "./timing";
 import { createInstrumentAutomation } from "./instrument-automation";
 import {
-  PAD_SOUNDS,
   normalizedPadValue,
   resizePadTrack,
   resizePadAutomation,
 } from "./pad-model";
 import type { PadParameter, PadTrack } from "./pad-model";
+import { chooseSound } from "./model";
+import type { ProjectMode } from "./mode";
+import { soundChoice, syncSoundChips } from "./sound-family";
 import {
   progressionChordAtTick,
   progressionChordLabel,
@@ -43,6 +45,7 @@ const controls = controlLabels.map((control) => ({
 }));
 interface PadPanelOptions {
   getTrack: () => PadTrack;
+  getMode: () => ProjectMode;
   getScale: () => MusicalScale;
   getProgression: () => Progression;
   onProgressionEdit: () => void;
@@ -70,7 +73,7 @@ export function createPadPanel(
   container.classList.add("pad-instrument");
   container.innerHTML = `
     <div class="section-header"><div class="section-title"><span class="section-number">05</span><h2 id="pad-title">Chord pads</h2></div><div class="bass-actions"><button class="text-button" data-pad-enable></button><button class="mute-button solo-button" data-solo="pad" aria-label="Solo chord pads" aria-pressed="false">S</button></div></div>
-    <div class="bass-meta"><div class="waveform-switch pad-sounds" role="group" aria-label="Pad sound">${PAD_SOUNDS.map((sound, index) => `<button data-pad-sound="${index}">${sound}</button>`).join("")}</div><span class="pad-position"></span></div>
+    <div class="bass-meta"><div class="waveform-switch pad-sounds" role="group" aria-label="Pad sound"></div><span class="pad-position"></span></div>
     <div class="acid-controls pad-controls">${controls.map((control) => options.renderControl(`pad-${control.parameter}`, control.label, 0, 100, Math.round(initial[control.parameter] * 100), `${Math.round(initial[control.parameter] * 100)}%`, "1", `Pad ${control.label.toLowerCase()}`)).join("")}</div>
     <details class="instrument-section instrument-sequence" open><summary>Sequence</summary>
     <div class="follow-chord-controls"><button id="pad-follow-chords" aria-pressed="${initial.followChords}">Follow chords</button><output class="follow-chord-context" id="pad-chord-context"></output><button id="pad-edit-chords">Edit chords</button></div>
@@ -196,12 +199,17 @@ export function createPadPanel(
         `${track.muted ? "Enable" : "Mute"} chord pads`,
       );
     }
-    for (const button of container.querySelectorAll<HTMLElement>(
-      "[data-pad-sound]",
-    ))
-      button.setAttribute(
-        "aria-pressed",
-        String(Number(button.dataset.padSound) === track.sound),
+    const sounds = container.querySelector(".pad-sounds");
+    if (sounds)
+      syncSoundChips(
+        sounds,
+        {
+          instrument: "pad",
+          mode: options.getMode(),
+          track,
+          attributes: (sound) => `data-pad-sound="${sound}"`,
+        },
+        "padSound",
       );
     container
       .querySelector("#pad-follow-chords")
@@ -246,12 +254,10 @@ export function createPadPanel(
       track.muted = !track.muted;
       changed = true;
     }
-    if (button.dataset.padSound !== undefined) {
-      const sound = Number(button.dataset.padSound);
-      if (Number.isInteger(sound) && sound >= 0 && sound < PAD_SOUNDS.length) {
-        track.sound = sound;
-        changed = true;
-      }
+    const choice = soundChoice(button, "padSound", "pad");
+    if (choice) {
+      chooseSound(track, options.getMode(), choice.family, choice.sound);
+      changed = true;
     }
     if (changed) {
       render();

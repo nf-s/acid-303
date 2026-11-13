@@ -38,13 +38,12 @@ test("the expanded sound library is reachable on mobile and survives reload and 
       name: `${meta.name} sounds`,
       exact: true,
     });
-    await expect(sounds.getByRole("button")).toHaveCount(meta.sounds.length);
+    // The project's own sounds come first; the other studio's sit in a nested group.
+    const own = sounds.locator(":scope > button");
+    await expect(own).toHaveCount(meta.sounds.length);
     for (const index of [meta.sounds.length - 2, meta.sounds.length - 1]) {
-      await sounds.getByRole("button").nth(index).click();
-      await expect(sounds.getByRole("button").nth(index)).toHaveAttribute(
-        "aria-pressed",
-        "true",
-      );
+      await own.nth(index).click();
+      await expect(own.nth(index)).toHaveAttribute("aria-pressed", "true");
     }
   }
   const melodic = [
@@ -55,14 +54,22 @@ test("the expanded sound library is reachable on mobile and survives reload and 
   ];
   for (const { selector, sounds } of melodic) {
     for (const index of [sounds.length - 2, sounds.length - 1]) {
-      const button = page.locator(`[${selector}="${index}"]`);
+      const button = page.locator(
+        `[${selector}="${index}"][data-sound-family="grain"]`,
+      );
       await button.click();
       await expect(button).toHaveAttribute("aria-pressed", "true");
     }
   }
+  const fluffBass = page.locator(
+    `[data-bass-sound="${BASS_SOUNDS.length - 1}"][data-sound-family="fluff"]`,
+  );
+  await fluffBass.click();
+  await expect(fluffBass).toHaveAttribute("aria-pressed", "true");
   await expect
     .poll(async () => (await saved(page)).pad.sound)
     .toBe(PAD_SOUNDS.length - 1);
+  await expect.poll(async () => (await saved(page)).bass.family).toBe("fluff");
   const before = await saved(page);
   for (const drum of before.drums)
     expect(drum.sound).toBe(DRUM_META[drum.id].sounds.length - 1);

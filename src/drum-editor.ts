@@ -22,6 +22,7 @@ import type {
   MatrixTool,
 } from "./note-matrix";
 import { PatternControls } from "./pattern-controls";
+import { soundChipsMarkup } from "./sound-family";
 import type { PatternViewport } from "./pattern-controls";
 import {
   automationPosition,
@@ -228,7 +229,8 @@ export class DrumEditor {
     ).join("")}</div>`;
   }
   private sounds(track: DrumTrack): string {
-    return `<div class="sound-buttons" role="group" aria-label="${DRUM_META[track.id].name} sounds">${DRUM_META[track.id].sounds.map((sound, index) => `<button data-sound="${index}" data-sound-track="${track.id}" aria-pressed="${track.sound === index}">${sound}</button>`).join("")}</div><button class="mute-button" data-mute="${track.id}" aria-label="Mute ${DRUM_META[track.id].name}" aria-pressed="${track.muted}">M</button><button class="mute-button solo-button" data-solo="${track.id}" aria-label="Solo ${DRUM_META[track.id].name}" aria-pressed="${this.options.isSoloed?.(track.id) ?? false}">S</button>`;
+    const mode = this.options.getProject().mode;
+    return `<div class="sound-buttons" role="group" aria-label="${DRUM_META[track.id].name} sounds" data-sound-mode="${mode}">${soundChipsMarkup({ instrument: track.id, mode, track, attributes: (sound) => `data-sound="${sound}" data-sound-track="${track.id}"` })}</div><button class="mute-button" data-mute="${track.id}" aria-label="Mute ${DRUM_META[track.id].name}" aria-pressed="${track.muted}">M</button><button class="mute-button solo-button" data-solo="${track.id}" aria-label="Solo ${DRUM_META[track.id].name}" aria-pressed="${this.options.isSoloed?.(track.id) ?? false}">S</button>`;
   }
   private section(track: DrumTrack, surface: Surface): string {
     const open =

@@ -44,7 +44,7 @@ async function compositionModule(): Promise<string> {
               const update=NoteMatrix.prototype.update;
               NoteMatrix.prototype.update=function(steps,scale,muted){context=steps.map(step=>({...step}));return update.call(this,steps,scale,muted);};
               const container=document.createElement('div');document.body.append(container);
-              const panel=createPadPanel(container,{getTrack:()=>project.pad,getScale:()=>project.scale,getProgression:()=>project.progression,onChange:()=>{},onProgressionEdit:()=>{},renderControl:()=>''});
+              const panel=createPadPanel(container,{getTrack:()=>project.pad,getMode:()=>project.mode,getScale:()=>project.scale,getProgression:()=>project.progression,onChange:()=>{},onProgressionEdit:()=>{},renderControl:()=>''});
               panel.setPosition(-1,.5);
               const result={context:context[11]?.note,audio:progressionChordNotes(project.progression,project.scale,progressionChordAtTick(project.progression,44,.5))[0]};
               panel.destroy();NoteMatrix.prototype.update=update;container.remove();return result;
@@ -56,7 +56,7 @@ async function compositionModule(): Promise<string> {
               const update=NoteMatrix.prototype.update;
               NoteMatrix.prototype.update=function(steps,scale,muted){context=steps.map(step=>({...step}));return update.call(this,steps,scale,muted);};
               const container=document.createElement('div');document.body.append(container);
-              const panel=createArpPanel(container,{getTrack:()=>project.arp,getScale:()=>project.scale,getProgression:()=>project.progression,onChange:()=>{},onProgressionEdit:()=>{},renderControl:()=>''});
+              const panel=createArpPanel(container,{getTrack:()=>project.arp,getMode:()=>project.mode,getScale:()=>project.scale,getProgression:()=>project.progression,onChange:()=>{},onProgressionEdit:()=>{},renderControl:()=>''});
               panel.setPosition(42,.5);
               const result={context:context[11]?.note,audio:arpEventsAtTick(project.arp,project.scale,42,project.progression,42,.5)[0]?.note};
               panel.destroy();NoteMatrix.prototype.update=update;container.remove();return result;

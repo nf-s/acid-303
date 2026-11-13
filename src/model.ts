@@ -5,6 +5,7 @@ import {
 } from "./progression-model";
 import { z } from "zod";
 import { projectModeSchema } from "./mode";
+import type { ProjectMode } from "./mode";
 import {
   cloudSchema,
   createCloud,
@@ -112,6 +113,7 @@ const drumBaseSchema = z.object({
   drive: z.number().min(0).max(1).default(0),
   id: drumIdSchema,
   sound: z.number().int().min(0).max(7),
+  family: projectModeSchema.optional(),
   pitch: z.number().min(-24).max(24),
   decay: z.number().min(0.03).max(1.5),
   volume: z.number().min(0).max(1),
@@ -185,6 +187,7 @@ export const bassSchema = z.object({
   shape: z.number().min(0).max(1).default(0.5),
   drive: z.number().min(0).max(1).default(0),
   sound: z.number().int().min(0).max(10).default(2),
+  family: projectModeSchema.optional(),
   automation: bassAutomationSchema.default(emptyBassAutomation),
   waveform: z.enum(["sawtooth", "square"]),
   cutoff: z.number().min(80).max(8000),
@@ -224,6 +227,7 @@ export const keysSchema = z.object({
   motion: z.number().min(0).max(1).default(0),
   automation: keysAutomationSchema.default(emptyKeysAutomation),
   sound: z.number().int().min(0).max(7),
+  family: projectModeSchema.optional(),
   tone: z.number().min(0).max(1),
   decay: z.number().min(0.08).max(2),
   space: z.number().min(0).max(1),
@@ -480,6 +484,45 @@ export const projectSchema = baseProjectSchema.superRefine(
   },
 );
 export type Project = z.infer<typeof projectSchema>;
+/** A track that can play either studio's voices; `family` absent means the project's mode. */
+export interface FamilyTrack {
+  sound: number;
+  family?: ProjectMode | undefined;
+}
+export function trackFamily(
+  mode: ProjectMode,
+  track: FamilyTrack,
+): ProjectMode {
+  return track.family ?? mode;
+}
+/** Choosing a sound from the project's own family clears the override, so saved data stays as before. */
+export function chooseSound(
+  track: FamilyTrack,
+  mode: ProjectMode,
+  family: ProjectMode,
+  sound: number,
+): void {
+  track.sound = sound;
+  if (family === mode) delete track.family;
+  else track.family = family;
+}
+export function familyTracks(project: Project): FamilyTrack[] {
+  return [
+    ...project.drums,
+    project.bass,
+    project.keys,
+    project.arp,
+    project.pad,
+  ];
+}
+export function projectUsesFamily(
+  project: Project,
+  family: ProjectMode,
+): boolean {
+  return familyTracks(project).some(
+    (track) => trackFamily(project.mode, track) === family,
+  );
+}
 export function projectBars(project: Project): number {
   return Math.ceil(exportPlan(project).ticks / 96);
 }

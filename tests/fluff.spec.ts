@@ -14,10 +14,10 @@ test("the mode switch swaps examples, sound names and saved tracks", async ({
   await expect(page.locator("html")).toHaveAttribute("data-mode", "fluff");
   await expect(page).toHaveTitle(/Fluff/);
   await expect(page.locator("[data-preset]")).toHaveCount(fluff.length);
-  await expect(page.locator("[data-bass-sound]")).toHaveText([
+  await expect(page.locator(".bass-sounds > [data-bass-sound]")).toHaveText([
     ...FLUFF_SOUNDS.bass,
   ]);
-  await expect(page.locator("[data-key-sound]")).toHaveText([
+  await expect(page.locator(".keys-sounds > [data-key-sound]")).toHaveText([
     ...FLUFF_SOUNDS.keys,
   ]);
 

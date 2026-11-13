@@ -140,7 +140,7 @@ test("friends edit together while transport and all audio remain on the host", a
     page.getByRole("button", { name: "Play pattern", exact: true }),
   ).toBeVisible();
   await guest.locator('[data-drum="snare"]').click();
-  await guest.locator('[data-arp-sound="3"]').click();
+  await guest.locator('.arp-sounds > [data-arp-sound="3"]').click();
   await guest.locator("#pad-tone").press("ArrowUp");
   await expect(guest.locator("html")).not.toHaveAttribute(
     "data-audio-contexts",
