@@ -17,6 +17,8 @@ import type { TensionTrack } from "./tension-model";
 import { applyPadProgression } from "./pad-model";
 import type { PadTrack } from "./pad-model";
 import { nightshiftSnapshot } from "./preset-data/nightshift";
+import { FLUFF_PRESETS, createFluffPreset } from "./fluff-presets";
+import type { ProjectMode } from "./mode";
 
 interface DrumPreset {
   hits: number[];
@@ -1561,16 +1563,37 @@ const leadingPresets = new Map<string, number>([
   ["atmospheric-techno", 2],
   ["melodic-techno", 3],
 ]);
-export const PRESETS: ReadonlyArray<{
+export interface PresetSummary {
   id: string;
   name: string;
   genre: string;
-}> = [
-  ...GENRE_PRESETS.map(({ id, name, genre }) => ({ id, name, genre })).sort(
+  mode: ProjectMode;
+}
+export const PRESETS: ReadonlyArray<PresetSummary> = [
+  ...GENRE_PRESETS.map(({ id, name, genre }): PresetSummary => ({
+    id,
+    name,
+    genre,
+    mode: "grain",
+  })).sort(
     (a, b) => (leadingPresets.get(a.id) ?? 4) - (leadingPresets.get(b.id) ?? 4),
   ),
-  { id: "nightshift", name: "Nightshift", genre: "House" },
+  { id: "nightshift", name: "Nightshift", genre: "House", mode: "grain" },
+  ...FLUFF_PRESETS.map(({ id, name, genre }): PresetSummary => ({
+    id,
+    name,
+    genre,
+    mode: "fluff",
+  })),
 ];
+export function presetsForMode(
+  mode: ProjectMode,
+): ReadonlyArray<PresetSummary> {
+  return PRESETS.filter((preset) => preset.mode === mode);
+}
+export function defaultPresetId(mode: ProjectMode): string {
+  return mode === "fluff" ? (FLUFF_PRESETS[0]?.id ?? "techno") : "techno";
+}
 
 const legacyPresetIds = new Map([
   ["Disco Moth", "house"],
@@ -1605,9 +1628,9 @@ const legacyPresetIds = new Map([
   ["Switchback", "bass-house"],
 ]);
 
-export function findPresetByName(name: string) {
+export function findPresetByName(name: string, mode: ProjectMode = "grain") {
   const legacyId = legacyPresetIds.get(name);
-  return PRESETS.find(
+  return presetsForMode(mode).find(
     (preset) => preset.name === name || preset.id === legacyId,
   );
 }
@@ -1622,6 +1645,8 @@ function noteSteps(pattern: NotePattern): BassStep[] {
 }
 
 export function createPreset(id: string): Project {
+  if (FLUFF_PRESETS.some((preset) => preset.id === id))
+    return createFluffPreset(id);
   if (id === "nightshift") {
     const project = readProject(nightshiftSnapshot);
     if (!project) throw new Error("The bundled Nightshift example is invalid.");

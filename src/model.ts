@@ -4,6 +4,7 @@ import {
   retuneProgression,
 } from "./progression-model";
 import { z } from "zod";
+import { projectModeSchema } from "./mode";
 import {
   cloudSchema,
   createCloud,
@@ -420,6 +421,7 @@ export function snapNote(
 }
 const baseProjectSchema = z.object({
   version: z.literal(6),
+  mode: projectModeSchema.default("grain"),
   progression: z.lazy(() => progressionSchema).default(createProgression),
   fx: z
     .object({
@@ -600,6 +602,7 @@ export function createProject(preset = 0): Project {
   return withScale(
     {
       version: 6,
+      mode: "grain",
       progression: createProgression(),
       fx: { sweep: 0, space: 0, echo: 0 },
       scale,

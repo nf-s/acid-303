@@ -2,6 +2,8 @@
 
 A local-first drum machine, 303-inspired bass sequencer, percussion Texture instrument, arpeggiator, sustained pads, a vocal sampler, a granular Cloud instrument and a Tension resonator. Audio is generated in the browser using Web Audio. Solo projects are saved in this browser. Shared sessions synchronize musical state through Cloudflare; audio stays on the host device and is never streamed.
 
+The Grain / Fluff switch in the title bar selects a second, melodic voice for the same studio: trance, progressive house and melodic breaks instruments, a sidechain pump and twelve more examples. See [Fluff mode](docs/fluff.md).
+
 ## Development
 
 Run `npm install`, then `npm run dev`. `npm run build` checks TypeScript and creates the static `dist/` output. Run `npm test` for unit checks, `npm run test:e2e` for desktop and touch browser checks (requires Chrome), and `npm run format` before committing. Node 22.12 or later is required. For shared-session browser tests, also run `npm ci` and `npm run dev` inside `workers/sessions`; its isolated tools use Node 24 and serve port 8787. See [session architecture, costs and release steps](docs/sessions.md).
@@ -11,6 +13,7 @@ Run `npm install`, then `npm run dev`. `npm run build` checks TypeScript and cre
 - `src/model.ts` and `src/timing.ts`: validated project schema, scale locking, per-instrument timing and migrations.
 - `src/presets.ts`: twenty authored genre examples and one supplied track with distinct sound palettes and automation.
 - `src/audio.ts`: browser audio synthesis, timing and WAV rendering.
+- `src/mode.ts`, `src/fluff-audio.ts`, `src/fluff-presets.ts` and `src/fluff-theme.css`: the Fluff mode switch, instruments, examples and theme.
 - `src/visualizer.ts` and `src/visualizer-palettes.ts`: drum-pattern-driven full-page fluid distortion and colour palettes.
 - `src/beat-canvas.ts`: multi-pointer beat painting and rendering.
 - `src/note-matrix.ts`: scale-locked pitch curves and gate/accent/glide drawing.

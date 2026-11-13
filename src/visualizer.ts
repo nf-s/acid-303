@@ -1,6 +1,10 @@
 import type { DrumId, DrumTrack } from "./model";
-import { createPaletteLookup } from "./visualizer-palettes";
+import {
+  VISUALIZER_PALETTES,
+  createPaletteLookup,
+} from "./visualizer-palettes";
 import type { VisualizerPaletteId } from "./visualizer-palettes";
+import type { ProjectMode } from "./mode";
 
 const FRAME_INTERVAL = 1000 / 30;
 
@@ -131,6 +135,121 @@ void main() {
   }
 }`;
 
+// Fluff draws soft pastel clouds and drifting bokeh straight into colour, with no film grain.
+const FLUFF_SHADER = `
+precision highp float;
+varying vec2 vUv;
+uniform vec2 uSize;
+uniform float uPhase;
+uniform vec4 uHits;
+uniform float uRim;
+uniform float uSwirl;
+uniform sampler2D uPalette;
+uniform float uPaletteMode;
+
+float hash(vec2 p) {
+  vec3 q = fract(vec3(p.xyx) * 0.1031);
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+float noise(vec2 p) {
+  vec2 cell = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(cell), hash(cell + vec2(1.0, 0.0)), f.x),
+             mix(hash(cell + vec2(0.0, 1.0)), hash(cell + 1.0), f.x), f.y);
+}
+float fbm(vec2 p) {
+  float value = 0.0;
+  float weight = 0.5;
+  mat2 turn = mat2(0.8, -0.6, 0.6, 0.8);
+  for (int octave = 0; octave < 4; octave++) {
+    value += noise(p) * weight;
+    p = turn * p * 2.02 + vec2(12.7, 5.3);
+    weight *= 0.5;
+  }
+  return value * 1.06667;
+}
+vec2 whirl(vec2 p, vec2 centre, float amount) {
+  vec2 delta = p - centre;
+  float angle = amount * exp(-dot(delta, delta) * 0.9);
+  float c = cos(angle);
+  float s = sin(angle);
+  return centre + mat2(c, -s, s, c) * delta;
+}
+vec3 tone(float t, float shift) {
+  float position = uPaletteMode > 0.5 ? fract(t * 0.7 + shift) : clamp(t, 0.0, 1.0);
+  return texture2D(uPalette, vec2(position, 0.5)).rgb;
+}
+vec3 glow(float shift) {
+  vec3 colour = tone(1.0, shift);
+  return uPaletteMode > 0.5 ? mix(colour, vec3(1.0), 0.6) : colour;
+}
+void main() {
+  vec2 aspect = uSize / min(uSize.x, uSize.y);
+  vec2 uv = (vUv - 0.5) * aspect;
+  float time = uPhase * 0.22;
+  float kick = uHits.x;
+  float hat = uHits.z;
+  float puff = max(uHits.y, uHits.w);
+  float shift = time * 0.18 + vUv.x * 0.12;
+  vec2 p = uv * (1.5 / (1.0 + kick * 0.1));
+  vec2 centre = vec2(sin(time * 0.53) * 0.45, cos(time * 0.41) * 0.3);
+  p = whirl(p, centre, uSwirl * (2.6 + sin(time * 0.9) * 0.9));
+  p = whirl(p, vec2(0.0), uRim * 0.7);
+  vec2 drift = vec2(time * 0.32, -time * 0.1);
+  vec2 q = vec2(fbm(p * 0.8 + drift), fbm(p * 0.8 + vec2(5.2, 1.3) - drift * 0.7));
+  vec2 flow = p * 1.15 + q * 1.0 + vec2(-time * 0.18, time * 0.07);
+  float billow = fbm(flow);
+  float above = fbm(flow + vec2(0.0, 0.07));
+  float back = fbm(p * 0.5 + q * 0.7 - drift * 0.45 + 3.0);
+  vec2 puffCentre = vec2(sin(time * 0.31) * 0.35, cos(time * 0.27) * 0.18);
+  float puffRadius = mix(0.95, 0.35, puff);
+  float puffGlow = exp(-dot(uv - puffCentre, uv - puffCentre) / (puffRadius * puffRadius)) * puff;
+  float cloud = smoothstep(0.43, 0.74, billow + puffGlow * 0.22);
+  float lit = clamp((billow - above) * 7.0 + 0.45 + kick * 0.15, 0.0, 1.0);
+  float haze = smoothstep(0.3, 0.8, back);
+  vec3 sky = tone(0.02 + vUv.y * 0.14 + haze * 0.2, shift);
+  vec3 body = mix(tone(0.5 + haze * 0.1, shift + 0.15), glow(shift + 0.3), lit);
+  vec3 colour = mix(sky, body, cloud * 0.94);
+  colour += cloud * lit * hat * 0.06;
+  float bokeh = 0.0;
+  for (int i = 0; i < 12; i++) {
+    float index = float(i);
+    vec2 seed = vec2(index * 1.37 + 0.4, index * 2.71 + 1.1);
+    float rise = time * 0.05 * (0.6 + hash(seed + 7.0));
+    vec2 spot = vec2(hash(seed) - 0.5, fract(hash(seed + 3.1) + rise) - 0.5) * aspect * 1.1;
+    spot += vec2(sin(time * 0.6 + index * 1.7), cos(time * 0.5 + index * 2.3)) * 0.05;
+    float radius = mix(0.03, 0.1, hash(seed + 11.0)) * (1.0 + kick * 0.3);
+    float gap = length(uv - spot);
+    float disc = 1.0 - smoothstep(radius * 0.82, radius, gap);
+    float ring = smoothstep(radius * 0.55, radius * 0.9, gap) * disc;
+    float sparkle = 0.16 + hat * 0.6 * hash(seed + 5.0);
+    bokeh += (disc * 0.6 + ring * 0.4) * sparkle;
+  }
+  colour = mix(colour, glow(shift + 0.4), clamp(bokeh, 0.0, 0.8));
+  float bloom = kick * 0.22 * (1.0 - smoothstep(0.0, 1.1, length(uv)));
+  colour = mix(colour, glow(shift), bloom);
+  gl_FragColor = vec4(colour, 1.0);
+}`;
+
+// Soft fields are rendered small and scaled up; a sub-level dither hides 8-bit banding.
+const FLUFF_PRESENT_SHADER = `
+precision highp float;
+varying vec2 vUv;
+uniform vec2 uSize;
+uniform sampler2D uField;
+float hash(vec2 p) {
+  vec3 q = fract(vec3(p.xyx) * 0.1031);
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+void main() {
+  vec3 colour = texture2D(uField, vUv).rgb;
+  float dither = (hash(vUv * uSize) - 0.5) / 255.0;
+  gl_FragColor = vec4(colour + dither, 1.0);
+}`;
+
 interface ShaderPass {
   program: WebGLProgram;
   position: number;
@@ -242,6 +361,8 @@ class FluidGpu {
     private readonly grainTexture: WebGLTexture,
     private readonly paletteTexture: WebGLTexture,
     private readonly framebuffer: WebGLFramebuffer,
+    private readonly fluff: ShaderPass | null,
+    private readonly fluffPresent: ShaderPass | null,
   ) {}
 
   static create(grainImage: HTMLCanvasElement): FluidGpu | null {
@@ -321,6 +442,8 @@ class FluidGpu {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.disable(gl.DITHER);
+    const fluff = createPass(gl, FLUFF_SHADER);
+    const fluffPresent = createPass(gl, FLUFF_PRESENT_SHADER);
     return new FluidGpu(
       canvas,
       gl,
@@ -332,6 +455,8 @@ class FluidGpu {
       grainTexture,
       paletteTexture,
       framebuffer,
+      fluff,
+      fluffPresent,
     );
   }
 
@@ -432,10 +557,35 @@ class FluidGpu {
     return true;
   }
 
+  drawFluff(frame: FluidFrame, animated: boolean): boolean {
+    const gl = this.gl;
+    const fluff = this.fluff;
+    const present = this.fluffPresent;
+    if (!fluff || !present || !this.ready || gl.isContextLost()) return false;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
+    gl.viewport(0, 0, this.fieldWidth, this.fieldHeight);
+    this.use(fluff, this.fieldWidth, this.fieldHeight, frame);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.paletteTexture);
+    gl.uniform1i(fluff.palette, 2);
+    gl.uniform1f(fluff.paletteMode, animated ? 1 : 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    this.use(present, this.canvas.width, this.canvas.height, frame);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.fieldTexture);
+    gl.uniform1i(present.field, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    return true;
+  }
+
   destroy(): void {
     this.gl.deleteProgram(this.fluid.program);
     this.gl.deleteProgram(this.swirlFluid.program);
     this.gl.deleteProgram(this.grain.program);
+    this.gl.deleteProgram(this.fluff?.program ?? null);
+    this.gl.deleteProgram(this.fluffPresent?.program ?? null);
     this.gl.deleteBuffer(this.vertices);
     this.gl.deleteTexture(this.fieldTexture);
     this.gl.deleteTexture(this.grainTexture);
@@ -471,6 +621,7 @@ export class FluidVisualizer {
   private rimDirection = 1;
   private rimTurn = 0;
   private palette: VisualizerPaletteId = "mono";
+  private mode: ProjectMode = "grain";
   private paletteLookup = createPaletteLookup("mono");
   private swirl = 0;
 
@@ -514,6 +665,12 @@ export class FluidVisualizer {
     this.palette = id;
     this.paletteLookup = createPaletteLookup(id);
     this.gpu?.setPalette(id, this.paletteLookup);
+    this.draw();
+  }
+
+  setMode(mode: ProjectMode): void {
+    if (this.destroyed || this.mode === mode) return;
+    this.mode = mode;
     this.draw();
   }
 
@@ -691,8 +848,136 @@ export class FluidVisualizer {
     }
   }
 
+  private paletteColour(position: number, alpha: number, white = 0): string {
+    const index = Math.round(Math.max(0, Math.min(1, position)) * 255) * 4;
+    const lift = (value: number): number =>
+      Math.round(value + (255 - value) * white);
+    const red = lift(this.paletteLookup[index] ?? 255);
+    const green = lift(this.paletteLookup[index + 1] ?? 255);
+    const blue = lift(this.paletteLookup[index + 2] ?? 255);
+    return `rgb(${red} ${green} ${blue} / ${Math.max(0, Math.min(1, alpha))})`;
+  }
+
+  /** Canvas Fluff layers soft radial puffs and bokeh on a small canvas, then scales it up. */
+  private drawFluffFallback(frame: FluidFrame, animated: boolean): void {
+    const context = this.fallbackContext;
+    const output = this.context;
+    if (!context || !output) return;
+    const width = this.fallback.width;
+    const height = this.fallback.height;
+    const size = Math.min(width, height);
+    const time = frame.phase * 0.22;
+    const tone = (position: number, alpha: number): string =>
+      this.paletteColour(
+        animated ? (((position * 0.7 + time * 0.18) % 1) + 1) % 1 : position,
+        alpha,
+      );
+    const glow = (alpha: number): string =>
+      animated
+        ? this.paletteColour((0.7 + time * 0.18) % 1, alpha, 0.6)
+        : tone(1, alpha);
+    const puff = Math.max(frame.snare, frame.clap);
+    const sky = context.createLinearGradient(0, 0, 0, height);
+    sky.addColorStop(0, tone(0.3, 1));
+    sky.addColorStop(1, tone(0.1, 1));
+    context.globalCompositeOperation = "source-over";
+    context.fillStyle = sky;
+    context.fillRect(0, 0, width, height);
+    const centreX = width * 0.5;
+    const centreY = height * 0.5;
+    const turn = frame.rim * 0.5;
+    const swirlTurn = frame.swirl * (1.6 + Math.sin(time * 0.9) * 0.6);
+    const place = (x: number, y: number): [number, number] => {
+      const dx = x - centreX;
+      const dy = y - centreY;
+      const distance = (dx * dx + dy * dy) / (size * size);
+      const angle = turn + swirlTurn * Math.exp(-distance * 2.2);
+      const cosine = Math.cos(angle);
+      const sine = Math.sin(angle);
+      return [
+        centreX + dx * cosine - dy * sine,
+        centreY + dx * sine + dy * cosine,
+      ];
+    };
+    const blob = (
+      x: number,
+      y: number,
+      radius: number,
+      colour: string,
+      edge: string,
+    ): void => {
+      const [px, py] = place(x, y);
+      const gradient = context.createRadialGradient(px, py, 0, px, py, radius);
+      gradient.addColorStop(0, colour);
+      gradient.addColorStop(0.55, colour);
+      gradient.addColorStop(1, edge);
+      context.fillStyle = gradient;
+      context.fillRect(px - radius, py - radius, radius * 2, radius * 2);
+    };
+    const swell = 1 + frame.kick * 0.12;
+    const span = width + size;
+    for (let index = 0; index < 7; index++) {
+      const speed = 0.04 + (index % 3) * 0.015;
+      const x =
+        ((((index * 0.29 + time * speed) % 1) + 1) % 1) * span - size * 0.5;
+      const y =
+        height * (0.2 + ((index * 0.37) % 1) * 0.65) +
+        Math.sin(time * 0.5 + index) * size * 0.04;
+      const radius = size * (0.28 + (index % 4) * 0.06) * swell;
+      for (let lobe = 0; lobe < 3; lobe++) {
+        blob(
+          x + (lobe - 1) * radius * 0.55,
+          y - (lobe === 1 ? radius * 0.18 : 0),
+          radius * (lobe === 1 ? 0.85 : 0.65),
+          tone(0.55 + (index % 3) * 0.12, 0.42),
+          tone(0.55 + (index % 3) * 0.12, 0),
+        );
+      }
+    }
+    if (puff > 0.01) {
+      const radius = size * (0.95 - puff * 0.55);
+      blob(
+        centreX + Math.sin(time * 0.31) * size * 0.35,
+        centreY - Math.cos(time * 0.27) * size * 0.18,
+        radius,
+        tone(0.85, puff * 0.45),
+        tone(0.85, 0),
+      );
+    }
+    for (let index = 0; index < 10; index++) {
+      const seedX = (Math.sin(index * 12.9898) * 43758.5453) % 1;
+      const seedY = (Math.sin(index * 78.233) * 12345.678) % 1;
+      const x =
+        (Math.abs(seedX) * 1.1 - 0.05) * width +
+        Math.sin(time * 0.6 + index * 1.7) * size * 0.05;
+      const rise =
+        (Math.abs(seedY) + time * 0.05 * (0.6 + (index % 4) * 0.2)) % 1;
+      const y = (1 - rise) * height * 1.1 - height * 0.05;
+      const radius =
+        size * (0.035 + (index % 5) * 0.018) * (1 + frame.kick * 0.3);
+      const alpha = 0.18 + frame.hat * 0.5 * (((index * 7) % 5) / 4);
+      blob(x, y, radius, glow(alpha), glow(0));
+    }
+    if (frame.kick > 0.01) {
+      blob(centreX, centreY, size * 1.1, glow(frame.kick * 0.22), glow(0));
+    }
+    output.imageSmoothingEnabled = true;
+    output.imageSmoothingQuality = "high";
+    output.drawImage(
+      this.fallback,
+      0,
+      0,
+      this.canvas.width,
+      this.canvas.height,
+    );
+  }
+
   private draw(): void {
     if (!this.context || this.destroyed) return;
+    if (this.mode === "fluff") {
+      this.drawFluff();
+      return;
+    }
     const frame: FluidFrame = {
       phase: this.phase,
       swirl: this.swirl,
@@ -704,5 +989,24 @@ export class FluidVisualizer {
     };
     if (this.gpu?.draw(frame)) this.context.drawImage(this.gpu.canvas, 0, 0);
     else this.drawFallback(frame);
+  }
+
+  private drawFluff(): void {
+    if (!this.context) return;
+    const frame: FluidFrame = {
+      phase: this.phase,
+      swirl: this.swirl,
+      kick: this.pulses.kick.value,
+      snare: this.pulses.snare.value,
+      hat: this.pulses.hat.value,
+      clap: this.pulses.clap.value,
+      rim: this.pulses.rim.value * this.rimTurn,
+    };
+    const animated =
+      VISUALIZER_PALETTES.find((palette) => palette.id === this.palette)
+        ?.animated === true;
+    if (this.gpu?.drawFluff(frame, animated))
+      this.context.drawImage(this.gpu.canvas, 0, 0);
+    else this.drawFluffFallback(frame, animated);
   }
 }

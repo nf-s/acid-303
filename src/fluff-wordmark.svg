@@ -1,0 +1,176 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 662 100"
+  aria-hidden="true"
+>
+  <style>
+    .fluff-wordmark-letter {
+      animation: fluff-wordmark-float 5.2s ease-in-out infinite;
+    }
+    .fluff-wordmark-letter:nth-of-type(2) {
+      animation-delay: -1s;
+    }
+    .fluff-wordmark-letter:nth-of-type(3) {
+      animation-delay: -2s;
+    }
+    .fluff-wordmark-letter:nth-of-type(4) {
+      animation-delay: -3s;
+    }
+    .fluff-wordmark-letter:nth-of-type(5) {
+      animation-delay: -4s;
+    }
+    @keyframes fluff-wordmark-float {
+      0%,
+      100% {
+        transform: translateY(0);
+      }
+      50% {
+        transform: translateY(-2px);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .fluff-wordmark-letter {
+        animation: none;
+      }
+    }
+  </style>
+  <defs>
+    <linearGradient
+      id="fluff-wordmark-fill"
+      x1="42"
+      y1="0"
+      x2="620"
+      y2="0"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop offset="0" stop-color="#f8b4d2" />
+      <stop offset="0.36" stop-color="#d8c4fb" />
+      <stop offset="0.7" stop-color="#b6d5fb" />
+      <stop offset="1" stop-color="#ffd0bc" />
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g class="fluff-wordmark-letter">
+      <path
+        d="M55 80V20h66M55 50h50"
+        stroke="currentColor"
+        stroke-opacity="0.14"
+        stroke-width="28"
+        transform="translate(0 4)"
+      />
+      <path d="M55 80V20h66M55 50h50" stroke="currentColor" stroke-width="28" />
+      <path
+        d="M55 80V20h66M55 50h50"
+        stroke="url(#fluff-wordmark-fill)"
+        stroke-width="18"
+      />
+      <path
+        d="M55 80V20h66M55 50h50"
+        stroke="#fff"
+        stroke-opacity="0.8"
+        stroke-width="5"
+        transform="translate(-3 -4)"
+      />
+    </g>
+    <g class="fluff-wordmark-letter">
+      <path
+        d="M177 20v60h58"
+        stroke="currentColor"
+        stroke-opacity="0.14"
+        stroke-width="28"
+        transform="translate(0 4)"
+      />
+      <path d="M177 20v60h58" stroke="currentColor" stroke-width="28" />
+      <path
+        d="M177 20v60h58"
+        stroke="url(#fluff-wordmark-fill)"
+        stroke-width="18"
+      />
+      <path
+        d="M177 20v60h58"
+        stroke="#fff"
+        stroke-opacity="0.8"
+        stroke-width="5"
+        transform="translate(-3 -4)"
+      />
+    </g>
+    <g class="fluff-wordmark-letter">
+      <path
+        d="M291 20v26a36 36 0 0 0 72 0V20"
+        stroke="currentColor"
+        stroke-opacity="0.14"
+        stroke-width="28"
+        transform="translate(0 4)"
+      />
+      <path
+        d="M291 20v26a36 36 0 0 0 72 0V20"
+        stroke="currentColor"
+        stroke-width="28"
+      />
+      <path
+        d="M291 20v26a36 36 0 0 0 72 0V20"
+        stroke="url(#fluff-wordmark-fill)"
+        stroke-width="18"
+      />
+      <path
+        d="M291 20v26a36 36 0 0 0 72 0V20"
+        stroke="#fff"
+        stroke-opacity="0.8"
+        stroke-width="5"
+        transform="translate(-3 -4)"
+      />
+    </g>
+    <g class="fluff-wordmark-letter">
+      <path
+        d="M419 80V20h66M419 50h50"
+        stroke="currentColor"
+        stroke-opacity="0.14"
+        stroke-width="28"
+        transform="translate(0 4)"
+      />
+      <path
+        d="M419 80V20h66M419 50h50"
+        stroke="currentColor"
+        stroke-width="28"
+      />
+      <path
+        d="M419 80V20h66M419 50h50"
+        stroke="url(#fluff-wordmark-fill)"
+        stroke-width="18"
+      />
+      <path
+        d="M419 80V20h66M419 50h50"
+        stroke="#fff"
+        stroke-opacity="0.8"
+        stroke-width="5"
+        transform="translate(-3 -4)"
+      />
+    </g>
+    <g class="fluff-wordmark-letter">
+      <path
+        d="M541 80V20h66M541 50h50"
+        stroke="currentColor"
+        stroke-opacity="0.14"
+        stroke-width="28"
+        transform="translate(0 4)"
+      />
+      <path
+        d="M541 80V20h66M541 50h50"
+        stroke="currentColor"
+        stroke-width="28"
+      />
+      <path
+        d="M541 80V20h66M541 50h50"
+        stroke="url(#fluff-wordmark-fill)"
+        stroke-width="18"
+      />
+      <path
+        d="M541 80V20h66M541 50h50"
+        stroke="#fff"
+        stroke-opacity="0.8"
+        stroke-width="5"
+        transform="translate(-3 -4)"
+      />
+    </g>
+  </g>
+</svg>

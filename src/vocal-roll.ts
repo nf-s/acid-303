@@ -94,9 +94,12 @@ export class VocalRoll {
     return scaleNotes(this.options.getScale(), this.minimum, this.maximum);
   }
   private get count(): number {
-    return Math.min(
-      this.viewport.count,
-      trackStepCount(this.options.getTrack().timing) - this.viewport.start,
+    return Math.max(
+      0,
+      Math.min(
+        this.viewport.count,
+        trackStepCount(this.options.getTrack().timing) - this.viewport.start,
+      ),
     );
   }
   private get cellWidth(): number {

@@ -2,8 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   VISUALIZER_PALETTES,
   createPaletteLookup,
+  defaultPaletteId,
   isVisualizerPaletteId,
+  palettesForMode,
 } from "./visualizer-palettes";
+
+function luminance(lookup: Uint8Array, value: number): number {
+  const [red = 0, green = 0, blue = 0] = lookup.slice(value * 4, value * 4 + 3);
+  return red * 0.2126 + green * 0.7152 + blue * 0.0722;
+}
 
 describe("visualizer palettes", () => {
   it("validates saved palette IDs without accepting unrelated or inherited keys", () => {
@@ -76,15 +83,62 @@ describe("visualizer palettes", () => {
     expect(createPaletteLookup("cobalt")[0]).toBe(0);
   });
 
-  it("marks only rainbow as animated and closes its colour cycle without a seam", () => {
+  it("marks only rainbow and prism as animated and closes the rainbow cycle without a seam", () => {
     expect(
       VISUALIZER_PALETTES.filter((palette) => palette.animated).map(
         (palette) => palette.id,
       ),
-    ).toEqual(["rainbow"]);
+    ).toEqual(["rainbow", "prism"]);
     const rainbow = createPaletteLookup("rainbow");
     expect(Array.from(rainbow.slice(0, 4))).toEqual(
       Array.from(rainbow.slice(-4)),
     );
+  });
+
+  it("gives each mode its own palettes and default", () => {
+    expect(palettesForMode("grain").map((palette) => palette.id)).toEqual([
+      "mono",
+      "cobalt",
+      "violet",
+      "ember",
+      "rainbow",
+    ]);
+    expect(palettesForMode("fluff").map((palette) => palette.id)).toEqual([
+      "cotton",
+      "sorbet",
+      "lilac",
+      "dusk",
+      "prism",
+    ]);
+    expect(defaultPaletteId("grain")).toBe("mono");
+    expect(defaultPaletteId("fluff")).toBe("cotton");
+  });
+
+  it("keeps Fluff ramps pastel, never green-led, and brightening towards highlights", () => {
+    for (const palette of palettesForMode("fluff")) {
+      const lookup = createPaletteLookup(palette.id);
+      for (let value = 0; value < 256; value++) {
+        const [red = 0, green = 0, blue = 0] = lookup.slice(
+          value * 4,
+          value * 4 + 3,
+        );
+        expect(green > red + 8 && green > blue + 8).toBe(false);
+      }
+      if (!palette.animated)
+        expect(luminance(lookup, 255)).toBeGreaterThan(
+          luminance(lookup, 0) + 40,
+        );
+    }
+    for (const palette of palettesForMode("fluff")) {
+      if (palette.id === "dusk") continue;
+      const lookup = createPaletteLookup(palette.id);
+      for (let value = 0; value < 256; value++)
+        expect(luminance(lookup, value)).toBeGreaterThan(140);
+    }
+  });
+
+  it("closes the animated prism cycle without a seam", () => {
+    const prism = createPaletteLookup("prism");
+    expect(Array.from(prism.slice(0, 4))).toEqual(Array.from(prism.slice(-4)));
   });
 });

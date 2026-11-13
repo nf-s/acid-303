@@ -12,6 +12,8 @@ import { midiFrequency } from "./audio";
 import type { MusicalScale } from "./model";
 import { automatedPad, padChordNotes } from "./pad-model";
 import type { PadTrack } from "./pad-model";
+import { fluffSaw } from "./fluff-audio";
+import type { FluffBus } from "./fluff-audio";
 
 interface PadProfile {
   main: OscillatorType;
@@ -24,6 +26,8 @@ interface PadProfile {
   motion: number;
   noise: number;
   formants?: readonly number[];
+  /** Extra detuned saws per note; Fluff pads use them for a supersaw stack. */
+  unison?: number;
 }
 const profiles: PadProfile[] = [
   {
@@ -117,6 +121,103 @@ const profiles: PadProfile[] = [
   },
 ];
 
+/** Fluff pad slots: Super, Air, Choir, Glass, Haze, Warm, Phase, Organ. */
+const fluffProfiles: PadProfile[] = [
+  {
+    main: "sawtooth",
+    layer: "sawtooth",
+    harmonic: 2,
+    detune: 9,
+    gain: 0.12,
+    cutoff: 1.1,
+    resonance: 0.5,
+    motion: 0.15,
+    noise: 0,
+    unison: 4,
+  },
+  {
+    main: "triangle",
+    layer: "sine",
+    harmonic: 2,
+    detune: 3,
+    gain: 0.12,
+    cutoff: 1.6,
+    resonance: 0.4,
+    motion: 0.3,
+    noise: 0.07,
+  },
+  {
+    main: "sawtooth",
+    layer: "triangle",
+    harmonic: 1,
+    detune: 5,
+    gain: 0.252,
+    cutoff: 1.1,
+    resonance: 0.8,
+    motion: 0.2,
+    noise: 0.02,
+    formants: [600, 1040, 2450],
+    unison: 2,
+  },
+  {
+    main: "sine",
+    layer: "sine",
+    harmonic: 3,
+    detune: 1,
+    gain: 0.116,
+    cutoff: 2,
+    resonance: 0.4,
+    motion: 0.4,
+    noise: 0,
+  },
+  {
+    main: "triangle",
+    layer: "sawtooth",
+    harmonic: 2,
+    detune: 8,
+    gain: 0.12,
+    cutoff: 0.7,
+    resonance: 1.1,
+    motion: 0.5,
+    noise: 0.08,
+  },
+  {
+    main: "sawtooth",
+    layer: "triangle",
+    harmonic: 0.5,
+    detune: 5,
+    gain: 0.12,
+    cutoff: 0.55,
+    resonance: 0.7,
+    motion: 0.1,
+    noise: 0,
+    unison: 2,
+  },
+  {
+    main: "sawtooth",
+    layer: "sawtooth",
+    harmonic: 1,
+    detune: 12,
+    gain: 0.157,
+    cutoff: 1.2,
+    resonance: 0.5,
+    motion: 0.16,
+    noise: 0,
+    unison: 2,
+  },
+  {
+    main: "sine",
+    layer: "sine",
+    harmonic: 2,
+    detune: 0,
+    gain: 0.143,
+    cutoff: 1.8,
+    resonance: 0.4,
+    motion: 1.2,
+    noise: 0,
+  },
+];
+
 export function padReleaseSeconds(track: PadTrack): number {
   return 0.08 + track.release * track.release * 2.8;
 }
@@ -143,6 +244,7 @@ class PadVoice {
   private readonly vibrato: GainNode;
   private readonly layers: GainNode[] = [];
   private readonly panners: StereoPannerNode[] = [];
+  private readonly mirrors: StereoPannerNode[] = [];
   private readonly phaseFilters: BiquadFilterNode[] = [];
   private readonly harmonics: Array<{ gain: GainNode; weight: number }> = [];
   private rotaryDepth: GainNode | null = null;
@@ -162,13 +264,15 @@ class PadVoice {
     time: number,
     private chordEnd: number,
     private readonly onFinished: () => void,
+    fluff = false,
   ) {
     this.sound = track.sound;
     this.releaseValue = track.release;
     this.attackEnd =
       time + Math.min((chordEnd - time) * 0.7, 0.015 + track.attack ** 2 * 2.4);
-    this.profile = profiles[track.sound] ??
-      profiles[0] ?? {
+    const bank = fluff ? fluffProfiles : profiles;
+    this.profile = bank[track.sound] ??
+      bank[0] ?? {
         main: "sine",
         layer: "sine",
         harmonic: 1,
@@ -261,11 +365,43 @@ class PadVoice {
       const layerLevel = context.createGain();
       main.type = this.profile.main;
       layer.type = this.profile.layer;
+      const unison = this.profile.unison ?? 0;
+      if (unison > 0) {
+        fluffSaw(context, main, index * 5);
+        const mirror = context.createStereoPanner();
+        mirror.connect(mix);
+        this.nodes.push(mirror);
+        this.mirrors.push(mirror);
+        for (let voice = 0; voice < unison; voice++) {
+          const extra = context.createOscillator();
+          const side = voice % 2 === 0 ? 1 : -1;
+          fluffSaw(context, extra, index * 5 + voice + 1);
+          extra.frequency.value = frequency;
+          extra.detune.value =
+            side * this.profile.detune * (1.6 + Math.floor(voice / 2) * 1.3);
+          extra.connect(mainLevel);
+          this.vibrato.connect(extra.detune);
+          this.sources.push(extra);
+          const wide = context.createOscillator();
+          fluffSaw(context, wide, index * 5 + voice + 4);
+          wide.frequency.value = frequency;
+          wide.detune.value = -extra.detune.value * 0.62;
+          const wideLevel = context.createGain();
+          wideLevel.gain.value =
+            (this.profile.gain * 0.7) / Math.sqrt(notes.length * unison);
+          wide.connect(wideLevel);
+          wideLevel.connect(mirror);
+          this.vibrato.connect(wide.detune);
+          this.sources.push(wide);
+          this.nodes.push(wideLevel);
+        }
+      }
       main.frequency.value = frequency;
       layer.frequency.value = frequency * this.profile.harmonic;
       main.detune.value = (index % 2 ? -1 : 1) * this.profile.detune;
       layer.detune.value = (index % 2 ? 1 : -1) * this.profile.detune;
-      mainLevel.gain.value = this.profile.gain / Math.sqrt(notes.length);
+      mainLevel.gain.value =
+        this.profile.gain / Math.sqrt(notes.length * (1 + unison * 0.6));
       layerLevel.gain.value = 0;
       main.connect(mainLevel);
       layer.connect(layerLevel);
@@ -413,6 +549,13 @@ class PadVoice {
         0.04,
       ),
     );
+    this.mirrors.forEach((pan, index) =>
+      pan.pan.setTargetAtTime(
+        (index % 2 === 0 ? -1 : 1) * (0.25 + track.spread * 0.7),
+        time,
+        0.04,
+      ),
+    );
     this.phaseFilters.forEach((filter, index) =>
       filter.frequency.setTargetAtTime(
         180 * 2 ** index * (0.5 + track.shape * 3),
@@ -455,10 +598,12 @@ export class PadInstrument {
   private lastStep = -1;
   private stopped = false;
   private pendingVoices = 0;
+  private readonly sends: { hall: GainNode; delay: GainNode } | null;
 
   constructor(
     private readonly context: BaseAudioContext,
     output: AudioNode,
+    private readonly fluff: FluffBus | null = null,
   ) {
     this.input = context.createGain();
     this.level = context.createGain();
@@ -466,8 +611,23 @@ export class PadInstrument {
     this.dry = context.createGain();
     this.input.connect(this.dry);
     this.dry.connect(this.level);
-    this.level.connect(output);
     this.rackNodes.push(this.input, this.level, this.dry);
+    if (fluff) {
+      const hall = context.createGain();
+      const delay = context.createGain();
+      hall.gain.value = 0;
+      delay.gain.value = 0;
+      this.level.connect(fluff.music);
+      this.level.connect(hall);
+      this.level.connect(delay);
+      hall.connect(fluff.hall);
+      delay.connect(fluff.delay);
+      this.sends = { hall, delay };
+      this.rackNodes.push(hall, delay);
+    } else {
+      this.level.connect(output);
+      this.sends = null;
+    }
     for (let index = 0; index < 3; index++) {
       const delay = context.createDelay(2);
       const gain = context.createGain();
@@ -549,14 +709,25 @@ export class PadInstrument {
       time,
       0.02,
     );
-    this.dry.gain.setTargetAtTime(1 - track.space * 0.2, time, 0.04);
+    this.dry.gain.setTargetAtTime(
+      this.fluff ? 1 : 1 - track.space * 0.2,
+      time,
+      0.04,
+    );
+    // Fluff sends pads to the shared hall rather than the local echo taps.
+    this.sends?.hall.gain.setTargetAtTime(
+      0.15 + track.space * 0.85,
+      time,
+      0.04,
+    );
+    this.sends?.delay.gain.setTargetAtTime(track.space * 0.2, time, 0.04);
     this.echoes.forEach((echo, index) => {
       echo.delay.delayTime.setValueAtTime(
         Math.max(0.25, (60 / bpm) * 0.5) * (index + 1),
         time,
       );
       echo.gain.gain.setTargetAtTime(
-        track.space * ([0.22, 0.14, 0.08][index % 3] ?? 0),
+        (this.fluff ? 0 : track.space) * ([0.22, 0.14, 0.08][index % 3] ?? 0),
         time,
         0.04,
       );
@@ -597,6 +768,7 @@ export class PadInstrument {
           this.pendingVoices--;
           this.disconnectWhenFinished();
         },
+        this.fluff !== null,
       );
       this.voices.push(this.current);
       this.signature = signature;

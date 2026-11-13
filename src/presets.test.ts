@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { PRESETS, createPreset, findPresetByName } from "./presets";
+import { createPreset, findPresetByName, presetsForMode } from "./presets";
+
+// These checks cover the Grain examples; Fluff examples have their own suite.
+const PRESETS = presetsForMode("grain");
+// Frozen fingerprints predate the studio mode field; a scale's own mode stays hashed.
+const isStudioMode = (key: string, value: unknown): boolean =>
+  key === "mode" && (value === "grain" || value === "fluff");
 import { nightshiftSnapshot } from "./preset-data/nightshift";
 import { arpEvents } from "./arp-model";
 import {
@@ -48,7 +54,7 @@ async function presetHash(id: string): Promise<string> {
         "followChords",
         "recording",
         "progression",
-      ].includes(key)
+      ].includes(key) || isStudioMode(key, value)
         ? undefined
         : value,
     ),
@@ -76,6 +82,7 @@ describe("genre examples", () => {
       id: "nightshift",
       name: "Nightshift",
       genre: "House",
+      mode: "grain",
     });
     const saved: unknown = JSON.parse(JSON.stringify(project));
     expect(readProject(saved)).toEqual(project);
@@ -91,7 +98,8 @@ describe("genre examples", () => {
           "followChords",
           "recording",
           "progression",
-        ].includes(key)
+        ].includes(key) ||
+        isStudioMode(key, value)
       )
         return undefined;
       if (value !== null && typeof value === "object" && !Array.isArray(value))
@@ -383,7 +391,7 @@ describe("genre examples", () => {
               "followChords",
               "recording",
               "progression",
-            ].includes(key)
+            ].includes(key) || isStudioMode(key, value)
               ? undefined
               : value,
           ),

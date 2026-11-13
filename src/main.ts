@@ -36,6 +36,7 @@ import {
 } from "./model";
 import type {
   PlaybackFrame,
+  Project,
   BassStep,
   DrumId,
   BassAutomationParameter,
@@ -71,9 +72,20 @@ import "./instrument-automation.css";
 import { AudioEngine } from "./audio";
 import { FluidVisualizer } from "./visualizer";
 import grainWordmark from "./grain-wordmark.svg?raw";
+import fluffWordmark from "./fluff-wordmark.svg?raw";
+import "./fluff-theme.css";
+import {
+  FLUFF_SOUNDS,
+  MODE_LABELS,
+  PROJECT_MODES,
+  projectModeSchema,
+} from "./mode";
+import type { ProjectMode } from "./mode";
 import {
   VISUALIZER_PALETTES,
+  defaultPaletteId,
   isVisualizerPaletteId,
+  palettesForMode,
 } from "./visualizer-palettes";
 import type { VisualizerPaletteId } from "./visualizer-palettes";
 import { BeatCanvas } from "./beat-canvas";
@@ -85,8 +97,8 @@ import { createPlaybackRecovery } from "./playback-recovery";
 import { TrackMixer, mixerTrack } from "./track-mixer";
 import { AutomationRecorder } from "./automation-recorder";
 import type { RecordingLane } from "./automation-recorder";
-import { normalizedArpValue } from "./arp-model";
-import { normalizedPadValue } from "./pad-model";
+import { ARP_SOUNDS, normalizedArpValue } from "./arp-model";
+import { PAD_SOUNDS, normalizedPadValue } from "./pad-model";
 import { MotionControls } from "./motion-controls";
 import { PatternControls } from "./pattern-controls";
 import type { PatternViewport } from "./pattern-controls";
@@ -103,7 +115,13 @@ import type { ArpParameter } from "./arp-model";
 import type { PadParameter } from "./pad-model";
 import { NoteMatrix } from "./note-matrix";
 import type { MatrixChange, MatrixParameter } from "./note-matrix";
-import { PRESETS, createPreset, findPresetByName } from "./presets";
+import {
+  PRESETS,
+  createPreset,
+  defaultPresetId,
+  findPresetByName,
+  presetsForMode,
+} from "./presets";
 import "./style.css";
 
 type PerformanceParameter = "sweep" | "space" | "echo";
@@ -122,6 +140,7 @@ function formatPerformance(
   value: number,
 ): string {
   if (Math.abs(value) < 0.005) return "Off";
+  const labels = MODE_LABELS[project.mode];
   const mode =
     parameter === "sweep"
       ? value < 0
@@ -129,11 +148,11 @@ function formatPerformance(
         : "HP"
       : parameter === "space"
         ? value < 0
-          ? "Room"
-          : "Wash"
+          ? labels.spaceLeft
+          : labels.spaceRight
         : value < 0
-          ? "Short"
-          : "Dub";
+          ? labels.echoLeft
+          : labels.echoRight;
   return `${mode} ${Math.round(Math.abs(value) * 100)}%`;
 }
 
@@ -255,7 +274,15 @@ const automationContexts: Record<NoteTrack, BassStep[]> = {
 };
 let drumViewport: PatternViewport = { start: 0, count: 16 };
 const automationSweeps = new Map<string, { base: number; values: number[] }>();
-const storageKey = "acid-303-project-v1";
+const storageKeys: Record<ProjectMode, string> = {
+  grain: "acid-303-project-v1",
+  fluff: "fluff-project-v1",
+};
+const modeStorageKey = "grain-mode-v1";
+const paletteStorageKeys: Record<ProjectMode, string> = {
+  grain: "grain-visualizer-palette-v1",
+  fluff: "fluff-visualizer-palette-v1",
+};
 let importedHash: string | null = null;
 let sessionClient: SessionClient | null = null;
 let playbackRecovery: ReturnType<typeof createPlaybackRecovery> | null = null;
@@ -275,17 +302,36 @@ let sessionStatus: SessionStatus = {
 };
 let remotePlaying = false;
 let deferredSessionRefresh = false;
-let project = createPreset("techno");
 let storageAvailable = true;
-try {
-  const stored = localStorage.getItem(storageKey);
-  if (stored) {
-    const parsed = readProject(JSON.parse(stored));
-    if (parsed) project = parsed;
+/** Each mode keeps its own saved project, so switching never overwrites the other. */
+function storedProject(mode: ProjectMode): Project {
+  try {
+    const stored = localStorage.getItem(storageKeys[mode]);
+    if (stored) {
+      const parsed = readProject(JSON.parse(stored));
+      if (parsed) return { ...parsed, mode };
+    }
+  } catch {
+    storageAvailable = false;
   }
-} catch {
-  storageAvailable = false;
+  return createPreset(defaultPresetId(mode));
 }
+function storedMode(): ProjectMode {
+  try {
+    const parsed = projectModeSchema.safeParse(
+      localStorage.getItem(modeStorageKey),
+    );
+    if (parsed.success) return parsed.data;
+  } catch {
+    storageAvailable = false;
+  }
+  return "grain";
+}
+function saveProject(): void {
+  localStorage.setItem(storageKeys[project.mode], JSON.stringify(project));
+  localStorage.setItem(modeStorageKey, project.mode);
+}
+let project: Project = storedProject(storedMode());
 const editHistory = new EditHistory(project);
 let historyGroup = 0;
 const historyPointers = new Set<number>();
@@ -327,11 +373,23 @@ let playbackRequest = 0;
 let pendingDrum: DrumId | null = null;
 let lastPaintPreview = 0;
 let motion = true;
-let visualizerPalette: VisualizerPaletteId = "mono";
+function storedPalette(mode: ProjectMode): VisualizerPaletteId {
+  try {
+    const saved = localStorage.getItem(paletteStorageKeys[mode]);
+    if (
+      isVisualizerPaletteId(saved) &&
+      palettesForMode(mode).some((palette) => palette.id === saved)
+    )
+      return saved;
+  } catch {
+    // Visual preferences remain usable when browser storage is unavailable.
+  }
+  return defaultPaletteId(mode);
+}
+let visualizerPalette: VisualizerPaletteId = storedPalette(project.mode);
+let appliedMode: ProjectMode | null = null;
 let visualizerSwirl = 0;
 try {
-  const savedPalette = localStorage.getItem("grain-visualizer-palette-v1");
-  if (isVisualizerPaletteId(savedPalette)) visualizerPalette = savedPalette;
   const savedSwirl = Number(localStorage.getItem("grain-visualizer-swirl-v1"));
   if (Number.isFinite(savedSwirl))
     visualizerSwirl = Math.max(0, Math.min(100, savedSwirl));
@@ -352,7 +410,7 @@ const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Application container is missing.");
 app.innerHTML = `
     <section id="visualizer-panel" class="visualizer-panel" aria-label="Drum pattern visualizer"><canvas id="fluid-canvas" aria-label="Drum-reactive fluid shapes"></canvas></section>
-  <header class="app-header"><div class="brand" aria-label="Grain"><span class="brand-wordmark">${grainWordmark}</span></div></header>
+  <header class="app-header"><div class="mode-switch" role="group" aria-label="Studio mode">${PROJECT_MODES.map((mode) => `<button data-project-mode="${mode.id}" aria-pressed="${mode.id === project.mode}">${mode.label}</button>`).join("")}</div><div class="brand" aria-label="Grain"><span class="brand-wordmark"></span></div></header>
   <div class="motion-options" id="phone-motion-options" hidden><span>Hold a knob</span><div role="group" aria-label="Phone motion axis"><button data-phone-mode="tilt" aria-pressed="true">Tilt</button><button data-phone-mode="move" aria-pressed="false">Move</button><button data-phone-mode="twist" aria-pressed="false">Twist</button></div><span id="phone-motion-help">Tilt forwards / back or sideways</span></div>
   <main class="workspace">
     <section class="transport panel" aria-label="Playback controls">
@@ -368,7 +426,7 @@ app.innerHTML = `
     </section>
     <section id="progression-controls" class="project-progression" aria-label="Shared chords"></section>
     <section class="preset-section panel" aria-label="Examples">
-        <div class="preset-bar"><div class="preset-navigation"><button class="preset-scroll" data-example-scroll="-1" aria-label="Scroll examples left">‹</button><div class="preset-options" role="group" aria-label="Genre examples">${PRESETS.map((preset) => `<button data-preset="${preset.id}" aria-label="${preset.name} — ${preset.genre}"><strong>${preset.name}</strong><span>${preset.genre}</span></button>`).join("")}</div><button class="preset-scroll" data-example-scroll="1" aria-label="Scroll examples right">›</button></div><div class="preset-actions"><button id="remix" class="remix-button">${icon("shuffle")} Remix</button><button id="undo-remix" class="text-button undo-remix" disabled>Undo</button></div></div>
+        <div class="preset-bar"><div class="preset-navigation"><button class="preset-scroll" data-example-scroll="-1" aria-label="Scroll examples left">‹</button><div class="preset-options" role="group" aria-label="Genre examples"></div><button class="preset-scroll" data-example-scroll="1" aria-label="Scroll examples right">›</button></div><div class="preset-actions"><button id="remix" class="remix-button">${icon("shuffle")} Remix</button><button id="undo-remix" class="text-button undo-remix" disabled>Undo</button></div></div>
     </section>
     <div class="studio-grid"><div class="sequencers">
       <section id="drums-panel" class="panel drums-panel" aria-labelledby="drums-title">
@@ -396,7 +454,7 @@ app.innerHTML = `
     </div>
 </div>
     <footer class="app-footer"><span><kbd>SPACE</kbd> Play / stop</span><span>Per-instrument timing</span><span id="project-name"></span></footer>
-  </main><nav class="instrument-nav" aria-label="Instruments"><button data-instrument-jump="drums-panel">Drums</button><button data-instrument-jump="bass-panel">Bass</button><button data-instrument-jump="keys-panel">Texture</button><button data-instrument-jump="arp-panel">Arp</button><button data-instrument-jump="pad-panel">Pads</button><button data-instrument-jump="vocal-panel">Vocals</button><button data-instrument-jump="cloud-panel">Cloud</button><button data-instrument-jump="tension-panel">Tension</button><button id="studio-view" aria-expanded="false" aria-controls="visualizer-toolbar">View</button></nav><div id="visualizer-toolbar" class="visualizer-toolbar" role="region" aria-label="Visualizer controls"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><div class="visualizer-controls"><button id="visualizer-colour" class="visualizer-button palette-toggle" aria-expanded="false" aria-controls="visualizer-palettes"><span class="palette-current" aria-hidden="true"></span>Colour</button>${slider("intensity", "Intensity", 0, 100, 30, "30%")}${slider("swirl", "Swirl", 0, 100, visualizerSwirl, `${visualizerSwirl}%`, "1", "Visualizer swirl", undefined, 0)}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div><div id="visualizer-palettes" class="visualizer-palettes" role="group" aria-label="Visualizer colour" hidden>${VISUALIZER_PALETTES.map((palette) => `<button data-visualizer-palette="${palette.id}" aria-pressed="${palette.id === visualizerPalette}"><span class="palette-swatch" style="background:${palette.swatch}" aria-hidden="true"></span><span>${palette.label}</span></button>`).join("")}</div></div>
+  </main><nav class="instrument-nav" aria-label="Instruments"><button data-instrument-jump="drums-panel">Drums</button><button data-instrument-jump="bass-panel">Bass</button><button data-instrument-jump="keys-panel">Texture</button><button data-instrument-jump="arp-panel">Arp</button><button data-instrument-jump="pad-panel">Pads</button><button data-instrument-jump="vocal-panel">Vocals</button><button data-instrument-jump="cloud-panel">Cloud</button><button data-instrument-jump="tension-panel">Tension</button><button id="studio-view" aria-expanded="false" aria-controls="visualizer-toolbar">View</button></nav><div id="visualizer-toolbar" class="visualizer-toolbar" role="region" aria-label="Visualizer controls"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><div class="visualizer-controls"><button id="visualizer-colour" class="visualizer-button palette-toggle" aria-expanded="false" aria-controls="visualizer-palettes"><span class="palette-current" aria-hidden="true"></span>Colour</button>${slider("intensity", "Intensity", 0, 100, 30, "30%")}${slider("swirl", "Swirl", 0, 100, visualizerSwirl, `${visualizerSwirl}%`, "1", "Visualizer swirl", undefined, 0)}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div><div id="visualizer-palettes" class="visualizer-palettes" role="group" aria-label="Visualizer colour" hidden></div></div>
 <div id="toast" role="status" class="toast" hidden></div>`;
 
 function slider(
@@ -418,7 +476,7 @@ function slider(
       ? "Tempo in BPM"
       : ["swing", "drive", "volume", "intensity"].includes(id)
         ? id === "drive"
-          ? "Crunch distortion"
+          ? MODE_LABELS[project.mode].driveName
           : id === "volume"
             ? "Master volume"
             : id === "intensity"
@@ -451,6 +509,7 @@ function refreshIcons(): void {
 }
 function renderInstrumentControls(): void {
   drumEditor.render();
+  applySoundLabels();
 }
 function renderDrumGrid(): void {
   const grid = document.querySelector("#drum-grid");
@@ -832,8 +891,13 @@ function clearRemixUndo(): void {
   const undo = document.querySelector("#undo-remix");
   if (undo instanceof HTMLButtonElement) undo.disabled = true;
 }
+/** Grain examples keep the chosen key; Fluff examples are written for their own. */
+function loadPreset(id: string): Project {
+  const preset = createPreset(id);
+  return preset.mode === "fluff" ? preset : withScale(preset, project.scale);
+}
 function updatePresetLabels(): void {
-  const selected = findPresetByName(project.name);
+  const selected = findPresetByName(project.name, project.mode);
   document
     .querySelectorAll<HTMLButtonElement>("[data-preset]")
     .forEach((button) => {
@@ -843,6 +907,127 @@ function updatePresetLabels(): void {
     });
   const label = document.querySelector("#project-name");
   if (label) label.textContent = selected?.name ?? project.name;
+}
+function setText(selector: string, text: string): void {
+  document.querySelectorAll(selector).forEach((element) => {
+    if (element.textContent !== text) element.textContent = text;
+  });
+}
+function setDialLabel(id: string, label: string, name: string): void {
+  const control = document.getElementById(id);
+  control?.setAttribute("aria-label", name);
+  const text = control?.closest(".dial-control")?.querySelector(".dial-label");
+  if (text) text.textContent = label;
+}
+/** Sound slots are shared by both modes; only their names and voices differ. */
+function applySoundLabels(): void {
+  const fluff = project.mode === "fluff";
+  const names = (
+    selector: string,
+    attribute: string,
+    sounds: readonly string[],
+  ): void => {
+    document.querySelectorAll<HTMLElement>(selector).forEach((button) => {
+      const name = sounds[Number(button.dataset[attribute])];
+      if (name !== undefined && button.textContent !== name)
+        button.textContent = name;
+    });
+  };
+  names(
+    "[data-bass-sound]",
+    "bassSound",
+    fluff ? FLUFF_SOUNDS.bass : BASS_SOUNDS,
+  );
+  names(
+    "[data-key-sound]",
+    "keySound",
+    fluff ? FLUFF_SOUNDS.keys : KEYS_SOUNDS,
+  );
+  names("[data-arp-sound]", "arpSound", fluff ? FLUFF_SOUNDS.arp : ARP_SOUNDS);
+  names("[data-pad-sound]", "padSound", fluff ? FLUFF_SOUNDS.pad : PAD_SOUNDS);
+  for (const id of drumIdSchema.options)
+    names(
+      `[data-sound][data-sound-track="${id}"]`,
+      "sound",
+      fluff ? FLUFF_SOUNDS[id] : DRUM_META[id].sounds,
+    );
+  const labels = MODE_LABELS[project.mode];
+  setText('[data-drum="rim"]', labels.rim);
+  setText('.drum-detail[aria-label="Rimshot editor"] h3', labels.rim);
+}
+function applyMode(): void {
+  applySoundLabels();
+  if (appliedMode === project.mode) return;
+  const mode = project.mode;
+  const first = appliedMode === null;
+  appliedMode = mode;
+  const labels = MODE_LABELS[mode];
+  document.documentElement.dataset.mode = mode;
+  document.title = labels.title;
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute("content", labels.themeColor);
+  document
+    .querySelector('meta[name="description"]')
+    ?.setAttribute("content", labels.description);
+  const brand = document.querySelector(".brand");
+  brand?.setAttribute("aria-label", mode === "fluff" ? "Fluff" : "Grain");
+  const wordmark = document.querySelector(".brand-wordmark");
+  if (wordmark)
+    wordmark.innerHTML = mode === "fluff" ? fluffWordmark : grainWordmark;
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-project-mode]")
+    .forEach((button) =>
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.projectMode === mode),
+      ),
+    );
+  const presets = document.querySelector(".preset-options");
+  if (presets)
+    presets.innerHTML = presetsForMode(mode)
+      .map(
+        (preset) =>
+          `<button data-preset="${preset.id}" aria-label="${preset.name} — ${preset.genre}"><strong>${preset.name}</strong><span>${preset.genre}</span></button>`,
+      )
+      .join("");
+  const palettes = document.getElementById("visualizer-palettes");
+  if (palettes)
+    palettes.innerHTML = palettesForMode(mode)
+      .map(
+        (palette) =>
+          `<button data-visualizer-palette="${palette.id}"><span class="palette-swatch" style="background:${palette.swatch}" aria-hidden="true"></span><span>${palette.label}</span></button>`,
+      )
+      .join("");
+  setText("#bass-title", labels.bass);
+  setText("#keys-title", labels.keys);
+  setText('[data-instrument-jump="keys-panel"]', labels.keys);
+  setText(".mixer-channel:has(#mixer-keys) > span", labels.keys);
+  setText(".mixer-channel:has(#mixer-rim) > span", labels.rim);
+  setDialLabel("drive", labels.drive, labels.driveName);
+  setDialLabel("fx-echo", labels.echo, labels.echoName);
+  if (!first) visualizerPalette = storedPalette(mode);
+  visualizer.setMode(mode);
+  visualizer.setPalette(visualizerPalette);
+  updateVisualizerPalette();
+}
+/** Park the current project in its own slot, then open the other mode's project. */
+function switchMode(mode: ProjectMode): void {
+  if (mode === project.mode || sessionEditingBlocked()) return;
+  playbackRecovery?.cancel();
+  playbackRequest++;
+  starting = false;
+  engine.stop();
+  try {
+    saveProject();
+  } catch {
+    storageAvailable = false;
+  }
+  clearRemixUndo();
+  project = storedProject(mode);
+  refreshProject();
+  persist();
+  updatePlayback();
 }
 function refreshProject(cancelPerformance = true): void {
   if (cancelPerformance) cancelMaterialPerformance();
@@ -858,6 +1043,7 @@ function refreshProject(cancelPerformance = true): void {
   renderDrums();
   renderBass();
   renderKeys();
+  applyMode();
   updatePresetLabels();
   refreshScaleControls();
   clearMatrixUndo();
@@ -1302,6 +1488,7 @@ const canvas = document.querySelector("#fluid-canvas");
 if (!(canvas instanceof HTMLCanvasElement))
   throw new Error("Visualizer canvas is missing.");
 const visualizer = new FluidVisualizer(canvas);
+visualizer.setMode(project.mode);
 visualizer.setPalette(visualizerPalette);
 visualizer.setSwirl(visualizerSwirl / 100);
 updateVisualizerPalette();
@@ -1907,7 +2094,7 @@ function persist(record = true, broadcast = true): void {
   saveTimer = setTimeout(() => {
     const status = document.querySelector("#save-state");
     try {
-      localStorage.setItem(storageKey, JSON.stringify(project));
+      saveProject();
       if (importedHash !== null && location.hash === importedHash) {
         const url = new URL(location.href);
         const parameters = new URLSearchParams(url.hash.slice(1));
@@ -2181,22 +2368,21 @@ document.addEventListener("click", async (event) => {
       persist();
     }
   }
+  if (projectModeSchema.safeParse(dataset.projectMode).success)
+    switchMode(projectModeSchema.parse(dataset.projectMode));
   if (
     dataset.preset &&
     PRESETS.some((preset) => preset.id === dataset.preset)
   ) {
     clearRemixUndo();
-    project = withScale(createPreset(dataset.preset), project.scale);
+    project = loadPreset(dataset.preset);
     refreshProject();
     persist();
   }
   if (id === "reset") {
     clearRemixUndo();
-    const preset = findPresetByName(project.name);
-    project = withScale(
-      preset ? createPreset(preset.id) : createProject(),
-      project.scale,
-    );
+    const preset = findPresetByName(project.name, project.mode);
+    project = loadPreset(preset?.id ?? defaultPresetId(project.mode));
     refreshProject();
     persist();
     toast("Pattern reset.");
@@ -2411,7 +2597,7 @@ document.addEventListener("click", async (event) => {
     visualizer.setPalette(visualizerPalette);
     updateVisualizerPalette();
     try {
-      localStorage.setItem("grain-visualizer-palette-v1", visualizerPalette);
+      localStorage.setItem(paletteStorageKeys[project.mode], visualizerPalette);
     } catch {
       // The selected palette still applies for this visit.
     }
@@ -2792,7 +2978,7 @@ window.addEventListener("pagehide", () => {
   sessionClient?.suspend();
   visualizer.setPlaying(false);
   try {
-    localStorage.setItem(storageKey, JSON.stringify(project));
+    saveProject();
   } catch {
     /* Storage may be disabled by the browser. */
   }

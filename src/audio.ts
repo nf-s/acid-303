@@ -30,6 +30,15 @@ import {
   playbackFrame,
 } from "./model";
 import { ArpInstrument, arpTailDuration } from "./arp-audio";
+import {
+  FLUFF_HALL_SECONDS,
+  FluffBus,
+  FluffLead,
+  fluffDrumTail,
+  fluffDrumVoice,
+  fluffLeadTail,
+} from "./fluff-audio";
+import type { ProjectMode } from "./mode";
 import { PadInstrument, padTailDuration } from "./pad-audio";
 import type {
   BassTrack,
@@ -44,6 +53,12 @@ import type {
 type ScheduledSource = OscillatorNode | AudioBufferSourceNode;
 
 interface AudioGraph {
+  mode: ProjectMode;
+  /** Fluff's ducked mix bus and sends; null in Grain. */
+  fluff: FluffBus | null;
+  fluffLead: FluffLead | null;
+  fluffMaterial: GainNode | null;
+  fluffVocal: GainNode | null;
   context: BaseAudioContext;
   fx: PerformanceFx;
   fxInput: AudioNode;
@@ -111,13 +126,47 @@ function localDriveCurve(drive: number, grit = 0): Float32Array<ArrayBuffer> {
   return curve;
 }
 
+interface PerformanceFxProfile {
+  filterQ: number;
+  rooms: readonly [number, number];
+  roomSmoothing: number;
+  echoBeats: readonly [number, number];
+  pingPong: boolean;
+}
+/** Grain keeps its dub chain; Fluff gets a resonant sweep, plate/hall and ping-pong. */
+function performanceFxProfile(mode: ProjectMode): PerformanceFxProfile {
+  return mode === "fluff"
+    ? {
+        filterQ: 2.4,
+        rooms: [1.4, 6],
+        roomSmoothing: 0.6,
+        echoBeats: [0.5, 0.75],
+        pingPong: true,
+      }
+    : {
+        filterQ: 0.7,
+        rooms: [0.36, 4.5],
+        roomSmoothing: 0.35,
+        echoBeats: [1 / 3, 0.75],
+        pingPong: false,
+      };
+}
 export function performanceFxTail(project: Project): number {
-  const space = project.fx.space === 0 ? 0 : project.fx.space < 0 ? 0.36 : 4.5;
+  const profile = performanceFxProfile(project.mode);
+  const space =
+    project.fx.space === 0
+      ? 0
+      : project.fx.space < 0
+        ? profile.rooms[0]
+        : profile.rooms[1];
   const amount = Math.abs(project.fx.echo);
   const feedback = 0.15 + amount * 0.4;
   const repeats =
     amount === 0 ? 0 : Math.ceil(Math.log(0.0001) / Math.log(feedback));
-  const delay = (60 / project.bpm) * (project.fx.echo < 0 ? 1 / 3 : 0.75);
+  const delay =
+    (60 / project.bpm) *
+    (project.fx.echo < 0 ? profile.echoBeats[0] : profile.echoBeats[1]) *
+    (profile.pingPong ? 2 : 1);
   return Math.max(space, repeats * delay + (amount > 0 ? 0.08 : 0));
 }
 
@@ -134,25 +183,28 @@ class PerformanceFx {
   private readonly echoSend: GainNode;
   private readonly echoReturn: GainNode;
   private readonly delay: DelayNode;
+  private readonly secondDelay: DelayNode | null = null;
   private readonly feedback: GainNode;
   private readonly damping: BiquadFilterNode;
   private readonly nodes: AudioNode[] = [];
+  private readonly profile: PerformanceFxProfile;
   constructor(
     private readonly context: BaseAudioContext,
     private readonly source: AudioNode,
     destination: AudioNode,
     project: Project,
   ) {
+    this.profile = performanceFxProfile(project.mode);
     this.input = context.createGain();
     this.output = context.createGain();
     const bus = context.createGain();
     this.sweepDry = context.createGain();
     this.low = context.createBiquadFilter();
     this.low.type = "lowpass";
-    this.low.Q.value = 0.7;
+    this.low.Q.value = this.profile.filterQ;
     this.high = context.createBiquadFilter();
     this.high.type = "highpass";
-    this.high.Q.value = 0.7;
+    this.high.Q.value = this.profile.filterQ;
     this.lowGain = context.createGain();
     this.highGain = context.createGain();
     this.input.connect(this.sweepDry);
@@ -166,9 +218,10 @@ class PerformanceFx {
     bus.connect(this.output);
     this.roomGain = context.createGain();
     this.washGain = context.createGain();
+    const smoothing = this.profile.roomSmoothing;
     for (const [duration, gain] of [
-      [0.36, this.roomGain],
-      [4.5, this.washGain],
+      [this.profile.rooms[0], this.roomGain],
+      [this.profile.rooms[1], this.washGain],
     ] satisfies Array<[number, GainNode]>) {
       const convolver = context.createConvolver();
       const buffer = context.createBuffer(
@@ -182,7 +235,8 @@ class PerformanceFx {
         let filtered = 0;
         for (let index = 0; index < data.length; index++) {
           seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-          filtered = filtered * 0.35 + (seed / 2147483648 - 1) * 0.65;
+          filtered =
+            filtered * smoothing + (seed / 2147483648 - 1) * (1 - smoothing);
           const time = index / context.sampleRate;
           data[index] =
             time < 0.014
@@ -216,9 +270,26 @@ class PerformanceFx {
     this.delay.connect(this.damping);
     this.damping.connect(rumble);
     rumble.connect(saturation);
-    saturation.connect(this.echoReturn);
     this.echoReturn.connect(this.output);
-    saturation.connect(this.feedback);
+    if (this.profile.pingPong) {
+      // The repeat alternates sides: left tap, then a second delay to the right.
+      const second = context.createDelay(2);
+      const left = context.createStereoPanner();
+      const right = context.createStereoPanner();
+      left.pan.value = -0.8;
+      right.pan.value = 0.8;
+      saturation.connect(left);
+      left.connect(this.echoReturn);
+      saturation.connect(second);
+      second.connect(right);
+      right.connect(this.echoReturn);
+      second.connect(this.feedback);
+      this.secondDelay = second;
+      this.nodes.push(second, left, right);
+    } else {
+      saturation.connect(this.echoReturn);
+      saturation.connect(this.feedback);
+    }
     this.feedback.connect(this.delay);
     this.nodes.push(
       this.input,
@@ -267,11 +338,17 @@ class PerformanceFx {
     set(this.echoSend.gain, echo > 0 ? 1 : 0);
     set(this.echoReturn.gain, echo * 0.42);
     set(this.feedback.gain, echo > 0 ? 0.15 + echo * 0.4 : 0);
-    set(this.damping.frequency, project.fx.echo < 0 ? 4000 : 1800);
     set(
-      this.delay.delayTime,
-      (60 / project.bpm) * (project.fx.echo < 0 ? 1 / 3 : 0.75),
+      this.damping.frequency,
+      this.profile.pingPong ? 5200 : project.fx.echo < 0 ? 4000 : 1800,
     );
+    const delayTime =
+      (60 / project.bpm) *
+      (project.fx.echo < 0
+        ? this.profile.echoBeats[0]
+        : this.profile.echoBeats[1]);
+    set(this.delay.delayTime, delayTime);
+    if (this.secondDelay) set(this.secondDelay.delayTime, delayTime);
   }
   destroy(): void {
     this.source.disconnect(this.input);
@@ -291,24 +368,26 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   const master = context.createGain();
   const safety = context.createWaveShaper();
   const analyser = context.createAnalyser();
+  const fluffMode = project.mode === "fluff";
   input.gain.value = 0.6;
   melodicInput.gain.value = 0.72;
   cleanInput.gain.value = project.keys.muted
     ? 0
     : 0.72 * automatedKeys(project.keys, 0).volume;
-  dry.gain.value = 1 - project.drive * 0.45;
-  wet.gain.value = project.drive * 0.45;
-  distortion.curve = distortionCurve(project.drive);
+  // Fluff reuses the drive setting as its sidechain pump, so the bus stays clean.
+  dry.gain.value = fluffMode ? 1 : 1 - project.drive * 0.45;
+  wet.gain.value = fluffMode ? 0 : project.drive * 0.45;
+  distortion.curve = distortionCurve(fluffMode ? 0 : project.drive);
   // Keep the parallel paths sample-aligned; oversampling delays only the wet path.
   distortion.oversample = "none";
   highpass.type = "highpass";
   highpass.frequency.value = 22;
   highpass.Q.value = 0.7;
-  compressor.threshold.value = -7;
-  compressor.knee.value = 5;
-  compressor.ratio.value = 6;
-  compressor.attack.value = 0.008;
-  compressor.release.value = 0.11;
+  compressor.threshold.value = fluffMode ? -9 : -7;
+  compressor.knee.value = fluffMode ? 9 : 5;
+  compressor.ratio.value = fluffMode ? 3 : 6;
+  compressor.attack.value = fluffMode ? 0.02 : 0.008;
+  compressor.release.value = fluffMode ? 0.18 : 0.11;
   master.gain.value = project.volume * 0.8;
   const ceiling = new Float32Array(2048);
   for (let index = 0; index < ceiling.length; index += 1) {
@@ -330,6 +409,9 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   cleanInput.connect(highpass);
   melodicInput.connect(highpass);
   const fx = new PerformanceFx(context, highpass, compressor, project);
+  const fluff = fluffMode
+    ? new FluffBus(context, melodicInput, input, project.bpm)
+    : null;
   compressor.connect(master);
   master.connect(safety);
   safety.connect(analyser);
@@ -343,6 +425,11 @@ function createGraph(context: BaseAudioContext, project: Project): AudioGraph {
   for (let index = 0; index < data.length; index += 1)
     data[index] = Math.random() * 2 - 1;
   return {
+    mode: project.mode,
+    fluff,
+    fluffLead: fluff ? new FluffLead(context, fluff) : null,
+    fluffMaterial: fluff ? fluff.channel(0.22, 0.12) : null,
+    fluffVocal: fluff ? fluff.channel(0.42, 0.3) : null,
     context,
     fx,
     fxInput: highpass,
@@ -379,7 +466,8 @@ function updateGraph(
   );
   graph.bpm = project.bpm;
   graph.scale = project.scale;
-  if (graph.drive !== project.drive) {
+  graph.fluff?.setTempo(project.bpm, now);
+  if (!graph.fluff && graph.drive !== project.drive) {
     graph.distortion.curve = distortionCurve(project.drive);
     graph.dry.gain.setTargetAtTime(1 - project.drive * 0.45, now, 0.015);
     graph.wet.gain.setTargetAtTime(project.drive * 0.45, now, 0.015);
@@ -511,6 +599,10 @@ function hatDuration(sound: number, decay: number): number {
 
 function drumVoice(graph: AudioGraph, track: DrumTrack, time: number): void {
   if (track.volume === 0) return;
+  if (graph.fluff) {
+    fluffDrumVoice(graph.context, graph.fluff, track, time, graph.scale);
+    return;
+  }
   const context = graph.context;
   const pitch = 2 ** (track.pitch / 12);
   const decay = track.decay;
@@ -1313,6 +1405,244 @@ function bassProfile(sound: number): BassProfile {
   };
 }
 
+/** Fluff bass slots: Sub, Offbeat, Roller, Pluck, Saw, Reese, Organ, FM, Square, Warm, Garage. */
+const FLUFF_BASS_PROFILES: readonly BassProfile[] = [
+  {
+    tones: [
+      { type: "sine", multiplier: 1, level: 0.85, detune: 0, pan: 0 },
+      { type: "triangle", multiplier: 1, level: 0.1, detune: 0, pan: 0 },
+      { type: "sine", multiplier: 2, level: 0.05, detune: 0, pan: 0 },
+    ],
+    level: 0.35,
+    attack: 0.008,
+    sustain: 0.9,
+    gate: 0.98,
+    release: 1.6,
+    cutoff: 0.9,
+    resonance: 0.05,
+    envelope: 0.4,
+    brightness: 120,
+    accentBrightness: 220,
+    filterDecay: 1,
+    fm: 0,
+    fmRatio: 2,
+    drive: 0,
+  },
+  {
+    tones: [
+      { type: "sawtooth", multiplier: 1, level: 0.5, detune: 0, pan: 0 },
+      { type: "square", multiplier: 0.5, level: 0.28, detune: 0, pan: 0 },
+      { type: "sine", multiplier: 1, level: 0.4, detune: 0, pan: 0 },
+    ],
+    level: 0.65,
+    attack: 0.004,
+    sustain: 0.55,
+    gate: 0.82,
+    release: 1.1,
+    cutoff: 1,
+    resonance: 0.12,
+    envelope: 2.2,
+    brightness: 700,
+    accentBrightness: 1100,
+    filterDecay: 0.6,
+    fm: 0,
+    fmRatio: 2,
+    drive: 0.1,
+  },
+  {
+    tones: [
+      { type: "sawtooth", multiplier: 1, level: 0.5, detune: 0, pan: 0 },
+      { type: "sawtooth", multiplier: 1, level: 0.3, detune: 6, pan: 0 },
+      { type: "sine", multiplier: 1, level: 0.45, detune: 0, pan: 0 },
+    ],
+    level: 0.85,
+    attack: 0.002,
+    sustain: 0.14,
+    gate: 0.62,
+    release: 0.6,
+    cutoff: 1,
+    resonance: 0.16,
+    envelope: 4,
+    brightness: 900,
+    accentBrightness: 1500,
+    filterDecay: 0.35,
+    fm: 0,
+    fmRatio: 2,
+    drive: 0.12,
+  },
+  {
+    tones: [
+      { type: "square", multiplier: 1, level: 0.42, detune: 0, pan: 0 },
+      { type: "sawtooth", multiplier: 1, level: 0.32, detune: 5, pan: 0 },
+      { type: "sine", multiplier: 1, level: 0.35, detune: 0, pan: 0 },
+    ],
+    level: 0.89,
+    attack: 0.002,
+    sustain: 0.08,
+    gate: 0.7,
+    release: 0.5,
+    cutoff: 0.9,
+    resonance: 0.2,
+    envelope: 6,
+    brightness: 1800,
+    accentBrightness: 2600,
+    filterDecay: 0.3,
+    fm: 0,
+    fmRatio: 2,
+    drive: 0,
+  },
+  {
+    tones: [
+      { type: "sawtooth", multiplier: 1, level: 0.42, detune: 0, pan: 0 },
+      { type: "sawtooth", multiplier: 1, level: 0.3, detune: 9, pan: 0.3 },
+      { type: "sawtooth", multiplier: 1, level: 0.3, detune: -9, pan: -0.3 },
+    ],
+    level: 0.75,
+    attack: 0.006,
+    sustain: 0.9,
+    gate: 1,
+    release: 1.6,
+    cutoff: 1.6,
+    resonance: 0.08,
+    envelope: 0.6,
+    brightness: 400,
+    accentBrightness: 800,
+    filterDecay: 0.8,
+    fm: 0,
+    fmRatio: 2,
+    drive: 0.06,
+  },
+  {
+    tones: [
+      { type: "sawtooth", multiplier: 1, level: 0.42, detune: -14, pan: -0.25 },
+      { type: "sawtooth", multiplier: 1, level: 0.42, detune: 14, pan: 0.25 },
+      { type: "sine", multiplier: 1, level: 0.4, detune: 0, pan: 0 },
+    ],
+    level: 0.67,
+    attack: 0.01,
+    sustain: 0.95,
+    gate: 1,
+    release: 1.8,
+    cutoff: 0.9,
+    resonance: 0.1,
+    envelope: 0.5,
+    brightness: 300,
+    accentBrightness: 600,
+    filterDecay: 1,
+    fm: 0,
+    fmRatio: 2,
+    drive: 0.2,
+  },
+  {
+    tones: [
+      { type: "sine", multiplier: 1, level: 0.6, detune: 0, pan: 0 },
+      { type: "sine", multiplier: 2, level: 0.3, detune: 0, pan: 0 },
+      { type: "sine", multiplier: 3, level: 0.16, detune: 0, pan: 0 },
+    ],
+    level: 0.56,
+    attack: 0.004,
+    sustain: 0.85,
+    gate: 0.9,
+    release: 1,
+    cutoff: 2,
+    resonance: 0.04,
+    envelope: 0.3,
+    brightness: 200,
+    accentBrightness: 400,
+    filterDecay: 0.6,
+    fm: 0.25,
+    fmRatio: 1,
+    drive: 0.08,
+  },
+  {
+    tones: [
+      { type: "sine", multiplier: 1, level: 0.7, detune: 0, pan: 0 },
+      { type: "triangle", multiplier: 1, level: 0.2, detune: 0, pan: 0 },
+      { type: "sine", multiplier: 0.5, level: 0.2, detune: 0, pan: 0 },
+    ],
+    level: 0.79,
+    attack: 0.002,
+    sustain: 0.3,
+    gate: 0.8,
+    release: 0.8,
+    cutoff: 1.6,
+    resonance: 0.06,
+    envelope: 1,
+    brightness: 500,
+    accentBrightness: 900,
+    filterDecay: 0.5,
+    fm: 1.5,
+    fmRatio: 2,
+    drive: 0.05,
+  },
+  {
+    tones: [
+      { type: "square", multiplier: 1, level: 0.45, detune: 0, pan: 0 },
+      { type: "square", multiplier: 2, level: 0.14, detune: 0, pan: 0 },
+      { type: "sine", multiplier: 1, level: 0.4, detune: 0, pan: 0 },
+    ],
+    level: 0.39,
+    attack: 0.004,
+    sustain: 0.7,
+    gate: 0.9,
+    release: 1.1,
+    cutoff: 0.9,
+    resonance: 0.1,
+    envelope: 1.6,
+    brightness: 500,
+    accentBrightness: 900,
+    filterDecay: 0.7,
+    fm: 0,
+    fmRatio: 2,
+    drive: 0,
+  },
+  {
+    tones: [
+      { type: "triangle", multiplier: 1, level: 0.55, detune: 0, pan: 0 },
+      { type: "sawtooth", multiplier: 1, level: 0.22, detune: 4, pan: 0 },
+      { type: "sine", multiplier: 1, level: 0.4, detune: 0, pan: 0 },
+    ],
+    level: 0.46,
+    attack: 0.008,
+    sustain: 0.8,
+    gate: 0.95,
+    release: 1.3,
+    cutoff: 0.7,
+    resonance: 0.06,
+    envelope: 0.9,
+    brightness: 300,
+    accentBrightness: 500,
+    filterDecay: 0.9,
+    fm: 0,
+    fmRatio: 2,
+    drive: 0,
+  },
+  {
+    tones: [
+      { type: "triangle", multiplier: 1, level: 0.6, detune: 0, pan: 0 },
+      { type: "square", multiplier: 2, level: 0.12, detune: 0, pan: 0 },
+      { type: "sine", multiplier: 1, level: 0.35, detune: 0, pan: 0 },
+    ],
+    level: 0.78,
+    attack: 0.002,
+    sustain: 0.25,
+    gate: 0.75,
+    release: 0.7,
+    cutoff: 1.1,
+    resonance: 0.1,
+    envelope: 2.4,
+    brightness: 900,
+    accentBrightness: 1400,
+    filterDecay: 0.4,
+    fm: 0.6,
+    fmRatio: 1,
+    drive: 0.1,
+  },
+];
+function fluffBassProfile(sound: number): BassProfile {
+  return FLUFF_BASS_PROFILES[sound] ?? bassProfile(0);
+}
+
 class BassVoice {
   private readonly tones: Array<{
     oscillator: OscillatorNode;
@@ -1390,7 +1720,7 @@ class BassVoice {
     }
     previous.connect(this.gain);
     this.gain.connect(this.level);
-    this.level.connect(graph.input);
+    this.level.connect(graph.fluff?.music ?? graph.input);
     let remaining = this.sources.length;
     for (const source of this.sources) {
       graph.sources.add(source);
@@ -1428,7 +1758,9 @@ class BassVoice {
       this.sliding = false;
       return;
     }
-    const profile = bassProfile(track.sound);
+    const profile = this.graph.fluff
+      ? fluffBassProfile(track.sound)
+      : bassProfile(track.sound);
     const incomingSlide = this.sliding;
     const outgoingSlide = tiesNextStep(track.steps, stepIndex);
     const frequency = midiFrequency(step.note);
@@ -1587,7 +1919,27 @@ function keysEchoTail(track: KeysTrack, bpm: number): number {
     : 0;
 }
 
+function fluffTailDuration(project: Project): number {
+  const drums = project.drums
+    .filter((track) => !track.muted && track.volume > 0)
+    .map(fluffDrumTail);
+  return (
+    Math.max(
+      0.35,
+      ...drums,
+      fluffLeadTail(project.keys),
+      arpTailDuration(project.arp, project.bpm),
+      padTailDuration(project.pad, project.bpm),
+      vocalTailDuration(project.vocal, project.bpm),
+      cloudTailDuration(project.cloud),
+      tensionTailDuration(project.tension),
+    ) +
+    FLUFF_HALL_SECONDS * 0.75 +
+    performanceFxTail(project)
+  );
+}
 export function exportTailDuration(project: Project): number {
+  if (project.mode === "fluff") return fluffTailDuration(project);
   const drumTail = project.drums
     .flatMap((track) =>
       Array.from({ length: automationStepCount(track) }, (_, step) =>
@@ -2488,7 +2840,7 @@ function scheduleProjectTick(
   project: Project,
   voices: {
     bass: BassVoice;
-    keys: KeysSequencer;
+    keys: KeysSequencer | FluffLead;
     arp: ArpInstrument;
     pad: PadInstrument;
     vocal: VocalInstrument | null;
@@ -2509,14 +2861,12 @@ function scheduleProjectTick(
         time,
         event.duration,
       );
-    else if (event.instrument === "keys")
-      voices.keys.schedule(
-        automatedKeys(project.keys, event.absoluteStep),
-        index,
-        time,
-        event.duration,
-      );
-    else if (event.instrument === "cloud")
+    else if (event.instrument === "keys") {
+      const keys = automatedKeys(project.keys, event.absoluteStep);
+      if (voices.keys instanceof FluffLead)
+        voices.keys.schedule(keys, index, time, event.duration, project.scale);
+      else voices.keys.schedule(keys, index, time, event.duration);
+    } else if (event.instrument === "cloud")
       voices.cloud.scheduleTick(
         project.cloud,
         logicalTick,
@@ -2568,12 +2918,12 @@ function scheduleProjectTick(
       );
     else {
       const drum = project.drums.find((track) => track.id === event.instrument);
-      if (drum && !drum.muted && drum.steps[index])
-        drumVoice(
-          graph,
-          automatedDrum(drum, event.absoluteStep, project.scale),
-          time,
-        );
+      if (drum && !drum.muted && drum.steps[index]) {
+        const voiced = automatedDrum(drum, event.absoluteStep, project.scale);
+        drumVoice(graph, voiced, time);
+        if (drum.id === "kick" && voiced.volume > 0)
+          graph.fluff?.pump(time, project.drive, project.bpm);
+      }
     }
   }
 }
@@ -2582,7 +2932,7 @@ export class AudioEngine {
   private context: AudioContext | null = null;
   private graph: AudioGraph | null = null;
   private bass: BassVoice | null = null;
-  private keys: KeysSequencer | null = null;
+  private keys: KeysSequencer | FluffLead | null = null;
   private arp: ArpInstrument | null = null;
   private pad: PadInstrument | null = null;
   private cloud: CloudInstrument | null = null;
@@ -2647,6 +2997,7 @@ export class AudioEngine {
     if (this.silent) throw new Error("Audio plays on the session host.");
     if (!this.context)
       this.context = new AudioContext({ latencyHint: "interactive" });
+    this.syncGraphMode(project);
     if (!this.graph) this.graph = createGraph(this.context, project);
     if (this.needsFxReset) {
       this.graph.fx.destroy();
@@ -2664,6 +3015,20 @@ export class AudioEngine {
       throw new DOMException("Playback cancelled", "AbortError");
     updateGraph(this.graph, project);
     return this.graph;
+  }
+
+  /** Grain and Fluff use different buses and effects; rebuild when the mode changes. */
+  private syncGraphMode(project: Project): void {
+    const graph = this.graph;
+    if (!graph || graph.mode === project.mode) return;
+    if (this.playing) this.stop();
+    graph.fx.destroy();
+    graph.fluffLead?.destroy();
+    graph.fluff?.destroy();
+    graph.master.disconnect();
+    graph.analyser.disconnect();
+    this.graph = null;
+    this.needsFxReset = false;
   }
 
   async play(project: Project): Promise<void> {
@@ -2692,14 +3057,34 @@ export class AudioEngine {
     this.releaseCloudAudition();
     this.cloud?.destroy();
     this.tension?.destroy();
-    this.cloud = new CloudInstrument(graph.context, graph.melodicInput);
-    this.tension = new TensionInstrument(graph.context, graph.melodicInput);
+    this.cloud = new CloudInstrument(
+      graph.context,
+      graph.fluffMaterial ?? graph.melodicInput,
+    );
+    this.tension = new TensionInstrument(
+      graph.context,
+      graph.fluffMaterial ?? graph.melodicInput,
+    );
     this.bass = new BassVoice(graph);
-    this.keys = new KeysSequencer(graph);
-    this.arp = new ArpInstrument(graph.context, graph.melodicInput);
-    this.pad = new PadInstrument(graph.context, graph.melodicInput);
+    this.keys = graph.fluff
+      ? new FluffLead(graph.context, graph.fluff)
+      : new KeysSequencer(graph);
+    this.arp = new ArpInstrument(
+      graph.context,
+      graph.melodicInput,
+      graph.fluff,
+    );
+    this.pad = new PadInstrument(
+      graph.context,
+      graph.melodicInput,
+      graph.fluff,
+    );
     this.vocal = loaded
-      ? new VocalInstrument(graph.context, graph.melodicInput, loaded)
+      ? new VocalInstrument(
+          graph.context,
+          graph.fluffVocal ?? graph.melodicInput,
+          loaded,
+        )
       : null;
     this.absoluteTick = 0;
     this.nextStepTime = graph.context.currentTime + 0.035;
@@ -2797,6 +3182,11 @@ export class AudioEngine {
         setTimeout(() => arp.destroy(), 30);
       }
       this.pad?.stop(time);
+      const keys = this.keys;
+      if (keys instanceof FluffLead) {
+        keys.stop(time);
+        setTimeout(() => keys.destroy(), 30);
+      }
       for (const source of graph.sources) source.stop(time + 0.015);
     }
     this.bass = null;
@@ -2835,6 +3225,7 @@ export class AudioEngine {
         this.vocalConfiguration.sourceKey ||
       project.vocal.muted !== this.vocalConfiguration.muted;
     this.project = project;
+    this.syncGraphMode(project);
     this.vocalConfiguration = {
       sound: project.vocal.sound,
       sourceKey: vocalSourceKey(project.vocal.sound, project.vocal.recording),
@@ -2874,7 +3265,7 @@ export class AudioEngine {
             )
               this.vocal = new VocalInstrument(
                 graph.context,
-                graph.melodicInput,
+                graph.fluffVocal ?? graph.melodicInput,
                 loaded,
               );
           })
@@ -2995,7 +3386,7 @@ export class AudioEngine {
         return;
       const preview = new VocalInstrument(
         graph.context,
-        graph.melodicInput,
+        graph.fluffVocal ?? graph.melodicInput,
         loaded,
       );
       this.vocalPreview = preview;
@@ -3054,7 +3445,10 @@ export class AudioEngine {
     const graph = await this.prepare(this.project);
     if (request !== this.cloudPreviewGeneration || this.silent) return;
     if (!this.cloud)
-      this.cloud = new CloudInstrument(graph.context, graph.melodicInput);
+      this.cloud = new CloudInstrument(
+        graph.context,
+        graph.fluffMaterial ?? graph.melodicInput,
+      );
     this.cloud.audition(
       track,
       snapNote(note, this.project.scale, 36, 84),
@@ -3092,7 +3486,10 @@ export class AudioEngine {
     const graph = await this.prepare(this.project);
     if (request !== this.tensionPreviewGeneration || this.silent) return;
     if (!this.tension)
-      this.tension = new TensionInstrument(graph.context, graph.melodicInput);
+      this.tension = new TensionInstrument(
+        graph.context,
+        graph.fluffMaterial ?? graph.melodicInput,
+      );
     this.tension.audition(
       track,
       note,
@@ -3149,6 +3546,18 @@ export class AudioEngine {
     const graph = await this.prepare(this.project);
     if (track.volume === 0) return;
     const time = graph.context.currentTime + 0.005;
+    if (graph.fluffLead) {
+      graph.fluffLead.preview(track, graph.context.currentTime);
+      graph.fluffLead.play(
+        track,
+        note,
+        accent,
+        time,
+        Math.min(0.4, track.decay + 0.1),
+        this.project.scale,
+      );
+      return;
+    }
     graph.cleanInput.gain.cancelAndHoldAtTime(graph.context.currentTime);
     graph.cleanInput.gain.setValueAtTime(
       track.volume * 0.72,
@@ -3184,14 +3593,26 @@ export class AudioEngine {
     if (this.silent) throw new Error("Export audio from the session host.");
     const graph = createGraph(context, project);
     const vocal = loaded
-      ? new VocalInstrument(context, graph.melodicInput, loaded)
+      ? new VocalInstrument(
+          context,
+          graph.fluffVocal ?? graph.melodicInput,
+          loaded,
+        )
       : null;
     const bass = new BassVoice(graph);
-    const keys = new KeysSequencer(graph);
-    const arp = new ArpInstrument(context, graph.melodicInput);
-    const pad = new PadInstrument(context, graph.melodicInput);
-    const cloud = new CloudInstrument(context, graph.melodicInput);
-    const tension = new TensionInstrument(context, graph.melodicInput);
+    const keys = graph.fluff
+      ? new FluffLead(context, graph.fluff)
+      : new KeysSequencer(graph);
+    const arp = new ArpInstrument(context, graph.melodicInput, graph.fluff);
+    const pad = new PadInstrument(context, graph.melodicInput, graph.fluff);
+    const cloud = new CloudInstrument(
+      context,
+      graph.fluffMaterial ?? graph.melodicInput,
+    );
+    const tension = new TensionInstrument(
+      context,
+      graph.fluffMaterial ?? graph.melodicInput,
+    );
     for (let tick = 0; tick < plan.ticks; tick++)
       scheduleProjectTick(
         graph,
@@ -3209,13 +3630,15 @@ export class AudioEngine {
       loopDuration,
     );
     bass.stop(loopDuration);
-    keys.release(
-      loopDuration,
-      automatedKeys(
-        project.keys,
-        Math.ceil(plan.ticks / ticksPerStep(project.keys.timing)) - 1,
-      ).decay,
-    );
+    // Fluff lead notes are scheduled with their full length and release.
+    if (!(keys instanceof FluffLead))
+      keys.release(
+        loopDuration,
+        automatedKeys(
+          project.keys,
+          Math.ceil(plan.ticks / ticksPerStep(project.keys.timing)) - 1,
+        ).decay,
+      );
     if (
       plan.ticks %
         (trackCycleTicks(

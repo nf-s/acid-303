@@ -9,10 +9,12 @@ import {
   projectSchema,
   scaleNotes,
 } from "../src/model";
-import { PRESETS, createPreset } from "../src/presets";
+import { createPreset, presetsForMode } from "../src/presets";
 import { ARP_SOUNDS } from "../src/arp-model";
 import { PAD_SOUNDS } from "../src/pad-model";
 import { trackStepCount } from "../src/timing";
+
+const PRESETS = presetsForMode("grain");
 
 async function seedFactoryProject(page: Page): Promise<void> {
   await page.addInitScript((project) => {
@@ -197,17 +199,19 @@ test("two fingers paint one lane while changing another instrument pitch", async
   await page.goto("/");
   const session = await context.newCDPSession(page);
   await page.locator("#kick-pitch").scrollIntoViewIfNeeded();
-  await page.locator("#kick-pitch").evaluate((knob) => {
-    const transport = document.querySelector(".transport");
-    if (!transport) throw new Error("Transport is missing.");
-    window.scrollBy({
-      top:
-        knob.getBoundingClientRect().top -
-        transport.getBoundingClientRect().bottom -
-        85,
-      behavior: "instant",
+  // The sticky transport only reaches its pinned position after the first scroll.
+  for (let pass = 0; pass < 2; pass++)
+    await page.locator("#kick-pitch").evaluate((knob) => {
+      const transport = document.querySelector(".transport");
+      if (!transport) throw new Error("Transport is missing.");
+      window.scrollBy({
+        top:
+          knob.getBoundingClientRect().top -
+          transport.getBoundingClientRect().bottom -
+          85,
+        behavior: "instant",
+      });
     });
-  });
   const first = await point(page, 1, 0, false);
   const last = await point(page, 1, 15, false);
   const knob = await page

@@ -10,6 +10,12 @@ import {
 } from "./arp-model";
 import type { ArpEvent, ArpTrack } from "./arp-model";
 import type { MusicalScale } from "./model";
+import {
+  FLUFF_ARP_LEVELS,
+  FLUFF_ARP_PATCHES,
+  playFluffNote,
+} from "./fluff-audio";
+import type { FluffBus, FluffVoice } from "./fluff-audio";
 
 interface ArpProfile {
   first: OscillatorType;
@@ -192,15 +198,38 @@ export function arpTailDuration(track: ArpTrack, bpm: number): number {
 export class ArpInstrument {
   private readonly level: GainNode;
   private readonly voices = new Set<ArpVoice>();
+  private readonly fluffVoices = new Set<FluffVoice>();
+  private readonly sends: { hall: GainNode; delay: GainNode } | null;
   private firstStep = true;
 
   constructor(
     private readonly context: BaseAudioContext,
     output: AudioNode,
+    private readonly fluff: FluffBus | null = null,
   ) {
     this.level = context.createGain();
     this.level.gain.value = 0;
-    this.level.connect(output);
+    if (fluff) {
+      const hall = context.createGain();
+      const delay = context.createGain();
+      hall.gain.value = 0;
+      delay.gain.value = 0;
+      this.level.connect(fluff.music);
+      this.level.connect(hall);
+      this.level.connect(delay);
+      hall.connect(fluff.hall);
+      delay.connect(fluff.delay);
+      this.sends = { hall, delay };
+    } else {
+      this.level.connect(output);
+      this.sends = null;
+    }
+  }
+
+  /** Fluff swaps the per-note echo taps for shared hall and ping-pong sends. */
+  private updateSends(track: ArpTrack, time: number): void {
+    this.sends?.hall.gain.setTargetAtTime(0.08 + track.space * 0.6, time, 0.02);
+    this.sends?.delay.gain.setTargetAtTime(track.space * 0.7, time, 0.02);
   }
 
   schedule(
@@ -217,6 +246,7 @@ export class ArpInstrument {
     if (this.firstStep) this.level.gain.setValueAtTime(level, time);
     else this.level.gain.setTargetAtTime(level, time, 0.004);
     this.firstStep = false;
+    this.updateSends(track, time);
     for (const event of arpEvents(track, scale, absoluteStep))
       this.note(
         track,
@@ -244,6 +274,7 @@ export class ArpInstrument {
     if (this.firstStep) this.level.gain.setValueAtTime(level, time);
     else this.level.gain.setTargetAtTime(level, time, 0.004);
     this.firstStep = false;
+    this.updateSends(track, time);
     for (const event of arpEventsAtTick(
       track,
       scale,
@@ -263,11 +294,15 @@ export class ArpInstrument {
       voice.envelope.gain.linearRampToValueAtTime(0, time + 0.008);
       for (const source of voice.sources) source.stop(time + 0.012);
     }
+    for (const voice of this.fluffVoices) voice.stop(time);
+    this.fluffVoices.clear();
   }
 
   destroy(): void {
     this.stop();
     this.level.disconnect();
+    this.sends?.hall.disconnect();
+    this.sends?.delay.disconnect();
   }
 
   private note(
@@ -278,6 +313,30 @@ export class ArpInstrument {
     bpm: number,
   ): void {
     const context = this.context;
+    if (this.fluff) {
+      for (const voice of this.fluffVoices)
+        if (voice.end <= time) this.fluffVoices.delete(voice);
+      this.fluffVoices.add(
+        playFluffNote(context, this.level, {
+          patch: FLUFF_ARP_PATCHES[track.sound] ?? "pluck",
+          frequency: midiFrequency(event.note),
+          time,
+          gate,
+          decay: track.decay,
+          attack: 0.002,
+          tone: track.tone,
+          resonance: track.resonance,
+          shape: track.shape,
+          width: track.width,
+          motion: 0,
+          grit: 0,
+          level: FLUFF_ARP_LEVELS[track.sound] ?? 0.9,
+          pan: Math.sin(event.eventIndex * 2.399963) * track.width * 0.5,
+          accent: event.accent,
+        }),
+      );
+      return;
+    }
     const profile = profileFor(track.sound);
     const frequency = midiFrequency(event.note);
     const filter = context.createBiquadFilter();

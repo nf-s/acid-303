@@ -1,11 +1,23 @@
+import type { ProjectMode } from "./mode";
+
 export type VisualizerPaletteId =
-  "mono" | "cobalt" | "violet" | "ember" | "rainbow";
+  | "mono"
+  | "cobalt"
+  | "violet"
+  | "ember"
+  | "rainbow"
+  | "cotton"
+  | "sorbet"
+  | "lilac"
+  | "dusk"
+  | "prism";
 
 export interface VisualizerPalette {
   readonly id: VisualizerPaletteId;
   readonly label: string;
   readonly swatch: string;
   readonly animated: boolean;
+  readonly mode: ProjectMode;
 }
 
 type Rgb = readonly [number, number, number];
@@ -47,6 +59,44 @@ const STOPS: Record<VisualizerPaletteId, PaletteStops> = {
     [229, 35, 246],
     [255, 30, 60],
   ],
+  // Fluff ramps run from the sky behind the clouds (0) to the brightest highlight (1).
+  cotton: [
+    [178, 198, 240],
+    [206, 196, 246],
+    [244, 192, 222],
+    [255, 222, 236],
+    [255, 250, 252],
+  ],
+  sorbet: [
+    [246, 164, 172],
+    [255, 186, 186],
+    [255, 210, 184],
+    [255, 232, 212],
+    [255, 250, 244],
+  ],
+  lilac: [
+    [150, 142, 228],
+    [180, 166, 246],
+    [210, 196, 252],
+    [234, 224, 255],
+    [250, 248, 255],
+  ],
+  dusk: [
+    [52, 44, 110],
+    [110, 84, 176],
+    [196, 124, 196],
+    [255, 172, 186],
+    [255, 228, 210],
+  ],
+  prism: [
+    [255, 186, 212],
+    [255, 210, 184],
+    [255, 232, 192],
+    [214, 196, 255],
+    [188, 212, 255],
+    [232, 190, 246],
+    [255, 186, 212],
+  ],
 };
 
 function swatch(id: VisualizerPaletteId): string {
@@ -54,17 +104,86 @@ function swatch(id: VisualizerPaletteId): string {
 }
 
 export const VISUALIZER_PALETTES: ReadonlyArray<VisualizerPalette> = [
-  { id: "mono", label: "Mono", swatch: swatch("mono"), animated: false },
-  { id: "cobalt", label: "Cobalt", swatch: swatch("cobalt"), animated: false },
-  { id: "violet", label: "Violet", swatch: swatch("violet"), animated: false },
-  { id: "ember", label: "Ember", swatch: swatch("ember"), animated: false },
+  {
+    id: "mono",
+    label: "Mono",
+    swatch: swatch("mono"),
+    animated: false,
+    mode: "grain",
+  },
+  {
+    id: "cobalt",
+    label: "Cobalt",
+    swatch: swatch("cobalt"),
+    animated: false,
+    mode: "grain",
+  },
+  {
+    id: "violet",
+    label: "Violet",
+    swatch: swatch("violet"),
+    animated: false,
+    mode: "grain",
+  },
+  {
+    id: "ember",
+    label: "Ember",
+    swatch: swatch("ember"),
+    animated: false,
+    mode: "grain",
+  },
   {
     id: "rainbow",
     label: "Rainbow",
     swatch: swatch("rainbow"),
     animated: true,
+    mode: "grain",
+  },
+  {
+    id: "cotton",
+    label: "Cotton",
+    swatch: swatch("cotton"),
+    animated: false,
+    mode: "fluff",
+  },
+  {
+    id: "sorbet",
+    label: "Sorbet",
+    swatch: swatch("sorbet"),
+    animated: false,
+    mode: "fluff",
+  },
+  {
+    id: "lilac",
+    label: "Lilac",
+    swatch: swatch("lilac"),
+    animated: false,
+    mode: "fluff",
+  },
+  {
+    id: "dusk",
+    label: "Dusk",
+    swatch: swatch("dusk"),
+    animated: false,
+    mode: "fluff",
+  },
+  {
+    id: "prism",
+    label: "Prism",
+    swatch: swatch("prism"),
+    animated: true,
+    mode: "fluff",
   },
 ];
+
+export function palettesForMode(
+  mode: ProjectMode,
+): ReadonlyArray<VisualizerPalette> {
+  return VISUALIZER_PALETTES.filter((palette) => palette.mode === mode);
+}
+export function defaultPaletteId(mode: ProjectMode): VisualizerPaletteId {
+  return mode === "fluff" ? "cotton" : "mono";
+}
 
 export function isVisualizerPaletteId(
   value: unknown,
