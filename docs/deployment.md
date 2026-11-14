@@ -84,3 +84,18 @@ studio switch disabled, the host's switch to Fluff reached the guest with the sa
 track (134 BPM), ending showed "Session ended" on both sides and Continue solo
 restored editing. An invite to a missing room showed "Can't connect to session"
 within five seconds and Leave session cleared it. The test room was ended.
+
+## Chords and Fluff examples release
+
+Published 14 November 2026 at 04:20 UTC from commit `cfbba4e` as deployment
+https://9384e10c.acid-303.pages.dev. `dist/` (115 files) was uploaded with the
+already-authenticated Wrangler 4.158.0 from a config-free staging directory. The
+build includes the session screen and tool row release above.
+
+Read-back on the canonical origin: one analytics beacon, the CSP header is
+present and a deep route returns 200. Fluff lists the five new examples (Sodium,
+Slow Turn, Brickwork, Late Bus, Parallax), the progression groups and chord types
+are present, playback starts and the console shows no errors. Before release,
+400 unit tests and 170 end-to-end tests passed; the last merge after that run
+changed only documentation, `public/_headers` and the Worker config. The session
+Worker was not redeployed, so chord types fall back to sevenths in live sessions.
