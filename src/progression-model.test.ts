@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { SCALE_MODES, scaleNotes } from "./model";
 import { swungTick, trackCycleTicks } from "./timing";
 import {
-  CHORD_PROGRESSIONS,
   applyProgression,
   createProgression,
   progressionChordAtTick,
@@ -81,18 +80,33 @@ describe("shared chord progression", () => {
           ]);
       }
   });
-  it("applies existing progression recipes without changing timing", () => {
+  it("applies the original eight recipes exactly as before without changing timing", () => {
+    const original = {
+      lift: [0, 5, 2, 6],
+      return: [0, 3, 5, 4],
+      descent: [0, 6, 5, 4],
+      orbit: [0, 2, 3, 5],
+      resolve: [1, 4, 0, 5],
+      suspended: [0, 3, 0, 6],
+      rise: [5, 3, 0, 4],
+      drift: [0, 1, 5, 3],
+    };
     const progression = createProgression();
     const timing = { ...progression.timing };
-    for (const preset of CHORD_PROGRESSIONS) {
-      expect(
-        applyProgression(progression, preset.id, { root: 0, mode: "major" }),
-      ).toBe(true);
-      expect(progression.chords.map((chord) => chord.degree)).toEqual(
-        preset.degrees,
-      );
-      expect(progression.timing).toEqual(timing);
-    }
+    for (const mode of SCALE_MODES)
+      for (const [id, degrees] of Object.entries(original)) {
+        const scale = { root: 4, mode: mode.id };
+        const count = mode.id === "pentatonic" ? 5 : 7;
+        expect(applyProgression(progression, id, scale)).toBe(true);
+        // Identical shape to the previous release: no colour or borrowed fields.
+        expect(progression.chords).toEqual(
+          degrees.map((degree, index) => ({
+            degree: degree % count,
+            inversion: index % 2,
+          })),
+        );
+        expect(progression.timing).toEqual(timing);
+      }
     const before = structuredClone(progression);
     expect(
       applyProgression(progression, "unknown", { root: 0, mode: "major" }),

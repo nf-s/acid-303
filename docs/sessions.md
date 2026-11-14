@@ -104,6 +104,36 @@ older peer changes Vocal timing, the hidden gain curve resamples to the resultin
 automation length. Older protocols cannot write gain directly. These changes do
 not require a namespace migration or force an existing tab to reload.
 
+## Chord colour compatibility (no protocol change)
+
+Chord slots gained two optional fields, `quality` (triad, ninth, add9, sus2,
+sus4, power) and `borrow` (major, minor, dorian, phrygian). Absent means the
+original diatonic seventh, so the project version and wire protocol stay at 6
+and v7, and existing rooms, links and saved projects are unchanged. The client
+never writes `quality: "seventh"` or a borrow equal to the project scale; it
+deletes the key instead.
+
+Because the fields are optional, a client that adds or removes one sends a
+whole-chord replacement (`["progression", "chords", n]` or the Pad equivalent),
+never a field path to a key the room may not have. The Worker currently deployed
+validates with the previous schema, whose Zod objects strip unknown keys:
+
+- Starting a session stores the project without colours; the host and guests
+  receive plain sevenths in the welcome, and the host's local project adopts
+  that room state like any other session edit.
+- A colour edit is accepted and acknowledged, but the stored chord has no colour,
+  so the broadcast patch is empty and every client's view returns to the
+  seventh. There is no error, and all peers stay in sync.
+- Degree and inversion edits keep working as before.
+
+After the Worker is redeployed with this schema, colours are stored and
+broadcast. Older cached v7 clients then strip them locally and play sevenths
+while newer peers hear the colours; their degree/inversion edits are field
+paths that keep the colour. The Worker was not redeployed with this change.
+Its type check and tests pass against the shared schema. The progression stays
+at exactly four chords: a different length would fail the deployed Worker's
+validation, v5 projections and both chord editors.
+
 ## Timing migration and coordinated rollout
 
 Project version 3 adds independent instrument timing and centered global FX.

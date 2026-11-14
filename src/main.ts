@@ -52,6 +52,8 @@ import { encodeTrack, decodeTrack } from "./share";
 import { createArpPanel } from "./arp-panel";
 import { createPadPanel } from "./pad-panel";
 import { createProgressionPanel } from "./progression-panel";
+import type { ChordPreviewKind } from "./progression-panel";
+import type { PreviewChord } from "./progression-model";
 import { createVocalPanel } from "./vocal-panel";
 import { configureSampleApi, ensureSharedSample } from "./custom-samples";
 import type { CustomSample } from "./custom-sample-schema";
@@ -1677,6 +1679,14 @@ function openChords(): void {
     }),
   );
 }
+/** Chord auditions are local only; a chosen progression is heard only while stopped. */
+function previewChords(chords: PreviewChord[], kind: ChordPreviewKind): void {
+  if (sessionStatus.role === "guest" || sessionEditingBlocked()) return;
+  if (kind === "apply" && engine.isPlaying) return;
+  void engine
+    .previewChords(chords)
+    .catch(() => toast("Chord preview could not start."));
+}
 const progressionPanel = createProgressionPanel(progressionContainer, {
   getProgression: () => project.progression,
   getScale: () => project.scale,
@@ -1684,6 +1694,7 @@ const progressionPanel = createProgressionPanel(progressionContainer, {
     refreshProject();
     persist();
   },
+  onPreview: previewChords,
 });
 const arpContainer = document.getElementById("arp-panel");
 const padContainer = document.getElementById("pad-panel");
@@ -1708,6 +1719,7 @@ const padPanel = createPadPanel(padContainer, {
     updateBarPosition();
     persist();
   },
+  onPreview: previewChords,
   renderControl: slider,
 });
 async function prepareSharedProject(): Promise<

@@ -46,6 +46,8 @@ import { FLUFF_REVERB_SECONDS, fluffImpulse } from "./fluff-effects";
 import type { ReverbKind } from "./fluff-effects";
 import type { ProjectMode } from "./mode";
 import { PadInstrument, padTailDuration } from "./pad-audio";
+import { scheduleChordPreview } from "./chord-preview";
+import type { PreviewChord } from "./progression-model";
 import type {
   BassTrack,
   DrumTrack,
@@ -2969,6 +2971,7 @@ export class AudioEngine {
   private playing = false;
   private generation = 0;
   private silent = false;
+  private chordPreview: GainNode | null = null;
 
   constructor(
     private onStep: (
@@ -3563,6 +3566,58 @@ export class AudioEngine {
     );
     const voice = new KeysVoice(graph, track, time);
     voice.schedule(track, note, accent, time, track.decay, false, false);
+  }
+
+  /**
+   * Plays chords on a dedicated soft voice into the master bus: one chord for
+   * about a second, or a sequence two beats apart (0.55–1 s). It is quieter
+   * while the transport runs, never touches the playing parts, the project or
+   * WAV export, and replaces any preview still sounding.
+   */
+  async previewChords(chords: readonly PreviewChord[]): Promise<void> {
+    if (!this.project)
+      throw new Error("Set the project before previewing chords.");
+    if (!chords.length) return;
+    const project = this.project;
+    const graph = await this.prepare(project);
+    const context = graph.context;
+    const time = context.currentTime + 0.01;
+    this.releaseChordPreview(time);
+    const output = context.createGain();
+    output.gain.value = this.playing ? 0.5 : 1;
+    output.connect(graph.master);
+    this.chordPreview = output;
+    const single = chords.length === 1;
+    const spacing = single ? 0 : Math.min(1, Math.max(0.55, 120 / project.bpm));
+    let end = time;
+    chords.forEach((chord, index) => {
+      const last = index === chords.length - 1;
+      end = scheduleChordPreview(
+        context,
+        output,
+        chord,
+        project.mode,
+        time + index * spacing,
+        single ? 0.8 : last ? spacing : spacing - 0.04,
+        last ? 0.5 : 0.25,
+      );
+    });
+    setTimeout(
+      () => {
+        if (this.chordPreview === output) this.chordPreview = null;
+        output.disconnect();
+      },
+      (end - context.currentTime) * 1000 + 100,
+    );
+  }
+
+  private releaseChordPreview(time: number): void {
+    const previous = this.chordPreview;
+    if (!previous) return;
+    previous.gain.cancelAndHoldAtTime(time);
+    previous.gain.linearRampToValueAtTime(0, time + 0.04);
+    this.chordPreview = null;
+    setTimeout(() => previous.disconnect(), 120);
   }
 
   getAnalyser(): AnalyserNode | null {
