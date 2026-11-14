@@ -15,6 +15,32 @@ Sessions expire 24 hours after creation. The host can end a session earlier.
 Ending or expiration closes its sockets, deletes the stored project and revokes
 both credentials. Local projects and snapshot Share links remain independent.
 
+## Session controls and connection screen
+
+The Session button sits in the transport's tool row beside Mixer, Tempo, Scale,
+Share, Undo, Redo, Motion and Export WAV. Mixer, Tempo, Scale and Session each
+open one panel below the row; Tempo and Scale show the current BPM and key.
+The session panel opens once when a session first connects, so the host sees
+the invite link.
+
+While a session cannot be edited, a full-screen screen (`src/session-overlay.ts`)
+covers the studio and makes it inert: joining or starting, reconnecting, failed,
+ended, or a guest waiting for a disconnected host. It always offers a way out
+(Leave session, Cancel or Continue solo) and, after a failure, Retry. A
+WebSocket handshake rejected with 404, 403 or 410 reaches the browser only as
+close code `1006`, so a room that never welcomes the client fails after three
+attempts (about two seconds) instead of retrying for most of a minute. Once a
+client has been welcomed, reconnects keep the capped backoff described below.
+
+Only the host changes the studio mode (Grain or Fluff). Guests see the mode
+switch disabled and follow the host's mode with the rest of the shared project.
+In a session the host's switch revoices the shared track instead of opening the
+other mode's locally saved project. The Worker rejects guest patches that change
+`mode` with `invalid-patch`; the client also keeps the current mode when a
+guest uses Undo or Redo. The deployed Worker predates this check and the
+`mode` field (see [Fluff](fluff.md#verification-and-limits)), so the rule is enforced
+server-side only after the next Worker deployment.
+
 ## Data and authentication
 
 - `POST /sessions` accepts `{project}` validated by the shared musical schema.

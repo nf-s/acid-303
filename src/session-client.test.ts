@@ -227,6 +227,34 @@ describe("session connection recovery", () => {
     expect(TestSocket.sockets.length).toBeGreaterThan(12);
   });
 
+  it("stops quickly when a joined room never answers, and can retry", async () => {
+    const states: SessionStatus[] = [];
+    const client = new SessionClient("http://localhost:8787", {
+      onState: (state) => states.push(state),
+      onProject: vi.fn(),
+      onClock: vi.fn(),
+      onTransport: vi.fn(),
+      onReady: vi.fn(),
+      onEnded: vi.fn(),
+    });
+    client.join(
+      `http://localhost:4317/#session=${"r".repeat(22)}.${"g".repeat(43)}`,
+    );
+    for (let attempt = 0; attempt < 3; attempt++) {
+      expect(states.at(-1)?.phase).toBe("connecting");
+      latest().close(1006, "");
+      await vi.advanceTimersByTimeAsync(2000);
+    }
+    expect(states.at(-1)?.phase).toBe("error");
+    expect(states.at(-1)?.message).toMatch(/could not join/i);
+    expect(TestSocket.sockets).toHaveLength(3);
+    expect(client.role).toBe("guest");
+    client.reconnect();
+    expect(TestSocket.sockets).toHaveLength(4);
+    welcome(latest(), createProject(), "guest");
+    expect(client.connected).toBe(true);
+  });
+
   it("holds guest edits through host loss and resumes after an authoritative snapshot", async () => {
     const { client, projects } = await connectClient("guest");
     const project = createProject();

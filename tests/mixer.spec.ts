@@ -28,7 +28,7 @@ test("mixer levels and mutes share instrument controls, automation and undo", as
     project,
   );
   await page.goto("/");
-  await page.getByText("Mixer", { exact: true }).click();
+  await page.locator('[data-studio-panel="mixer"]').click();
   await expect(page.locator(".mixer-fader")).toHaveCount(12);
   await page.locator("#mixer-bass").press("ArrowUp");
   await expect(page.locator("#bass-volume")).toHaveAttribute(
@@ -55,7 +55,6 @@ test("mixer levels and mutes share instrument controls, automation and undo", as
     "aria-valuenow",
     "100",
   );
-  await page.locator("#studio-tools").click();
   await page.locator("#global-undo").click();
   await expect
     .poll(async () => (await saved(page)).arp.volume)
@@ -76,7 +75,7 @@ test("mobile mixer scrolls to every channel without widening the page", async ({
   });
   const page = await context.newPage();
   await page.goto("/");
-  await page.getByText("Mixer", { exact: true }).click();
+  await page.locator('[data-studio-panel="mixer"]').click();
   await page.locator("#mixer-vocal").scrollIntoViewIfNeeded();
   await page.locator("#mixer-vocal").press("Home");
   await expect.poll(async () => (await saved(page)).vocal.volume).toBe(0);

@@ -19,8 +19,6 @@ export interface SessionPanelOptions {
 
 export interface SessionPanel {
   render: (state: SessionPanelState) => void;
-  setOpen: (open: boolean) => void;
-  isOpen: () => boolean;
 }
 
 export function createSessionPanel(
@@ -199,14 +197,5 @@ export function createSessionPanel(
   end.addEventListener("click", options.onEnd);
 
   render(state);
-  container.hidden = true;
-  return {
-    render,
-    setOpen(open: boolean): void {
-      container.hidden = !open;
-    },
-    isOpen(): boolean {
-      return !container.hidden;
-    },
-  };
+  return { render };
 }

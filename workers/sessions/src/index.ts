@@ -473,6 +473,18 @@ export class SessionRoom extends DurableObject<SessionEnv> {
       return;
     }
     if (
+      data.role === "guest" &&
+      message.changes.some((change) => change.path[0] === "mode")
+    ) {
+      error(
+        socket,
+        "invalid-patch",
+        "Only the host can change the studio",
+        message.sequence,
+      );
+      return;
+    }
+    if (
       message.changes.some((change) => !sessionCanChange(data.protocol, change))
     ) {
       error(

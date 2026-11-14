@@ -353,7 +353,7 @@ test("solo is additive, local and respected by export", async ({ page }) => {
   });
   await bassSolo.click();
   await page.getByRole("button", { name: "Solo Kick", exact: true }).click();
-  await page.getByText("Mixer", { exact: true }).click();
+  await page.locator('[data-studio-panel="mixer"]').click();
   await expect(bassSolo).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByRole("button", { name: "Mixer solo Bass", exact: true }),
@@ -383,7 +383,6 @@ test("solo is additive, local and respected by export", async ({ page }) => {
   await page
     .getByRole("button", { name: "Mixer solo Cloud", exact: true })
     .click();
-  await page.locator("#studio-tools").click();
   await expect(
     page.getByRole("button", { name: "Export WAV", exact: true }),
   ).toBeVisible();
@@ -414,7 +413,7 @@ test("solo is additive, local and respected by export", async ({ page }) => {
   expect(saved.drums.every((drum) => !drum.muted)).toBe(true);
   expect(JSON.stringify(saved)).not.toContain("solo");
   await page.reload();
-  await page.getByText("Mixer", { exact: true }).click();
+  await page.locator('[data-studio-panel="mixer"]').click();
   await expect(
     page.getByRole("button", { name: "Mixer solo Snare", exact: true }),
   ).toHaveAttribute("aria-pressed", "false");

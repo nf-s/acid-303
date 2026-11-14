@@ -34,21 +34,15 @@ async function countAudioContexts(page: Page): Promise<void> {
     };
   });
 }
-async function openControls(page: Page): Promise<void> {
-  const button = page.getByRole("button", {
-    name: "Track controls",
-    exact: true,
-  });
+async function studioPanel(page: Page, panel: string): Promise<void> {
+  const button = page.locator(`[data-studio-panel="${panel}"]`);
   if ((await button.getAttribute("aria-expanded")) !== "true")
     await button.click();
 }
 
 async function hostSession(page: Page): Promise<string> {
   await page.goto("/");
-  await page
-    .getByRole("button", { name: "Track controls", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Session", exact: true }).click();
+  await studioPanel(page, "session");
   await page
     .getByRole("button", { name: "Create session", exact: true })
     .click();
@@ -67,15 +61,14 @@ test("a failed session request keeps the local instrument usable", async ({
     route.fulfill({ status: 500, body: "Unavailable" }),
   );
   await page.goto("/");
-  await page
-    .getByRole("button", { name: "Track controls", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Session", exact: true }).click();
+  await studioPanel(page, "session");
   await page
     .getByRole("button", { name: "Create session", exact: true })
     .click();
   await expect(page.locator("#session-status")).toHaveText("Connection error");
+  await expect(page.locator("#session-overlay")).toBeHidden();
   await expect(page.locator(".workspace")).not.toHaveAttribute("inert");
+  await studioPanel(page, "tempo");
   await page.locator("#bpm").press("End");
   await expect.poll(async () => (await saved(page)).bpm).toBe(180);
   await page.getByRole("button", { name: "Play pattern", exact: true }).click();
@@ -154,8 +147,13 @@ test("friends edit together while transport and all audio remain on the host", a
   await page.getByRole("button", { name: "End session", exact: true }).click();
   await expect(guest.locator("#session-status")).toHaveText("Session ended");
   await expect(guest.locator("#session-host-status")).toBeHidden();
-  await openControls(guest);
-  await guest.getByRole("button", { name: "Leave", exact: true }).click();
+  await expect(guest.locator("#session-overlay-title")).toHaveText(
+    "Session ended",
+  );
+  await guest
+    .getByRole("button", { name: "Continue solo", exact: true })
+    .click();
+  await expect(guest.locator("#session-overlay")).toBeHidden();
   await expect(guest.locator(".workspace")).not.toHaveAttribute("inert");
   await expect(guest.locator("html")).not.toHaveAttribute(
     "data-audio-contexts",
@@ -223,7 +221,7 @@ test("reload resumes the room and an extra host tab cannot play alongside the ho
   await expect(guest.locator("html")).not.toHaveAttribute(
     "data-audio-contexts",
   );
-  await openControls(replacement);
+  await studioPanel(replacement, "session");
   await replacement
     .getByRole("button", { name: "End session", exact: true })
     .click();
@@ -343,7 +341,7 @@ test("long triplet patterns, mixer edits and automation clocks stay shared witho
   await expect
     .poll(async () => (await saved(page)).bass.steps[59]?.note)
     .toBe(60);
-  await guest.getByText("Mixer", { exact: true }).click();
+  await guest.locator('[data-studio-panel="mixer"]').click();
   await guest.locator("#mixer-hat").press("Home");
   await guest.locator('[data-mixer-mute="keys"]').click();
   await expect
@@ -391,14 +389,17 @@ test("long triplet patterns, mixer edits and automation clocks stay shared witho
   await context.close();
 });
 
-test("session details stay inside settings and remain usable when disconnected", async ({
+test("session details open once on connect and a disconnected guest can leave from the overlay", async ({
   page,
   browser,
 }) => {
   const invite = await hostSession(page);
-  await page.locator("#studio-tools").click();
+  const toggle = page.locator('[data-studio-panel="session"]');
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.click();
   await expect(page.locator("#session-panel")).toBeHidden();
-  await page.locator("#studio-tools").click();
+  await expect(page.locator("#studio-tools-panel")).toBeHidden();
+  await toggle.click();
   await expect(
     page.locator("#studio-tools-panel #session-panel"),
   ).toBeVisible();
@@ -406,13 +407,105 @@ test("session details stay inside settings and remain usable when disconnected",
   const guest = await context.newPage();
   await guest.goto(invite);
   await expect(guest.locator("#session-status")).toHaveText("Connected");
-  await expect(guest.locator("#session-panel")).toBeHidden();
-  await context.setOffline(true);
-  await expect(guest.locator(".studio-grid")).toHaveAttribute("inert");
-  await openControls(guest);
   await expect(guest.locator("#session-panel")).toBeVisible();
-  await guest.getByRole("button", { name: "Leave", exact: true }).click();
+  await expect(guest.locator("#session-overlay")).toBeHidden();
+  await context.setOffline(true);
+  await expect(guest.locator("#session-overlay-title")).toHaveText(
+    "Reconnecting to session",
+  );
+  await expect(guest.locator(".studio-grid")).toHaveAttribute("inert");
+  await expect(guest.locator(".workspace")).toHaveAttribute("inert");
+  await guest
+    .getByRole("button", { name: "Leave session", exact: true })
+    .click();
+  await expect(guest.locator("#session-overlay")).toBeHidden();
+  await expect(guest.locator(".workspace")).not.toHaveAttribute("inert");
   await expect(guest.locator(".studio-grid")).not.toHaveAttribute("inert");
   await page.getByRole("button", { name: "End session", exact: true }).click();
   await context.close();
+});
+
+test("an invite to a missing room fails quickly and Leave session restores the local studio", async ({
+  page,
+}) => {
+  await page.goto(`/#session=${"r".repeat(22)}.${"g".repeat(43)}`);
+  const overlay = page.getByRole("dialog", {
+    name: "Can't connect to session",
+    exact: true,
+  });
+  await expect(overlay).toBeVisible({ timeout: 5000 });
+  await expect(page.locator(".workspace")).toHaveAttribute("inert");
+  await page
+    .getByRole("button", { name: "Leave session", exact: true })
+    .click();
+  await expect(page.locator("#session-overlay")).toBeHidden();
+  await expect.poll(() => page.url()).not.toContain("#session=");
+  await expect(page.locator(".workspace")).not.toHaveAttribute("inert");
+  await studioPanel(page, "tempo");
+  await page.locator("#bpm").press("End");
+  await expect.poll(async () => (await saved(page)).bpm).toBe(180);
+});
+
+test("only the host switches studio mode, the shared track keeps its music and an ended guest can continue solo", async ({
+  page,
+  browser,
+}) => {
+  const invite = await hostSession(page);
+  await studioPanel(page, "tempo");
+  await page.locator("#bpm").press("End");
+  await page.locator("#cutoff").press("End");
+  const context = await browser.newContext();
+  const guest = await context.newPage();
+  let ended = false;
+  try {
+    await guest.goto(invite);
+    await expect(guest.locator("#session-status")).toHaveText("Connected");
+    await expect(guest.locator("#session-overlay")).toBeHidden();
+    await expect(guest.locator("#bpm")).toHaveAttribute("aria-valuenow", "180");
+    for (const mode of ["grain", "fluff"]) {
+      await expect(
+        guest.locator(`[data-project-mode="${mode}"]`),
+      ).toBeDisabled();
+      await expect(page.locator(`[data-project-mode="${mode}"]`)).toBeEnabled();
+    }
+    await page.locator('[data-project-mode="fluff"]').click();
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "fluff");
+    await expect(guest.locator("html")).toHaveAttribute("data-mode", "fluff");
+    for (const participant of [page, guest]) {
+      await expect(participant.locator("#bpm")).toHaveAttribute(
+        "aria-valuenow",
+        "180",
+      );
+      await expect(participant.locator("#cutoff")).toHaveAttribute(
+        "aria-valuenow",
+        "100",
+      );
+    }
+    await studioPanel(page, "session");
+    await page
+      .getByRole("button", { name: "End session", exact: true })
+      .click();
+    ended = true;
+    await expect(
+      guest.getByRole("dialog", { name: "Session ended", exact: true }),
+    ).toBeVisible();
+    await expect(guest.locator(".workspace")).toHaveAttribute("inert");
+    await guest
+      .getByRole("button", { name: "Continue solo", exact: true })
+      .click();
+    await expect(guest.locator("#session-overlay")).toBeHidden();
+    await expect(guest.locator(".workspace")).not.toHaveAttribute("inert");
+    await expect(guest.locator('[data-project-mode="grain"]')).toBeEnabled();
+    await studioPanel(guest, "tempo");
+    await guest.locator("#bpm").press("Home");
+    await expect(guest.locator("#bpm")).toHaveAttribute("aria-valuenow", "60");
+  } finally {
+    if (!ended) {
+      await studioPanel(page, "session");
+      await page
+        .getByRole("button", { name: "End session", exact: true })
+        .click();
+    }
+    await context.close();
+  }
 });

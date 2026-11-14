@@ -9,7 +9,14 @@ import {
   Minimize2,
   Pause,
   Shuffle,
-  SlidersHorizontal,
+  SlidersVertical,
+  Gauge,
+  Music,
+  Users,
+  Link,
+  Undo2,
+  Redo2,
+  Smartphone,
 } from "lucide";
 import {
   createProject,
@@ -69,6 +76,7 @@ import type { VocalParameter } from "./vocal-model";
 import { SessionClient } from "./session-client";
 import type { SessionStatus } from "./session-client";
 import { createSessionPanel } from "./session-panel";
+import { createSessionOverlay } from "./session-overlay";
 import { diffProject } from "./session-protocol";
 import "./session.css";
 import "./instrument-automation.css";
@@ -90,7 +98,7 @@ import {
 import type { VisualizerPaletteId } from "./visualizer-palettes";
 import { BeatCanvas } from "./beat-canvas";
 import { installGestures } from "./gestures";
-import { installStudioNavigation } from "./studio-navigation";
+import { installStudioNavigation, openStudioPanel } from "./studio-navigation";
 import { installInstrumentCollapse } from "./instrument-collapse";
 import { playOpeningAnimation } from "./opening-animation";
 import { createPlaybackRecovery } from "./playback-recovery";
@@ -433,12 +441,12 @@ app.innerHTML = `
     <section class="transport panel" aria-label="Playback controls">
       <div class="performance-row"><div class="playback"><button class="play-button" id="play" aria-label="Play pattern">${icon("play")}<span>Play</span></button><button class="icon-button record-button" id="record-automation" aria-label="Record automation on this device" aria-pressed="false" title="Record instrument knob movements on this device"><span class="record-dot" aria-hidden="true"></span><span>REC</span></button><button class="icon-button restart" id="restart" aria-label="Restart pattern" title="Restart pattern">${icon("rotate-ccw")}</button></div>
       <div class="jam-controls">${PERFORMANCE_CONTROLS.map((control) => slider(control.id, control.label, -100, 100, project.fx[control.parameter] * 100, formatPerformance(control.parameter, project.fx[control.parameter]), "1", control.name, undefined, 0)).join("")}</div>
-      <div class="performance-tools"><button id="studio-tools" class="icon-button" aria-label="Track controls" aria-expanded="false" aria-controls="studio-tools-panel">${icon("sliders-horizontal")}</button><span id="bar-position">Beat 1</span></div></div>
-      <div id="studio-tools-panel" class="studio-tools" hidden><div class="mix-controls">${slider("bpm", "Tempo", 60, 180, project.bpm, `${project.bpm}`, "1")}${slider("swing", "Swing", 0, 50, project.swing * 100, `${Math.round(project.swing * 100)}%`)}${slider("drive", "Crunch", 0, 100, project.drive * 100, `${Math.round(project.drive * 100)}%`)}${slider("volume", "Volume", 0, 100, project.volume * 100, `${Math.round(project.volume * 100)}%`)}</div>
-    <section class="scale-panel panel" aria-label="Musical scale"><div class="scale-row"><span>ROOT</span><div class="scale-roots" role="group" aria-label="Root note">${Array.from({ length: 12 }, (_, root) => `<button data-root="${root}" aria-label="Root ${noteName(root + 60).slice(0, -1)}" aria-pressed="${project.scale.root === root}">${noteName(root + 60).slice(0, -1)}</button>`).join("")}</div></div><div class="scale-row"><span>SCALE</span><div class="scale-modes" role="group" aria-label="Scale type">${SCALE_MODES.map((scale) => `<button data-scale="${scale.id}" aria-pressed="${project.scale.mode === scale.id}">${scale.name}</button>`).join("")}</div></div></section>
-<div class="header-actions"><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span><button class="button secondary" id="global-undo" aria-label="Undo last edit" disabled>Undo</button><button class="button secondary" id="global-redo" aria-label="Redo last edit" disabled>Redo</button><button class="button secondary" id="share-track">Share</button><button class="button secondary" id="session-toggle" aria-expanded="false" aria-controls="session-panel">Session</button><button class="button secondary" id="phone-motion" aria-label="Enable phone motion control" aria-pressed="false" title="Hold a knob and tilt or move your phone">Motion</button><button class="button secondary" id="export">${icon("download")}<span>Export WAV</span></button></div><section id="session-panel" hidden></section></div>
+      <div class="performance-tools"><span id="bar-position">Beat 1</span></div></div>
+      <div class="studio-bar" role="group" aria-label="Studio tools"><div class="studio-bar-group"><button class="button secondary studio-button" data-studio-panel="mixer" aria-expanded="false" aria-controls="track-mixer">${icon("sliders-vertical")}<span>Mixer</span></button><button class="button secondary studio-button" data-studio-panel="tempo" aria-expanded="false" aria-controls="studio-tempo">${icon("gauge")}<span>Tempo</span><span class="studio-value" id="tempo-summary">${project.bpm}</span></button><button class="button secondary studio-button" data-studio-panel="scale" aria-expanded="false" aria-controls="studio-scale">${icon("music")}<span>Scale</span><span class="studio-value" id="scale-summary"></span></button><button class="button secondary studio-button" id="session-toggle" data-studio-panel="session" aria-expanded="false" aria-controls="session-panel">${icon("users")}<span>Session</span><span class="session-dot" aria-hidden="true"></span></button><button class="button secondary studio-button" id="share-track">${icon("link")}<span>Share</span></button></div><div class="studio-bar-group"><button class="button secondary studio-button" id="global-undo" aria-label="Undo last edit" disabled>${icon("undo-2")}<span>Undo</span></button><button class="button secondary studio-button" id="global-redo" aria-label="Redo last edit" disabled>${icon("redo-2")}<span>Redo</span></button></div><div class="studio-bar-group"><button class="button secondary studio-button" id="phone-motion" aria-label="Enable phone motion control" aria-pressed="false" title="Hold a knob and tilt or move your phone">${icon("smartphone")}<span>Motion</span></button><button class="button secondary studio-button" id="export">${icon("download")}<span>Export WAV</span></button></div><span id="save-state" class="save-state"><span class="status-dot"></span>${storageAvailable ? "Saved in this browser" : "Browser storage unavailable"}</span></div>
+      <div id="studio-tools-panel" class="studio-tools" hidden><div id="studio-tempo" class="mix-controls" data-studio-section="tempo" role="group" aria-label="Tempo and level" hidden>${slider("bpm", "Tempo", 60, 180, project.bpm, `${project.bpm}`, "1")}${slider("swing", "Swing", 0, 50, project.swing * 100, `${Math.round(project.swing * 100)}%`)}${slider("drive", "Crunch", 0, 100, project.drive * 100, `${Math.round(project.drive * 100)}%`)}${slider("volume", "Volume", 0, 100, project.volume * 100, `${Math.round(project.volume * 100)}%`)}</div>
+    <section id="studio-scale" class="scale-panel panel" data-studio-section="scale" aria-label="Musical scale" hidden><div class="scale-row"><span>ROOT</span><div class="scale-roots" role="group" aria-label="Root note">${Array.from({ length: 12 }, (_, root) => `<button data-root="${root}" aria-label="Root ${noteName(root + 60).slice(0, -1)}" aria-pressed="${project.scale.root === root}">${noteName(root + 60).slice(0, -1)}</button>`).join("")}</div></div><div class="scale-row"><span>SCALE</span><div class="scale-modes" role="group" aria-label="Scale type">${SCALE_MODES.map((scale) => `<button data-scale="${scale.id}" aria-pressed="${project.scale.mode === scale.id}">${scale.name}</button>`).join("")}</div></div></section>
+<div id="track-mixer" data-studio-section="mixer" hidden></div><section id="session-panel" data-studio-section="session" hidden></section></div>
       <p id="playback-recovery-status" class="playback-recovery-status" role="status" hidden>Tap to resume audio</p>
-      <div id="track-mixer"></div>
   <div class="share-panel" id="share-panel" hidden><label for="share-url">Track link</label><input id="share-url" readonly><button id="copy-share">Copy</button><button id="close-share" aria-label="Close share link">×</button></div>
     </section>
     <section id="progression-controls" class="project-progression" aria-label="Shared chords"></section>
@@ -472,7 +480,7 @@ app.innerHTML = `
 </div>
     <footer class="app-footer"><span><kbd>SPACE</kbd> Play / stop</span><span>Per-instrument timing</span><span id="project-name"></span></footer>
   </main><nav class="instrument-nav" aria-label="Instruments"><button data-instrument-jump="drums-panel">Drums</button><button data-instrument-jump="bass-panel">Bass</button><button data-instrument-jump="keys-panel">Texture</button><button data-instrument-jump="arp-panel">Arp</button><button data-instrument-jump="pad-panel">Pads</button><button data-instrument-jump="vocal-panel">Vocals</button><button data-instrument-jump="cloud-panel">Cloud</button><button data-instrument-jump="tension-panel">Tension</button><button id="studio-view" aria-expanded="false" aria-controls="visualizer-toolbar">View</button></nav><div id="visualizer-toolbar" class="visualizer-toolbar" role="region" aria-label="Visualizer controls"><div class="visualizer-top"><span class="visualizer-label">${icon("waves")} VISUALIZER</span><span class="audio-status" id="audio-status">AUDIO IDLE</span></div><div class="visualizer-bottom"><div class="visualizer-controls"><button id="visualizer-colour" class="visualizer-button palette-toggle" aria-expanded="false" aria-controls="visualizer-palettes"><span class="palette-current" aria-hidden="true"></span>Colour</button>${slider("intensity", "Intensity", 0, 100, 30, "30%")}${slider("swirl", "Swirl", 0, 100, visualizerSwirl, `${visualizerSwirl}%`, "1", "Visualizer swirl", undefined, 0)}<button id="motion" class="visualizer-button" aria-label="${motion ? "Pause" : "Enable"} visualizer motion" aria-pressed="${motion}">${icon(motion ? "pause" : "play")}</button><button id="fullscreen" class="visualizer-button" aria-label="Fullscreen visualizer">${icon("maximize-2")}</button></div></div><div id="visualizer-palettes" class="visualizer-palettes" role="group" aria-label="Visualizer colour" hidden></div></div>
-<div id="toast" role="status" class="toast" hidden></div>`;
+<section id="session-overlay" hidden></section><div id="toast" role="status" class="toast" hidden></div>`;
 
 function slider(
   id: string,
@@ -519,7 +527,14 @@ function refreshIcons(): void {
       Minimize2,
       Pause,
       Shuffle,
-      SlidersHorizontal,
+      SlidersVertical,
+      Gauge,
+      Music,
+      Users,
+      Link,
+      Undo2,
+      Redo2,
+      Smartphone,
     },
     attrs: { "stroke-width": 1.7 },
   });
@@ -821,7 +836,15 @@ function clearMatrixUndo(track?: NoteTrack): void {
     if (button instanceof HTMLButtonElement) button.disabled = true;
   }
 }
+function updateStudioSummaries(): void {
+  const tempo = document.getElementById("tempo-summary"),
+    scale = document.getElementById("scale-summary");
+  if (tempo) tempo.textContent = String(project.bpm);
+  if (scale)
+    scale.textContent = `${noteName(project.scale.root + 60).slice(0, -1)} ${SCALE_MODES.find((entry) => entry.id === project.scale.mode)?.name ?? ""}`;
+}
 function refreshScaleControls(): void {
+  updateStudioSummaries();
   document
     .querySelectorAll<HTMLElement>("[data-root]")
     .forEach((button) =>
@@ -1015,13 +1038,30 @@ function applyMode(): void {
   visualizer.setPalette(visualizerPalette);
   updateVisualizerPalette();
 }
-/** Park the current project in its own slot, then open the other mode's project. */
+/**
+ * Park the current project in its own slot, then open the other mode's project.
+ * In a session only the host switches, and the shared track is revoiced instead of replaced.
+ */
 function switchMode(mode: ProjectMode): void {
-  if (mode === project.mode || sessionEditingBlocked()) return;
+  if (
+    mode === project.mode ||
+    sessionEditingBlocked() ||
+    sessionStatus.role === "guest"
+  )
+    return;
   playbackRecovery?.cancel();
   playbackRequest++;
   starting = false;
   engine.stop();
+  if (sessionStatus.role === "host") {
+    clearRemixUndo();
+    project = { ...project, mode };
+    refreshProject();
+    persist();
+    updatePlayback();
+    sessionClient?.clock(engine.isPlaying, currentAbsoluteTick);
+    return;
+  }
   try {
     saveProject();
   } catch {
@@ -1665,10 +1705,7 @@ for (const track of noteTracks) {
 const progressionContainer = document.getElementById("progression-controls");
 if (!progressionContainer) throw new Error("Chord controls are missing.");
 function openChords(): void {
-  const tools = document.getElementById("studio-tools-panel");
-  const button = document.getElementById("studio-tools");
-  if (tools) tools.hidden = true;
-  button?.setAttribute("aria-expanded", "false");
+  openStudioPanel(document, null);
   progressionPanel.open();
   requestAnimationFrame(() =>
     progressionContainer?.scrollIntoView({
@@ -2097,7 +2134,8 @@ function travelHistory(redo: boolean): void {
   if (sessionEditingBlocked()) return;
   const next = redo ? editHistory.redo() : editHistory.undo();
   if (!next) return;
-  project = next;
+  project =
+    sessionStatus.role === "guest" ? { ...next, mode: project.mode } : next;
   clearRemixUndo();
   refreshProject();
   persist(false);
@@ -2105,6 +2143,7 @@ function travelHistory(redo: boolean): void {
 function persist(record = true, broadcast = true): void {
   if (record) editHistory.record(project, historyGroup);
   updateHistoryButtons();
+  updateStudioSummaries();
   engine.update(audible());
   mixer.update(project);
   if (broadcast) sessionClient?.edit(project);
@@ -2232,7 +2271,6 @@ document.addEventListener("click", async (event) => {
     updateBarPosition();
     return;
   }
-  if (id === "session-toggle") setSessionOpen(!sessionPanel.isOpen());
   if (id === "global-undo") travelHistory(false);
   if (id === "global-redo") travelHistory(true);
   if (id === "close-share") {
@@ -3056,12 +3094,6 @@ function refreshSessionProject(): void {
   refreshProject(false);
   if (focused) document.getElementById(focused)?.focus({ preventScroll: true });
 }
-function setSessionOpen(open: boolean): void {
-  sessionPanel.setOpen(open);
-  document
-    .getElementById("session-toggle")
-    ?.setAttribute("aria-expanded", String(open));
-}
 function leaveSession(): void {
   playbackRecovery?.cancel();
   playbackRequest++;
@@ -3187,6 +3219,16 @@ const sessionPanel = createSessionPanel(sessionContainer, {
     );
   },
 });
+const sessionOverlayContainer = document.getElementById("session-overlay");
+if (!sessionOverlayContainer) throw new Error("Session overlay is missing.");
+const sessionOverlay = createSessionOverlay(sessionOverlayContainer, {
+  onRetry: () => sessionClient?.reconnect(),
+  onLeave: leaveSession,
+  background: () =>
+    document.querySelectorAll<HTMLElement>(
+      ".app-header, .workspace, .instrument-nav, #phone-motion-options",
+    ),
+});
 const sessionApi =
   import.meta.env.VITE_SESSION_API ||
   (["localhost", "127.0.0.1"].includes(location.hostname)
@@ -3195,6 +3237,7 @@ const sessionApi =
 configureSampleApi(sessionApi);
 sessionClient = new SessionClient(sessionApi, {
   onState: (state) => {
+    const previousPhase = sessionStatus.phase;
     sessionStatus = state;
     engine.setSilent(state.role === "guest");
     vocalPanel.setHostCapability(
@@ -3228,7 +3271,17 @@ sessionClient = new SessionClient(sessionApi, {
         state.supportsTension,
     );
     sessionPanel.render(state);
-    if (state.phase !== "idle") setSessionOpen(true);
+    sessionOverlay.render(state);
+    if (previousPhase === "connecting" && state.phase === "connected")
+      openStudioPanel(document, "session");
+    document
+      .querySelectorAll<HTMLButtonElement>("[data-project-mode]")
+      .forEach((button) => {
+        button.disabled = state.role === "guest";
+        if (state.role === "guest")
+          button.title = "The session host chooses the studio";
+        else button.removeAttribute("title");
+      });
     const blocked = sessionEditingBlocked();
     if (blocked) {
       playbackRequest++;
@@ -3417,10 +3470,8 @@ playbackRecovery = createPlaybackRecovery({
 });
 function loadLink(): void {
   const parameters = new URLSearchParams(location.hash.slice(1));
-  if (parameters.has("session")) {
-    sessionClient?.join(location.href);
-    setSessionOpen(true);
-  } else if (parameters.has("track")) {
+  if (parameters.has("session")) sessionClient?.join(location.href);
+  else if (parameters.has("track")) {
     if (sessionClient?.role) leaveSession();
     void loadSharedTrack();
   }

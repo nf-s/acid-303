@@ -72,16 +72,8 @@ async function load(
   return project;
 }
 
-async function tools(page: Page) {
-  const button = page.locator("#studio-tools");
-  if ((await button.getAttribute("aria-expanded")) !== "true")
-    await button.click();
-}
-
 async function history(page: Page, direction: "undo" | "redo") {
-  await tools(page);
   await page.locator(`#global-${direction}`).click();
-  await page.locator("#studio-tools").click();
 }
 
 async function dragUp(page: Page, knob: Locator, distance: number) {
@@ -227,7 +219,6 @@ test("gain and its independent curve survive reload and a shared track link", as
     "+7.0 dB",
   );
   expect((await saved(page)).vocal).toEqual(before);
-  await tools(page);
   await page.locator("#share-track").click();
   await expect(page.locator("#share-url")).toHaveValue(/#track=v1\./);
   const link = await page.locator("#share-url").inputValue();

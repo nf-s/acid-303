@@ -800,6 +800,35 @@ describe("session rooms in the Workers runtime", () => {
     guest.send({ type: "sync" });
     expect((await guest.next("welcome")).project.bpm).toBe(141);
   });
+  it("lets only the host change the studio mode", async () => {
+    const room = await create();
+    const host = await connect(room, room.hostToken);
+    const guest = await connect(room, room.guestToken);
+    await host.next("welcome");
+    await guest.next("welcome");
+    guest.send({
+      type: "patch",
+      clientId: guest.clientId,
+      sequence: 1,
+      changes: [{ path: ["mode"], value: "fluff" }],
+    });
+    expect(await guest.next("error")).toMatchObject({
+      code: "invalid-patch",
+      sequence: 1,
+    });
+    host.send({
+      type: "patch",
+      clientId: host.clientId,
+      sequence: 1,
+      changes: [{ path: ["mode"], value: "fluff" }],
+    });
+    expect(await guest.next("patch")).toMatchObject({
+      revision: 1,
+      changes: [{ path: ["mode"], value: "fluff" }],
+    });
+    guest.send({ type: "sync" });
+    expect((await guest.next("welcome")).project.mode).toBe("fluff");
+  });
   it("routes transport to the host and preserves its clock through hibernation", async () => {
     const room = await create();
     const host = await connect(room, room.hostToken),

@@ -76,12 +76,10 @@ async function capture(page: Page): Promise<void> {
   await expect(page.locator(".vocal-recording-row")).toHaveCount(1);
   await expect(page.locator("#vocal-record-mic")).toBeVisible();
 }
-async function tools(page: Page): Promise<void> {
-  if (
-    (await page.locator("#studio-tools").getAttribute("aria-expanded")) !==
-    "true"
-  )
-    await page.locator("#studio-tools").click();
+async function studioPanel(page: Page, panel: string): Promise<void> {
+  const button = page.locator(`[data-studio-panel="${panel}"]`);
+  if ((await button.getAttribute("aria-expanded")) !== "true")
+    await button.click();
 }
 
 test("microphone capture stays local, survives reload and releases the stream on a320px phone", async ({
@@ -147,7 +145,6 @@ test("sharing uploads once and a fresh browser loads the private recording", asy
   await syntheticMicrophone(page);
   await page.goto("/");
   await capture(page);
-  await tools(page);
   await page.getByRole("button", { name: "Share", exact: true }).click();
   const field = page.locator("#share-url");
   await expect(field).toHaveValue(/#track=/, { timeout: 20000 });
@@ -180,8 +177,7 @@ test("guests keep a capture local until Use in session and only the host plays i
   browser,
 }) => {
   await page.goto("/");
-  await tools(page);
-  await page.getByRole("button", { name: "Session", exact: true }).click();
+  await studioPanel(page, "session");
   await page.locator("#session-create").click();
   await expect(page.locator("#session-status")).toHaveText("Hosting", {
     timeout: 20000,
@@ -212,6 +208,7 @@ test("guests keep a capture local until Use in session and only the host plays i
     await expect(guest.locator("#vocal-record-message")).toHaveText(
       "Uploading recording…",
     );
+    await studioPanel(page, "tempo");
     await page.locator("#bpm").press("ArrowUp");
     await expect
       .poll(async () => (await saved(guest)).bpm)
@@ -221,18 +218,12 @@ test("guests keep a capture local until Use in session and only the host plays i
       .poll(async () => (await saved(page)).vocal.recording?.kind)
       .toBe("shared");
     await expect(guest.locator("#audio-status")).toHaveText("AUDIO ON HOST");
-    if (
-      (await page.locator("#studio-tools").getAttribute("aria-expanded")) ===
-      "true"
-    )
-      await page.locator("#studio-tools").click();
+    await page.locator('[data-studio-panel="tempo"]').click();
     await page.locator("#vocal-preview").click();
     await expect(page.locator("#vocal-sample-status")).toHaveText("");
     await guest.locator("[data-recording-action=unshare]").click();
   } finally {
-    await tools(page);
-    if (!(await page.locator("#session-end").isVisible()))
-      await page.getByRole("button", { name: "Session", exact: true }).click();
+    await studioPanel(page, "session");
     await page.locator("#session-end").click();
     await expect(page.locator("#session-status")).toHaveText("Session ended");
     await context.close();
@@ -314,7 +305,6 @@ test("renewing an unavailable shared recording retries a lost response with the 
   await syntheticMicrophone(page);
   await page.goto("/");
   await capture(page);
-  await tools(page);
   const origin = new URL(page.url()).origin;
   try {
     await page.locator("#share-track").click();
@@ -350,7 +340,6 @@ test("renewing an unavailable shared recording retries a lost response with the 
       }
       await route.continue();
     });
-    await tools(page);
     await page.locator("#share-track").click();
     await expect.poll(() => uploads.length).toBe(2);
     await expect(page.locator("#share-track")).toBeEnabled();

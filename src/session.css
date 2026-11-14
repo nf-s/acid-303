@@ -132,3 +132,101 @@
     font-size: 16px;
   }
 }
+
+/* Full-screen state while a session cannot be edited: joining, reconnecting, failed or ended. */
+.session-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(9 9 9 / 0.8);
+  backdrop-filter: blur(3px);
+  font: 12px var(--mono, "IBM Plex Mono", monospace);
+}
+.session-overlay[hidden],
+.session-overlay [hidden] {
+  display: none !important;
+}
+.session-overlay[data-busy="true"] {
+  animation: session-overlay-in 160ms ease-out 200ms both;
+}
+.session-overlay-card {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  width: min(420px, 100%);
+  padding: 28px 22px 22px;
+  border: 2px solid #777;
+  background: #202225;
+  color: #ededed;
+  box-shadow: 8px 8px #0008;
+  text-align: center;
+}
+.session-overlay h2 {
+  margin: 0;
+  font: 600 15px var(--mono, "IBM Plex Mono", monospace);
+}
+.session-overlay h2:focus {
+  outline: none;
+}
+.session-overlay p {
+  margin: 0;
+  color: #c8cdd3;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.session-overlay-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid #555a60;
+  border-top-color: #eee;
+  border-radius: 50%;
+  animation: session-overlay-spin 900ms linear infinite;
+}
+.session-overlay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.session-overlay button {
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 1px solid #92969b;
+  border-right-color: #3a3d42;
+  border-bottom-color: #3a3d42;
+  background: #353a40;
+  color: #eee;
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.session-overlay .session-overlay-primary {
+  border-top-color: #fff;
+  border-left-color: #fff;
+  background: linear-gradient(#f2f2f2, #b9b9b9);
+  color: #151515;
+  font-weight: 600;
+}
+.session-overlay button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+@keyframes session-overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes session-overlay-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-overlay-spinner {
+    animation-duration: 2.4s;
+  }
+}
