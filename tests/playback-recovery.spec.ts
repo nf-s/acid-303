@@ -204,7 +204,7 @@ test("actual app stays quiet when fresh, recovers a playing reload, and preserve
     )
     .toBe(true);
   if (await page.locator("#playback-recovery-status").isVisible())
-    await page.locator("#studio-tools").click();
+    await page.locator('[data-studio-panel="tempo"]').click();
   await appPlaying(page);
   await expect(page.locator("#playback-recovery-status")).toBeHidden();
   await page.locator("#play").click();
@@ -234,9 +234,9 @@ test("actual app blocked recovery resumes on one editing gesture or one direct P
     "data-recovery-resumes",
     "1",
   );
-  await page.locator("#studio-tools").click();
+  await page.locator('[data-studio-panel="tempo"]').click();
   await appPlaying(page);
-  await expect(page.locator("#studio-tools")).toHaveAttribute(
+  await expect(page.locator('[data-studio-panel="tempo"]')).toHaveAttribute(
     "aria-expanded",
     "true",
   );
@@ -280,7 +280,6 @@ test("actual app ignores playing intent when an incoming shared track is opened"
 }) => {
   await observeAppAudio(page);
   await page.goto("/");
-  await page.locator("#studio-tools").click();
   await page.locator("#share-track").click();
   await expect(page.locator("#share-url")).toHaveValue(/#track=/);
   const link = await page.locator("#share-url").inputValue();

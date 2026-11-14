@@ -97,11 +97,6 @@ button:active {
   height: auto;
 }
 
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
 #phone-motion[aria-pressed="true"] {
   background: #1e2227;
   color: #fff;
@@ -897,9 +892,6 @@ kbd {
   }
   .save-state {
     display: none;
-  }
-  .header-actions {
-    gap: 0;
   }
   .button {
     font-size: 9px;
@@ -1784,10 +1776,6 @@ kbd {
   flex-wrap: wrap;
   padding: 8px 12px;
 }
-.header-actions {
-  gap: 5px;
-  flex-wrap: wrap;
-}
 .share-panel {
   width: 100%;
   display: flex;
@@ -1899,12 +1887,6 @@ kbd {
   .app-header {
     padding: 7px 8px;
   }
-  .header-actions {
-    gap: 3px;
-  }
-  .header-actions .button {
-    min-height: 28px;
-  }
   .acid-controls,
   .instrument-dials,
   .keys-panel .acid-controls {
@@ -2012,15 +1994,53 @@ kbd {
 .studio-tools .scale-panel {
   background: #262626;
   color: #eee;
-  margin-bottom: 12px;
 }
-.studio-tools .header-actions {
-  justify-content: flex-end;
-  gap: 6px;
+[data-studio-section][hidden] {
+  display: none !important;
 }
-.studio-tools .save-state {
+.studio-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #888;
+}
+.studio-bar-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.studio-bar .save-state {
+  margin-left: auto;
   color: #444;
-  margin-right: auto;
+}
+.studio-button {
+  height: 30px;
+}
+.studio-button .studio-value {
+  padding-left: 7px;
+  border-left: 1px solid #0004;
+  font-weight: 500;
+}
+.studio-button[aria-expanded="true"] {
+  background: #1e2227;
+  color: #fff;
+  box-shadow: inset 1px 1px #000;
+}
+.studio-button[aria-expanded="true"] .studio-value {
+  border-left-color: #fff4;
+}
+.session-dot {
+  display: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+#session-toggle[aria-pressed="true"] .session-dot {
+  display: block;
 }
 .instrument-nav {
   position: fixed;
@@ -2149,8 +2169,41 @@ kbd {
   overscroll-behavior-y: contain;
 }
 .studio-tools .session-panel {
-  margin-top: 12px;
   border: 1px solid #777;
+}
+@media (max-width: 650px) {
+  .studio-bar {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+  .studio-bar-group {
+    display: contents;
+  }
+  .studio-bar .studio-button {
+    flex-direction: column;
+    gap: 3px;
+    height: auto;
+    min-height: 40px;
+    padding: 4px 2px;
+    font-size: 9px;
+    line-height: 1.1;
+    text-align: center;
+  }
+  .studio-bar .studio-value,
+  .studio-bar .save-state {
+    display: none;
+  }
+  .studio-bar .session-dot {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+  }
+  #session-toggle {
+    position: relative;
+  }
 }
 
 .app-header {

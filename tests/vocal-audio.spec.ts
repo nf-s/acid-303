@@ -201,9 +201,6 @@ test("WAV trim automation changes a held loop at its scheduled step, not earlier
           (_, index) => (index < 8 ? 0 : 0.4),
         );
       await prepare(page, false, project);
-      await page
-        .getByRole("button", { name: "Track controls", exact: true })
-        .click();
       await page.locator("#export").click();
       await page.waitForFunction(
         () => window.vocalAudioProbe.wav !== undefined,

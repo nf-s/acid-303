@@ -31,8 +31,8 @@ async function seed(page: Page, longDrumAutomation = false) {
     project,
   );
 }
-async function tools(page: Page) {
-  const button = page.locator("#studio-tools");
+async function studioPanel(page: Page, panel: string) {
+  const button = page.locator(`[data-studio-panel="${panel}"]`);
   if ((await button.getAttribute("aria-expanded")) !== "true")
     await button.click();
 }
@@ -77,7 +77,6 @@ test("recording writes touched cells, preserves base values, and undoes as one g
     before.bass.automation.cutoff,
   );
   expect(recorded.keys.automation).toEqual(before.keys.automation);
-  await tools(page);
   await page.locator("#global-undo").click();
   await expect
     .poll(async () => (await saved(page)).bass.automation.cutoff)
@@ -105,7 +104,7 @@ test("instrument and mixer controls record independently while global effects re
   await page.locator("#keys-width").press("End");
   await page.locator("#arp-gate").press("End");
   await page.locator("#pad-motion").press("End");
-  await page.locator("#track-mixer summary").click();
+  await page.locator('[data-studio-panel="mixer"]').click();
   await page.locator("#mixer-bass").press("Home");
   await expect
     .poll(async () => (await saved(page)).bass.automation.volume)
@@ -135,8 +134,7 @@ test("each session participant arms locally and records into the shared host clo
 }) => {
   await seed(page);
   await page.goto("/");
-  await tools(page);
-  await page.locator("#session-toggle").click();
+  await studioPanel(page, "session");
   await page
     .getByRole("button", { name: "Create session", exact: true })
     .click();
@@ -176,7 +174,7 @@ test("each session participant arms locally and records into the shared host clo
       "true",
     );
     await expect(guest.locator("#audio-status")).toHaveText("AUDIO ON HOST");
-    await tools(page);
+    await studioPanel(page, "session");
     await page
       .getByRole("button", { name: "End session", exact: true })
       .click();
@@ -190,7 +188,7 @@ test("each session participant arms locally and records into the shared host clo
       !ended &&
       (await page.locator("#session-status").textContent()) === "Hosting"
     ) {
-      await tools(page);
+      await studioPanel(page, "session");
       await page
         .getByRole("button", { name: "End session", exact: true })
         .click();
@@ -251,7 +249,6 @@ test("drum recording reaches later automation bars while keeping its one-bar rhy
   expect(kick.automation.tone?.slice(0, 16)).toEqual(
     Array(16).fill(original.tone),
   );
-  await tools(page);
   await page.locator("#global-undo").click();
   await expect
     .poll(

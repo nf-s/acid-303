@@ -23,6 +23,8 @@ const credentialsSchema = z.object({
 });
 type Credentials = z.infer<typeof credentialsSchema>;
 const storageKey = "grain-session-v1";
+/** A room that never answers is usually gone; stop retrying quickly so the page is not stuck. */
+const INITIAL_CONNECT_ATTEMPTS = 3;
 export interface SessionStatus {
   phase:
     "idle" | "connecting" | "connected" | "reconnecting" | "ended" | "error";
@@ -386,7 +388,7 @@ export class SessionClient {
         return;
       }
       this.report({
-        phase: "reconnecting",
+        phase: this.initial ? "connecting" : "reconnecting",
         hostConnected: false,
         supportsVocal: false,
         supportsVocalMusic: false,
@@ -394,7 +396,7 @@ export class SessionClient {
         supportsTension: false,
         supportsComposition: false,
         supportsVocalGain: false,
-        message: "Reconnecting…",
+        message: this.initial ? "Connecting…" : "Reconnecting…",
       });
       this.callbacks.onClock(false, 0);
       this.reconnects++;
@@ -403,6 +405,15 @@ export class SessionClient {
         this.credentials.expiresAt <= Date.now()
       ) {
         this.fail("Session expired.");
+        return;
+      }
+      if (this.initial && this.reconnects >= INITIAL_CONNECT_ATTEMPTS) {
+        this.fail(
+          this.role === "guest"
+            ? "Could not join this session. It may have ended, or the link may be wrong."
+            : "Could not reconnect to this session. It may have ended.",
+          false,
+        );
         return;
       }
       if (this.reconnects > 8 && this.credentials.expiresAt === 0) {

@@ -304,7 +304,6 @@ test("new tuned chops render measurable unclipped audio inside a drum beat", asy
       project.vocal.muted = muted;
       await probe(page);
       await load(page, project);
-      await page.locator("#studio-tools").click();
       await page.locator("#export").click();
       await page.waitForFunction(
         () => window.vocalMusicProbe.wav !== undefined,

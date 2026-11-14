@@ -65,10 +65,10 @@ async function drawNotes(page: Page, from: number, to: number, note: number) {
   await page.mouse.move(last.x, last.y, { steps: 5 });
   await page.mouse.up();
 }
-async function openControls(page: Page) {
-  const tools = page.locator("#studio-tools");
-  if ((await tools.getAttribute("aria-expanded")) !== "true")
-    await tools.click();
+async function studioPanel(page: Page, panel: string) {
+  const button = page.locator(`[data-studio-panel="${panel}"]`);
+  if ((await button.getAttribute("aria-expanded")) !== "true")
+    await button.click();
 }
 async function openVocalSounds(page: Page) {
   const knob = page.locator("#vocal-tone");
@@ -311,10 +311,8 @@ test("a recorded waveform gesture writes automation while preserving the base tr
   page,
 }) => {
   const project = await load(page);
-  await openControls(page);
   await page.locator("#record-automation").click();
   await page.locator("#play").click();
-  await page.locator("#studio-tools").click();
   const handle = page.locator("#vocal-trim-start");
   await handle.scrollIntoViewIfNeeded();
   const box = await handle.boundingBox();
@@ -420,7 +418,7 @@ test("vocal final-page keyboard notes stay bounded and follow a changed scale", 
   expect(
     (await saved(page)).vocal.notes.find((note) => note.start === 479)?.length,
   ).toBe(1);
-  await openControls(page);
+  await studioPanel(page, "scale");
   await page.getByRole("button", { name: "Root F♯", exact: true }).click();
   await page.getByRole("button", { name: "Dorian", exact: true }).click();
   await expect
@@ -437,8 +435,7 @@ test("vocal final-page keyboard notes stay bounded and follow a changed scale", 
 
 async function vocalSession(page: Page): Promise<string> {
   await load(page);
-  await openControls(page);
-  await page.getByRole("button", { name: "Session", exact: true }).click();
+  await studioPanel(page, "session");
   await page
     .getByRole("button", { name: "Create session", exact: true })
     .click();
@@ -446,7 +443,7 @@ async function vocalSession(page: Page): Promise<string> {
     timeout: 20000,
   });
   const invite = await page.locator("#session-invite-link").inputValue();
-  await page.locator("#studio-tools").click();
+  await page.locator('[data-studio-panel="session"]').click();
   return invite;
 }
 
@@ -534,7 +531,7 @@ test("two friends share vocals and a held note gesture preserves unrelated remot
     await expect(guest.locator("html")).not.toHaveAttribute(
       "data-vocal-audio-contexts",
     );
-    await openControls(page);
+    await studioPanel(page, "session");
     await page
       .getByRole("button", { name: "End session", exact: true })
       .click();
@@ -576,13 +573,10 @@ test("a missing modern host shows reconnect status without a legacy vocal warnin
     allowHostConnection = false;
     await page.context().setOffline(true);
     await hostSocket.close({ code: 1000, reason: "Test disconnect" });
-    await openControls(guest);
-    const sessionToggle = guest.locator("#session-toggle");
-    if ((await sessionToggle.getAttribute("aria-expanded")) !== "true")
-      await sessionToggle.click();
-    await expect(guest.locator("#session-host-status")).toBeVisible({
-      timeout: 20000,
-    });
+    await expect(guest.locator("#session-overlay-title")).toHaveText(
+      "Waiting for the host",
+      { timeout: 20000 },
+    );
     await expect(guest.locator("#vocal-host-capability")).toBeHidden();
     allowHostConnection = true;
     await page.context().setOffline(false);
@@ -590,9 +584,10 @@ test("a missing modern host shows reconnect status without a legacy vocal warnin
     await expect(page.locator("#session-status")).toHaveText("Hosting", {
       timeout: 20000,
     });
+    await expect(guest.locator("#session-overlay")).toBeHidden();
     await expect(guest.locator("#session-host-status")).toBeHidden();
     await expect(guest.locator("#vocal-host-capability")).toBeHidden();
-    await openControls(page);
+    await studioPanel(page, "session");
     await page
       .getByRole("button", { name: "End session", exact: true })
       .click();

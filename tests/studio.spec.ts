@@ -23,8 +23,8 @@ async function seedFactoryProject(page: Page): Promise<void> {
   }, createProject());
 }
 
-async function openTrackControls(page: Page): Promise<void> {
-  const button = page.locator("#studio-tools");
+async function openStudioPanel(page: Page, panel: string): Promise<void> {
+  const button = page.locator(`[data-studio-panel="${panel}"]`);
   if ((await button.getAttribute("aria-expanded")) !== "true")
     await button.click();
 }
@@ -170,7 +170,6 @@ test("one-tap remix preserves sound settings and Undo restores the beat", async 
 
 test("exports valid audible stereo audio", async ({ page }) => {
   await page.goto("/");
-  await openTrackControls(page);
   const downloaded = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export WAV", exact: true }).click();
   const path = await (await downloaded).path();
@@ -272,7 +271,7 @@ test("recovers from corrupted saved data", async ({ page }) => {
     localStorage.setItem("acid-303-project-v1", '{"version":1,"bpm":0}'),
   );
   await page.goto("/");
-  await openTrackControls(page);
+  await openStudioPanel(page, "tempo");
   await expect(
     page.getByRole("slider", { name: "Tempo in BPM", exact: true }),
   ).toHaveAttribute("aria-valuenow", String(createPreset("techno").bpm));
@@ -305,7 +304,7 @@ test("upgrades saved cowbell and slide patterns without losing user steps", asyn
     JSON.stringify(legacy),
   );
   await page.goto("/");
-  await openTrackControls(page);
+  await openStudioPanel(page, "tempo");
   await expect(
     page.getByRole("slider", { name: "Tempo in BPM", exact: true }),
   ).toHaveAttribute("aria-valuenow", "137");
@@ -534,8 +533,7 @@ test("scale picker locks drawing, keyboard tuning, presets and remix to the sele
   page,
 }) => {
   await page.goto("/");
-  await openTrackControls(page);
-  await openTrackControls(page);
+  await openStudioPanel(page, "scale");
   await page.getByRole("button", { name: "Root F♯", exact: true }).click();
   await page.getByRole("button", { name: "Dorian", exact: true }).click();
   await page
@@ -589,7 +587,7 @@ test("scale picker locks drawing, keyboard tuning, presets and remix to the sele
     )
     .toBe(true);
   await page.reload();
-  await openTrackControls(page);
+  await openStudioPanel(page, "scale");
   await expect(
     page.getByRole("button", { name: "Dorian", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -710,7 +708,7 @@ test("visualizer defaults on at 30%, responds silently, and pauses all grain and
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
-  await openTrackControls(page);
+  await openStudioPanel(page, "tempo");
   await page.evaluate(() => document.fonts.ready);
   const stage = page.locator("#visualizer-panel");
   await expect(stage).toHaveCSS("opacity", "0.3");
@@ -824,11 +822,11 @@ test("examples swipe horizontally and swirl changes visuals without changing the
       .evaluate((element) => element.clientHeight),
   ).toBeLessThan(125);
   await expect(page.locator("[data-preset]")).toHaveCount(PRESETS.length);
-  await openTrackControls(page);
+  await openStudioPanel(page, "tempo");
   await page
     .getByRole("slider", { name: "Master volume", exact: true })
     .press("Home");
-  await page.locator("#studio-tools").click();
+  await page.locator('[data-studio-panel="tempo"]').click();
   await openVisualizerControls(page);
   const before = await page.evaluate(() =>
     localStorage.getItem("acid-303-project-v1"),
@@ -958,11 +956,11 @@ test("visualizer palettes colour the fluid, persist locally and freeze with moti
     page.getByRole("button", { name: "Rainbow", exact: true }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
-  await openTrackControls(page);
+  await openStudioPanel(page, "tempo");
   await page
     .getByRole("slider", { name: "Master volume", exact: true })
     .press("Home");
-  await page.locator("#studio-tools").click();
+  await page.locator('[data-studio-panel="tempo"]').click();
   await page.getByRole("button", { name: "Play pattern", exact: true }).click();
   const moving = await frame();
   await expect.poll(frame).not.toBe(moving);
@@ -1292,12 +1290,10 @@ test("phone twist adjusts only held knobs and releases without opening automatio
     }),
   );
   await page.goto("/");
-  await openTrackControls(page);
   const motion = page.locator("#phone-motion");
   await motion.tap();
   await expect(motion).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Twist", exact: true }).tap();
-  await page.locator("#studio-tools").tap();
   let clock = 1000;
   const twist = async (rate: number) => {
     await page.evaluate(
@@ -1353,7 +1349,6 @@ test("phone twist adjusts only held knobs and releases without opening automatio
   await expect(page.locator("#bass-automation")).toBeHidden();
   await twist(90);
   await expect(knob).toHaveAttribute("aria-valuenow", returned ?? "");
-  await openTrackControls(page);
   await motion.tap();
   await expect(motion).toHaveAttribute("aria-pressed", "false");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
@@ -1459,7 +1454,6 @@ test("global undo and redo restore the whole track across examples and gestures"
 }) => {
   await seedFactoryProject(page);
   await page.goto("/");
-  await openTrackControls(page);
   await dragUp(page, page.locator("#cutoff"), 48);
   await expect
     .poll(async () => (await savedProject(page)).bass.cutoff)
@@ -1524,7 +1518,6 @@ test("share link loads the full track into a fresh browser context", async ({
   expect(original.pad.automation.tone).toHaveLength(
     trackStepCount(original.pad.timing),
   );
-  await openTrackControls(page);
   await page.getByRole("button", { name: "Share", exact: true }).click();
   const field = page.locator("#share-url");
   await expect(field).toBeVisible();
@@ -1539,7 +1532,7 @@ test("share link loads the full track into a fresh browser context", async ({
     "true",
   );
   await expect.poll(() => new URL(other.url()).hash).toBe("");
-  await openTrackControls(other);
+  await openStudioPanel(other, "tempo");
   await other.locator("#bpm").press("End");
   await expect.poll(async () => (await savedProject(other)).bpm).toBe(180);
   const edited = await savedProject(other);
@@ -1553,7 +1546,7 @@ test("fluid overlay reaches transport, scale, knobs and matrices", async ({
   page,
 }) => {
   await page.goto("/");
-  await openTrackControls(page);
+  await openStudioPanel(page, "scale");
   await page.evaluate(() => document.fonts.ready);
   const intensity = page.locator("#intensity");
   for (const selector of [
@@ -1581,7 +1574,6 @@ test("arpeggiator notes, order, rhythm and all eight controls persist with globa
 }) => {
   await seedFactoryProject(page);
   await page.goto("/");
-  await openTrackControls(page);
   await expect(page.locator("#arp-panel .gesture-control")).toHaveCount(8);
   await expect(
     page
@@ -1619,7 +1611,7 @@ test("arpeggiator notes, order, rhythm and all eight controls persist with globa
   await expect(
     page.getByRole("button", { name: "Played", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
-  await openTrackControls(page);
+  await openStudioPanel(page, "scale");
   await page.getByRole("button", { name: "Root F♯", exact: true }).click();
   await expect
     .poll(async () =>
@@ -1662,7 +1654,7 @@ test("shared progression length, chord edits and Pad play position work across b
   expect(before.progression.chords[1]).toEqual({ degree: 3, inversion: 2 });
   expect(before.progression.timing.bars).toBe(2);
   expect(before.pad.muted).toBe(false);
-  await openTrackControls(page);
+  await openStudioPanel(page, "tempo");
   await page.locator("#bpm").press("End");
   await page.getByRole("button", { name: "Play pattern", exact: true }).click();
   await expect
@@ -1682,14 +1674,12 @@ test("WAV export includes all eight progression bars and release tails", async (
   page,
 }) => {
   await page.goto("/");
-  await openTrackControls(page);
-  await openTrackControls(page);
+  await openStudioPanel(page, "tempo");
   await page.locator("#bpm").press("End");
   await page
     .getByRole("button", { name: "Enable chord pads", exact: true })
     .click();
   await (await openChords(page)).locator('[data-chord-bars="8"]').click();
-  await openTrackControls(page);
   const downloaded = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export WAV", exact: true }).click();
   const path = await (await downloaded).path();
@@ -2030,10 +2020,14 @@ for (const width of [320, 375]) {
       "visibility",
       "hidden",
     );
-    await openTrackControls(page);
     await expect(page.locator("#share-track")).toBeVisible();
+    const mixer = page.locator('[data-studio-panel="mixer"]');
+    await mixer.click();
+    await expect(mixer).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator("#track-mixer")).toBeVisible();
     await page.locator('[data-instrument-jump="drums-panel"]').click();
     await expect(page.locator("#studio-tools-panel")).toBeHidden();
+    await expect(mixer).toHaveAttribute("aria-expanded", "false");
     await expect(page.locator("#drums-title")).toBeInViewport();
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth),
@@ -2233,7 +2227,7 @@ test("touch page selection returns to the selected automation bar", async ({
   await automationControls.locator('[data-pattern-action="pages"]').tap();
   await automationControls.locator('[data-pattern-page="3"]').tap();
   await expect(controls.locator(".pattern-dialog")).toBeHidden();
-  await expect(page.locator(".track-mixer")).not.toHaveAttribute("open", "");
+  await expect(page.locator("#track-mixer")).toBeHidden();
   const cell = await matrixPoint(page, "arp", 0, 0.1);
   await page.touchscreen.tap(cell.x, cell.y);
   await expect
@@ -2286,9 +2280,9 @@ test("live fluid crosses timing controls and follows intensity and pause", async
   page,
 }) => {
   await page.goto("/");
-  await openTrackControls(page);
+  await openStudioPanel(page, "tempo");
   await page.locator("#volume").press("Home");
-  await page.locator("#studio-tools").click();
+  await page.locator('[data-studio-panel="tempo"]').click();
   await openVisualizerControls(page);
   await page.locator("#visualizer-colour").click();
   await page.locator('[data-visualizer-palette="rainbow"]').click();

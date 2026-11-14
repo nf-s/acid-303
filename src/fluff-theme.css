@@ -463,7 +463,6 @@
 :root[data-mode="fluff"] .pattern-setting > span,
 :root[data-mode="fluff"] .pattern-page-label,
 :root[data-mode="fluff"] .save-state,
-:root[data-mode="fluff"] .studio-tools .save-state,
 :root[data-mode="fluff"] .session-panel .session-help,
 :root[data-mode="fluff"] .visualizer-label,
 :root[data-mode="fluff"] .audio-status {
@@ -578,6 +577,41 @@
 :root[data-mode="fluff"] .session-panel .session-message {
   background: transparent;
   border-left-color: var(--fluff-ink);
+}
+:root[data-mode="fluff"] .session-overlay {
+  background: rgb(238 241 245 / 0.72);
+  font-family: inherit;
+}
+:root[data-mode="fluff"] .session-overlay-card {
+  color: var(--fluff-text);
+  background: var(--fluff-veil-solid);
+  border: 0;
+  border-radius: var(--fluff-lump-alt);
+  box-shadow: var(--fluff-halo);
+}
+:root[data-mode="fluff"] .session-overlay h2 {
+  font-family: inherit;
+}
+:root[data-mode="fluff"] .session-overlay p {
+  color: var(--fluff-muted);
+}
+:root[data-mode="fluff"] .session-overlay-spinner {
+  border-color: rgb(71 85 105 / 0.2);
+  border-top-color: var(--fluff-ink);
+}
+:root[data-mode="fluff"] .session-overlay button {
+  color: var(--fluff-text);
+  background: var(--fluff-mist);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: var(--fluff-lift);
+}
+:root[data-mode="fluff"] .session-overlay .session-overlay-primary {
+  background: var(--fluff-active);
+  box-shadow: inset 0 0 0 1.5px var(--fluff-active-edge);
+}
+:root[data-mode="fluff"] .session-overlay button:focus-visible {
+  outline-color: var(--fluff-focus);
 }
 :root[data-mode="fluff"] .motion-options {
   color: var(--fluff-text);
@@ -712,7 +746,6 @@
 }
 :root[data-mode="fluff"]
   :is(
-    .track-mixer,
     .chords-disclosure,
     .progression-presets,
     .instrument-section,
@@ -737,7 +770,6 @@
 }
 :root[data-mode="fluff"]
   :is(
-    .track-mixer,
     .chords-disclosure,
     .progression-presets,
     .instrument-section,
@@ -752,9 +784,6 @@
 }
 :root[data-mode="fluff"] .instrument-section > summary {
   margin: 4px 0 8px;
-}
-:root[data-mode="fluff"] .track-mixer {
-  margin-top: 12px;
 }
 /* Chords is its own soft panel, so its toggle is not left floating between shapes. */
 :root[data-mode="fluff"] .chords-disclosure {

@@ -47,11 +47,7 @@ async function start(page: Page): Promise<Project> {
 }
 
 async function globalHistory(page: Page, direction: "undo" | "redo") {
-  const tools = page.locator("#studio-tools");
-  if ((await tools.getAttribute("aria-expanded")) !== "true")
-    await tools.click();
   await page.locator(`#global-${direction}`).click();
-  await tools.click();
 }
 
 async function openChords(page: Page): Promise<Locator> {
