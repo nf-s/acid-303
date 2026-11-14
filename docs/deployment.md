@@ -45,3 +45,24 @@ Worker requests, Durable Object messages and SQLite snapshot writes; review
 changing or publishing those paths.
 
 Reference: [Pages Direct Upload](https://developers.cloudflare.com/pages/get-started/direct-upload/).
+
+## Web Analytics
+
+Cloudflare Pages native Web Analytics is enabled for this project. Do not add a
+manual beacon script: Pages injects one during deployment. The public CSP in
+`public/_headers` permits `https://static.cloudflareinsights.com` for scripts and
+`https://cloudflareinsights.com` for analytics connections; retain the other
+security directives.
+
+Keep the project's `build_config.web_analytics_tag` and
+`build_config.web_analytics_token` settings intact during releases. Upload from a
+config-free staging directory containing only the approved built assets when
+Wrangler config discovery could override those settings. Read the project back
+after upload and verify one injected beacon, a successful beacon script GET
+(200), and an analytics POST to `/cdn-cgi/rum` (204) in a fresh browser context.
+Analytics does not require sign-in or change local pattern/audio storage.
+
+The analytics-only release on 7 November 2026 used an isolated build of commit
+`0e7bcbe`, verified byte-for-byte against the prior live assets before deployment.
+Only CSP allowances and native analytics injection changed in production; the
+concurrent local visual redesign was not included.
