@@ -83,6 +83,7 @@ import { diffProject } from "./session-protocol";
 import "./session.css";
 import "./instrument-automation.css";
 import { AudioEngine } from "./audio";
+import { installCancelAndHold } from "./audio-param-hold";
 import { FluidVisualizer } from "./visualizer";
 import { FluffWordmarkMotion } from "./fluff-wordmark-motion";
 import { setThemePalette } from "./canvas-theme";
@@ -1527,6 +1528,7 @@ function showFrame(frame: PlaybackFrame): void {
 function showStep(step: number, absoluteStep: number): void {
   showFrame(playbackFrame(project, absoluteStep * 6, step >= 0));
 }
+installCancelAndHold();
 const engine = new AudioEngine((_step, _absoluteStep, frame) => {
   showFrame(frame);
   sessionClient?.clock(frame.playing, frame.absoluteTick);
