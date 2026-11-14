@@ -9,6 +9,7 @@ import { resizeBassAutomation, resizeDrumAutomation } from "./model";
 import { resizeCloudTrack } from "./cloud-model";
 import { resizeTensionTrack } from "./tension-model";
 import { resizeVocalAutomation } from "./vocal-model";
+import { progressionChordSchema } from "./progression-model";
 import {
   applyProjectChanges,
   clientMessageSchema,
@@ -639,5 +640,58 @@ describe("vocal gain compatibility", () => {
         7,
       )?.vocal.gain,
     ).toBe(0.9);
+  });
+});
+
+describe("chord colour compatibility", () => {
+  /** The chord shape the deployed Worker validates: unknown keys are stripped. */
+  const previousChord = progressionChordSchema.pick({
+    degree: true,
+    inversion: true,
+  });
+  it("sends a new colour as a whole-chord replacement that the previous Worker strips", () => {
+    const before = createProject();
+    const after = structuredClone(before);
+    const edited = after.progression.chords[1];
+    if (!edited) throw new Error("Missing chord.");
+    edited.quality = "ninth";
+    edited.borrow = "major";
+    const changes = diffProject(before, after);
+    expect(changes).toEqual([
+      { path: ["progression", "chords", 1], value: edited },
+    ]);
+    // The current schema keeps the colour.
+    expect(
+      applySessionProjectChanges(before, changes, 7)?.progression.chords[1],
+    ).toEqual(edited);
+    // The previous Worker accepts the path and stores the plain chord, which
+    // every peer then receives, so the edit reverts without an error or desync.
+    const stored = applyProjectChanges(before, changes);
+    expect(previousChord.parse(stored?.progression.chords[1])).toEqual(
+      before.progression.chords[1],
+    );
+    // A field-level path to a key the stored chord lacks would be rejected.
+    expect(
+      applyProjectChanges(before, [
+        { path: ["progression", "chords", 1, "quality"], value: "ninth" },
+      ]),
+    ).toBeNull();
+  });
+  it("returns a coloured chord to the plain seventh by replacing it", () => {
+    const before = createProject();
+    const chord = before.progression.chords[0];
+    if (!chord) throw new Error("Missing chord.");
+    chord.quality = "sus2";
+    const after = structuredClone(before);
+    const edited = after.progression.chords[0];
+    if (!edited) throw new Error("Missing chord.");
+    delete edited.quality;
+    const changes = diffProject(before, after);
+    expect(changes).toEqual([
+      { path: ["progression", "chords", 0], value: edited },
+    ]);
+    expect(
+      applySessionProjectChanges(before, changes, 7)?.progression.chords[0],
+    ).toEqual(edited);
   });
 });

@@ -23,8 +23,9 @@ import {
   progressionChordLabel,
   progressionChordNotes,
 } from "./progression-model";
-import type { Progression } from "./progression-model";
+import type { PreviewChord, Progression } from "./progression-model";
 import { createChordEditor } from "./progression-panel";
+import type { ChordPreviewKind } from "./progression-panel";
 
 const controlLabels: ReadonlyArray<{ parameter: PadParameter; label: string }> =
   [
@@ -50,6 +51,7 @@ interface PadPanelOptions {
   getProgression: () => Progression;
   onProgressionEdit: () => void;
   onChange: () => void;
+  onPreview?: (chords: PreviewChord[], kind: ChordPreviewKind) => void;
   renderControl: (
     id: string,
     label: string,
@@ -93,6 +95,7 @@ export function createPadPanel(
     getProgression: options.getTrack,
     getScale: options.getScale,
     getMuted: () => options.getTrack().muted,
+    onPreview: options.onPreview,
     onChange: () => {
       render();
       options.onChange();

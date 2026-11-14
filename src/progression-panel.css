@@ -31,7 +31,10 @@
 }
 .progression-timing > div,
 .progression-degrees,
-.progression-inversions {
+.progression-inversions,
+.progression-qualities,
+.progression-borrows,
+.progression-groups {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
@@ -56,11 +59,54 @@
   padding: 8px 0;
   font-size: 11px;
 }
+.progression-library-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
 .progression-options {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 5px;
   padding: 4px 0;
+}
+.progression-option {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+.progression-editor .progression-audition {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  padding: 0;
+}
+.progression-audition svg {
+  width: 12px;
+  height: 12px;
+}
+.progression-option [data-chord-progression] {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+}
+.progression-option strong,
+.progression-option small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.progression-option strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+.progression-option small {
+  margin-top: 3px;
+  font-size: 9px;
+  opacity: 0.75;
 }
 .progression-composition {
   display: grid;
@@ -123,6 +169,8 @@
   color: #b5b9be;
   font-size: 10px;
 }
+.progression-edit-group[hidden],
+.progression-borrows button[hidden],
 .follow-chord-context[hidden],
 .follow-chord-controls button[hidden],
 .progression-editor[hidden],
@@ -148,9 +196,11 @@
   }
 }
 @media (max-width: 520px) {
-  .progression-cards,
-  .progression-options {
+  .progression-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .progression-options {
+    grid-template-columns: minmax(0, 1fr);
   }
   .progression-cards button {
     min-height: 100px;

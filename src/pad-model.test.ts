@@ -163,13 +163,16 @@ describe("chord progression model", () => {
     expect(padChordAtStep(createPad(), NaN)).toBe(-1);
   });
 
-  it("keeps all inversions of all progressions inside the chosen scale", () => {
+  it("keeps all inversions of the diatonic seventh progressions inside the chosen scale", () => {
     for (const mode of SCALE_MODES)
       for (let root = 0; root < 12; root++) {
         const scale = { root, mode: mode.id };
         const allowed = scaleNotes(scale, 24, 96);
         const pad = createPad();
-        for (const progression of PAD_PROGRESSIONS) {
+        // Coloured and borrowed library entries are covered in progression-library.test.ts.
+        for (const progression of PAD_PROGRESSIONS.filter((entry) =>
+          entry.chords.every((chord) => !chord.quality && !chord.borrow),
+        )) {
           expect(applyPadProgression(pad, progression.id, scale)).toBe(true);
           for (let slot = 0; slot < 4; slot++)
             for (let inversion = 0; inversion < 4; inversion++) {

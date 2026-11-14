@@ -1651,6 +1651,7 @@ test("shared progression length, chord edits and Pad play position work across b
   const chords = await openChords(page);
   await chords.locator('[data-chord-bars="2"]').click();
   await chords.locator(".progression-presets summary").click();
+  await chords.locator('[data-progression-group="Melancholy"]').click();
   await chords.locator('[data-chord-progression="descent"]').click();
   await chords.locator('[data-chord-slot="1"]').click();
   await chords.locator('[data-chord-degree="3"]').click();
@@ -2040,7 +2041,7 @@ for (const width of [320, 375]) {
   });
 }
 
-test("phone shared progression choices stay inline with descriptions and close on selection", async ({
+test("phone shared progression choices stay inline with chord names and stay open for comparison", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
@@ -2048,13 +2049,18 @@ test("phone shared progression choices stay inline with descriptions and close o
   const chords = await openChords(page);
   const picker = chords.locator(".progression-presets");
   await picker.locator("summary").click();
+  await picker.locator('[data-progression-group="Melancholy"]').click();
   const choice = picker.locator('[data-chord-progression="descent"]');
-  await expect(choice).toHaveAttribute("title", /.+/);
+  await expect(choice).toHaveAttribute("aria-label", /^Use .+ · .+/);
+  await expect(choice.locator("strong")).toHaveText(/ · /);
   const bounds = await picker.boundingBox();
   if (!bounds) throw new Error("Progression choices missing.");
   expect(bounds.x).toBeGreaterThanOrEqual(0);
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(375);
   await choice.click();
+  await expect(choice).toHaveAttribute("aria-pressed", "true");
+  await expect(picker).toHaveAttribute("open", "");
+  await page.keyboard.press("Escape");
   await expect(picker).not.toHaveAttribute("open");
   expect(
     (await savedProject(page)).progression.chords.map((chord) => chord.degree),

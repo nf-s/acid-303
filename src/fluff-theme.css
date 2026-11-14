@@ -243,6 +243,7 @@
 }
 :root[data-mode="fluff"] .workspace .preset-options button,
 :root[data-mode="fluff"] .workspace .progression-cards button,
+:root[data-mode="fluff"] .workspace .progression-option button,
 :root[data-mode="fluff"] .workspace .pad-chords button {
   border-radius: var(--fluff-lump-small);
 }

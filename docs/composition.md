@@ -53,12 +53,42 @@ write with stale dimensions.
 2, 4, 8 or 16-bar timing. It produces no sound by itself. Pad, Arp and Vocal can
 follow it; the other instruments retain their authored pitches.
 
+Each slot may also carry `quality` and `borrow`. Both are optional; an absent
+`quality` is the original stacked diatonic seventh, so every existing project,
+example and link keeps its exact data and sound. `chordNotes` builds Triad, 7th,
+9th and Add9 by stacking scale thirds (in the borrowed scale when set), and Sus2,
+Sus4 and Power from exact intervals (0-2-7, 0-5-7, 0-7-12). Inversions rotate the
+lowest note up as before and are limited to the chord size (Power has none); the
+voicing stays at or below B5. `borrow` builds the chord from the parallel mode on
+the same tonic, ignored in Pentatonic. `chordLabel` names the result (Fm9, Csus2,
+A♭add9, B♭5, Bm7♭5, Em7♭9); a root lowered by borrowing is spelled as a flat,
+other names keep the app's sharps. `chordNumeral` gives the roman numeral against
+the project scale: lower case for minor, ° for diminished, ♭/♯ for a borrowed root.
+
+`CHORD_PROGRESSIONS` is the library: 60 entries, each written in one scale with
+optional per-chord type and borrowing, grouped by feel. The first eight keep the
+ids and exact chords used by the Grain examples. `progressionEntryChords` turns
+an entry into stored chords for the current key: it adds borrowing only where the
+scale would otherwise change a chord, and chooses inversions (unless the entry
+fixes them) by starting in root position, moving each next chord the least, and
+reusing a repeated chord's voicing. The panel lists an entry in every scale where
+it produces the same chords as written (all entries in Pentatonic), and marks the
+entry matching the current chords, ignoring inversions.
+
+Chord previews do not touch the project or history. `AudioEngine.previewChords`
+plays a short filtered saw/triangle (Grain) or sine/triangle (Fluff) voice with
+the root in the C2–B2 octave into the master bus: about 1.3 s for one chord, or a
+sequence two beats apart (0.55–1 s) for an audition. While the transport runs it
+plays at half level and leaves the instruments untouched; choosing a progression
+plays it only while stopped. Guests and blocked sessions do not preview. WAV
+export renders a separate offline engine and never includes previews.
+
 - **Pad:** Follow chords is on by default. Chords begin and end at the shared
   progression boundaries. Pad's instrument timing and automation length remain
   independent. Turning Follow chords off restores its saved local chord cards
   and local chord duration.
 - **Arp:** Follow chords is off by default. When enabled, each onset reads the
-  active chord's voicing instead of the saved selected-note pool. The register
+  active chord's voicing (three to five notes, depending on Type) instead of the saved selected-note pool. The register
   stays near the lowest saved note, within the existing base note range.
   Direction, Played order, rate, octave count, gates, accents and random seed
   retain their behavior. The saved note pool is preserved for switching back.
@@ -67,8 +97,10 @@ follow it; the other instruments retain their authored pitches.
   active root. This keeps the first chord's authored pitch unchanged and
   preserves scale membership, bounded to C2–C6. The shifted pitch is held for
   that note's duration; subsequent chord changes do not bend an already playing
-  sample. Chord inversion does not change the root shift. This transposes the
-  recording as a whole, not individual notes inside a sung phrase.
+  sample. Chord inversion does not change the root shift. Over a borrowed chord
+  the note moves through, and snaps to, the scale it borrows from, so it stays a
+  chord or scale tone of that chord. This transposes the recording as a whole,
+  not individual notes inside a sung phrase.
 
 Straight grids retain swing; explicit triplet grids remain evenly spaced.
 Pad chord boundaries and Pad automation can use different grids. Its scheduler
@@ -121,6 +153,14 @@ or URL-sharing service's own length limit.
 
 Model tests cover linked and independent resizing, migration, shared chord
 selection, scale-degree shifts, recording phase and bounded export cycles.
+`src/progression-library.test.ts` compares plain chords against the previous
+voicing and label code in every key and scale, checks every Type and Borrow in
+several keys, and applies every library entry in every scale.
+`tests/chord-preview.spec.ts` observes preview oscillators and the master
+analyser in both modes, stopped and playing, and checks the saved project and
+Undo are unchanged, colour persistence through Undo, reload and links, library
+audition and apply, phone widths, and that export ignores previews while colours
+change the rendered audio.
 `tests/composition-audio.spec.ts` renders an eight-bar automation curve over a
 one-bar bass sequence, compares followed/local Pad audio, checks both directions
 of swung/triplet chord scheduling, verifies held Vocal pitch, and exercises the

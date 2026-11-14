@@ -1,6 +1,7 @@
 import { customSampleSchema } from "./custom-sample-schema";
 import {
   progressionChordAtTick,
+  progressionChordScale,
   progressionScaleDegrees,
 } from "./progression-model";
 import type { Progression } from "./progression-model";
@@ -464,16 +465,20 @@ export function vocalProgressionNote(
 ): number {
   const count = progressionScaleDegrees(scale).length;
   const first = progression.chords[0]?.degree ?? 0;
-  const active =
-    progression.chords[progressionChordAtTick(progression, absoluteTick, swing)]
-      ?.degree ?? first;
+  const chord =
+    progression.chords[
+      progressionChordAtTick(progression, absoluteTick, swing)
+    ];
+  const active = chord?.degree ?? first;
   const shift = (active % count) - (first % count);
-  const notes = scaleNotes(scale, 0, 127);
-  const original = snapNote(note, scale, 36, 84);
+  // A borrowed chord moves the note through the scale it borrows from.
+  const harmony = chord ? progressionChordScale(chord, scale) : scale;
+  const notes = scaleNotes(harmony, 0, 127);
+  const original = snapNote(note, harmony, 36, 84);
   const index = notes.indexOf(original);
   return snapNote(
     notes[Math.max(0, Math.min(notes.length - 1, index + shift))] ?? original,
-    scale,
+    harmony,
     36,
     84,
   );
