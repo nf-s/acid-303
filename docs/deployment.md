@@ -99,3 +99,19 @@ are present, playback starts and the console shows no errors. Before release,
 400 unit tests and 170 end-to-end tests passed; the last merge after that run
 changed only documentation, `public/_headers` and the Worker config. The session
 Worker was not redeployed, so chord types fall back to sevenths in live sessions.
+
+## Firefox playback fix release
+
+Published 14 November 2026 from commit `25ce758` as deployment
+https://6a541b6d.acid-303.pages.dev. `dist/` (114 files, 2 new) was uploaded with
+the already-authenticated Wrangler 4.158.0 from a config-free staging directory.
+
+Firefox has no `AudioParam.cancelAndHoldAtTime`, so Play failed with "Audio could
+not start" while the effects chain was built. `src/audio-param-hold.ts` now
+installs a polyfill before the audio engine is created; browsers with the native
+method are unchanged. Read-back on the canonical origin: the served
+`index-B9RzIK9y.js` matches the local build, the CSP header is present and there
+is one analytics beacon. In Playwright Firefox 159 and Chrome, Grain and Fluff
+playback started, stop and replay worked, output reached the destination and the
+console showed no errors. Before release, 4,341 unit tests passed. The session
+Worker was not redeployed.
