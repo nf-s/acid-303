@@ -45,3 +45,42 @@ Worker requests, Durable Object messages and SQLite snapshot writes; review
 changing or publishing those paths.
 
 Reference: [Pages Direct Upload](https://developers.cloudflare.com/pages/get-started/direct-upload/).
+
+## Web Analytics
+
+Cloudflare Pages native Web Analytics is enabled for this project. Do not add a
+manual beacon script: Pages injects one during deployment. The public CSP in
+`public/_headers` permits `https://static.cloudflareinsights.com` for scripts and
+`https://cloudflareinsights.com` for analytics connections; retain the other
+security directives.
+
+Keep the project's `build_config.web_analytics_tag` and
+`build_config.web_analytics_token` settings intact during releases. Upload from a
+config-free staging directory containing only the approved built assets when
+Wrangler config discovery could override those settings. Read the project back
+after upload and verify one injected beacon, a successful beacon script GET
+(200), and an analytics POST to `/cdn-cgi/rum` (204) in a fresh browser context.
+Analytics does not require sign-in or change local pattern/audio storage.
+
+The analytics-only release on 7 November 2026 used an isolated build of commit
+`0e7bcbe`, verified byte-for-byte against the prior live assets before deployment.
+Only CSP allowances and native analytics injection changed in production; the
+concurrent local visual redesign was not included.
+
+## Session screen and tool row release
+
+Published 14 November 2026 at 04:15:48 UTC from commit `86e6f0a` as deployment
+`76e3744c-7e82-4c53-9abc-bc91e0333cae` (https://76e3744c.acid-303.pages.dev).
+`cf` exposes Pages publishing only as the raw API, so `dist/` was uploaded with an
+already-authenticated Wrangler 4.160.1 from a config-free staging directory.
+114 files; 3 were new. JavaScript `index-D3hfqQ3V.js` served from the canonical
+and immutable URLs matched the local build (SHA-256 prefix `69c1a572fe1b99a6`).
+
+Read-back: the analytics tag and token settings remain set; the canonical page
+has one beacon, the beacon script returns 200, and the CSP matches
+`public/_headers`. A deep route returns 200. Before release, 4,278 unit tests
+passed. On the canonical origin, a host created a session, a guest joined with the
+studio switch disabled, the host's switch to Fluff reached the guest with the same
+track (134 BPM), ending showed "Session ended" on both sides and Continue solo
+restored editing. An invite to a missing room showed "Can't connect to session"
+within five seconds and Leave session cleared it. The test room was ended.

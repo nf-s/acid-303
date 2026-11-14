@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => ({
     entrypoint: "src/index.ts",
     compatibilityDate: "2026-11-07",
     compatibilityFlags: ["nodejs_compat"],
+    previewUrls: false,
     exports: {
       SessionRoom: exports.durableObject({ storage: "sqlite" }),
       SampleStore: exports.durableObject({ storage: "sqlite" }),
