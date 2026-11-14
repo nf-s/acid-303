@@ -263,7 +263,6 @@ test("chord edits are previewed, and a new colour survives undo, reload and a sh
     .poll(async () => (await savedProject(page, "grain")).progression.chords[1])
     .toEqual(edited);
 
-  await page.locator("#studio-tools").click();
   await page.locator("#global-undo").click();
   await expect
     .poll(async () => (await savedProject(page, "grain")).progression.chords[1])
@@ -281,7 +280,6 @@ test("chord edits are previewed, and a new colour survives undo, reload and a sh
     (await openChords(page)).locator('[data-chord-slot="1"] strong'),
   ).toHaveText("Fmaj9");
 
-  await page.locator("#studio-tools").click();
   await page.locator("#share-track").click();
   await expect(page.locator("#share-url")).toHaveValue(/#track=v1\./);
   const link = await page.locator("#share-url").inputValue();
@@ -345,12 +343,10 @@ test("progression library auditions without editing, applies with undo and picks
   await expect(library).toHaveAttribute("open", "");
   await expect(apply).toBeFocused();
 
-  await page.locator("#studio-tools").click();
   await page.locator("#global-undo").click();
   await expect
     .poll(async () => (await savedProject(page, "grain")).progression.chords)
     .toEqual(project.progression.chords);
-  await page.locator("#studio-tools").click();
 
   await library.locator('[data-progression-group="Deep"]').click();
   await library.locator("[data-progression-random]").click();
@@ -417,11 +413,9 @@ test("previews never reach the WAV export, and colours change the exported audio
   await prepare(page, "fluff");
   const chords = await openChords(page);
   const exportWav = async () => {
-    await page.locator("#studio-tools").click();
     const downloaded = page.waitForEvent("download");
     await page.getByRole("button", { name: "Export WAV", exact: true }).click();
     const path = await (await downloaded).path();
-    await page.locator("#studio-tools").click();
     if (!path) throw new Error("Missing export.");
     return readFile(path);
   };
