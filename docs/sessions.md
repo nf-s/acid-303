@@ -417,8 +417,8 @@ reported `mode: "fluff"` and `bass.family: "grain"`. The host ended the room at
 
 Before release: 32 workerd tests, strict typechecking, generated binding types,
 production build and dry-run passed; the frontend passed 4,274 unit tests and
-the updated browser specs. The Pages client with the connection screen and tool
-row is not yet deployed.
+the updated browser specs. The matching Pages client went live the same day; see
+[the Pages release](deployment.md#session-screen-and-tool-row-release).
 
 ## Protocol v7 production release evidence
 
