@@ -37,9 +37,8 @@ switch disabled and follow the host's mode with the rest of the shared project.
 In a session the host's switch revoices the shared track instead of opening the
 other mode's locally saved project. The Worker rejects guest patches that change
 `mode` with `invalid-patch`; the client also keeps the current mode when a
-guest uses Undo or Redo. The deployed Worker predates this check and the
-`mode` field (see [Fluff](fluff.md#verification-and-limits)), so the rule is enforced
-server-side only after the next Worker deployment.
+guest uses Undo or Redo. The Worker has enforced this, and carried `mode` and
+per-track `family`, since the [host-only mode release](#host-only-mode-production-release-evidence).
 
 ## Data and authentication
 
@@ -386,6 +385,40 @@ token logs. Workers Logs currently includes 200,000 events/day on Free and
 releases after 1 December 2026, when the published pricing changes. Inspect DO
 request/duration, SQLite rows, stored bytes and sampled errors after launch.
 See [Workers Logs pricing](https://developers.cloudflare.com/workers/observability/logs/workers-logs/#pricing).
+
+## Host-only mode production release evidence
+
+Worker version `fe279eb4-7ae9-40c3-bd3e-9411c13e66c6` was published on
+14 November 2026 at 03:47:23 UTC from commit `6d771c8`, in deployment
+`7a5b4417-bd11-4235-bfe8-f3e6e954d6b8` at 100%. It also ships the shared
+schema changes since protocol v7: project `mode` (default Grain) and optional
+per-track `family`. Both are additive, so the wire protocol stays v7.
+
+- Module: 452,958 bytes, SHA-256
+  `677c35340e1ba6bd30448f0f329dc321d92e8138f6841d6dbbd0b0970b63b95d`; the
+  downloaded `index.js` matches the local build byte-for-byte.
+- Namespaces `ffe237d4fde14ba99780aa4f28eb4bec` (SessionRoom) and
+  `f368b26b743f4b3393c20bdd93f866bd` (SampleStore), the five rate limits,
+  origin, localhost denial, compatibility settings and 10% logs / 1% traces are
+  unchanged.
+- `cf deploy` always runs strict and refuses a Worker last uploaded through the
+  script API when non-interactive; an interactive terminal asks to confirm
+  instead. That deploy enabled Preview URLs by default; they were disabled again
+  through the API and `previewUrls: false` is now set in `cloudflare.config.ts`.
+  The workers.dev route stayed enabled.
+
+`/health` returned 200. Creation from the canonical origin passed the origin
+check; localhost, other and missing origins returned 403. One test room was
+created at 03:49:02.412 UTC. A guest `mode` patch received `invalid-patch`
+("Only the host can change the studio"); the host's `mode` and `bass` (with
+`family`) patch reached the guest as revision 1, and the guest's snapshot
+reported `mode: "fluff"` and `bass.family: "grain"`. The host ended the room at
+03:49:02.898 UTC; a guest reconnect was refused. No test room remains active.
+
+Before release: 32 workerd tests, strict typechecking, generated binding types,
+production build and dry-run passed; the frontend passed 4,274 unit tests and
+the updated browser specs. The Pages client with the connection screen and tool
+row is not yet deployed.
 
 ## Protocol v7 production release evidence
 
