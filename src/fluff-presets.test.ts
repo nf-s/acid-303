@@ -40,10 +40,10 @@ function leadOnsetsPerBar(project: Project): number[] {
 }
 
 describe("Fluff examples", () => {
-  it("offers twelve distinctly named genres with Cotton first", () => {
-    expect(FLUFF_PRESETS).toHaveLength(12);
-    expect(new Set(FLUFF_PRESETS.map((preset) => preset.name)).size).toBe(12);
-    expect(new Set(FLUFF_PRESETS.map((preset) => preset.genre)).size).toBe(12);
+  it("offers seventeen distinctly named genres with Cotton first", () => {
+    expect(FLUFF_PRESETS).toHaveLength(17);
+    expect(new Set(FLUFF_PRESETS.map((preset) => preset.name)).size).toBe(17);
+    expect(new Set(FLUFF_PRESETS.map((preset) => preset.genre)).size).toBe(17);
     expect(defaultPresetId("fluff")).toBe("fluff-cotton");
     expect(presetsForMode("fluff").map((preset) => preset.id)).toEqual(ids);
   });

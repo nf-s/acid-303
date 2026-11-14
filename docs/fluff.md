@@ -93,22 +93,27 @@ Working reference distilled from producer tutorials and genre breakdowns; the va
 
 ## Examples
 
-`src/fluff-presets.ts` defines twelve tracks in a compact notation (sixteen cells per bar for drums, scale-degree tokens for notes, `[bar, value]` points for automation) and builds validated projects from them. Every track has an 8-bar bassline, seventh chords from the shared progression changing every two or four bars, and a 16-bar automation loop (filters, tone, decay, sends, or a part entering at bar 9) whose curves ease back by the loop point. In the 16-bar progressions each bass bar sounds under two chords, so one bass note gives a second colour (A♭maj7 over F is Fm9). Hooks are one- or two-bar motifs that repeat and change only their answer; leads play at most five notes a bar and sit above the arp's register.
+`src/fluff-presets.ts` defines seventeen tracks in a compact notation (sixteen cells per bar for drums, scale-degree tokens for notes, `[bar, value]` points for automation) and builds validated projects from them. Every track has an 8-bar bassline, seventh chords from the shared progression changing every two or four bars, and a 16-bar automation loop (filters, tone, decay, sends, or a part entering at bar 9) whose curves ease back by the loop point. In the 16-bar progressions each bass bar sounds under two chords, so one bass note gives a second colour (A♭maj7 over F is Fm9). Hooks are one- or two-bar motifs that repeat and change only their answer; leads play at most five notes a bar and sit above the arp's register.
 
-| Track       | Genre               | BPM | Key        | Chords (bars per loop)     | Automated                          | Pump |
-| ----------- | ------------------- | --- | ---------- | -------------------------- | ---------------------------------- | ---- |
-| Cotton      | Progressive house   | 125 | F minor    | i7–VImaj7–IIImaj7–VII7, 16 | bass cutoff, pluck tone, pad tone  | 0.70 |
-| Skylark     | Progressive trance  | 134 | C♯ minor   | i7–VII7–VImaj7–v7, 16      | bass cutoff, lead tone, arp decay  | 0.70 |
-| Halflight   | Melodic house       | 122 | A Dorian   | i7–VIImaj7–IIImaj7–IV7, 16 | bass cutoff, arp decay and tone    | 0.30 |
-| Tidepool    | Melodic breaks      | 132 | D minor    | i7–iv7–VImaj7–v7, 16       | Reese cutoff, arp decay, choir     | 0.20 |
-| Hush        | Lo-fi house         | 122 | E♭ Dorian  | i7–IV7–IIImaj7–VIImaj7, 16 | bass cutoff, keys tone, vocal hall | 0.25 |
-| Kite String | Future bass         | 150 | E major    | IVmaj7–vi7–V7–I/3, 8       | supersaw tone, bell tone           | 0.85 |
-| Hoshi       | Vocaloid trance pop | 168 | D major    | IVmaj7–V7–iii7–vi7, 8      | bass cutoff, voice tone, arp decay | 0.40 |
-| Glasshouse  | Melodic progressive | 126 | E minor    | i7–VImaj7–iv7–VII7, 16     | riff tone and decay, pad level     | 0.40 |
-| Night Swim  | UK garage           | 132 | G minor    | i7–VImaj7–iv7–v7, 16       | bass cutoff, organ tone            | 0.20 |
-| Overpass    | Fast trance         | 142 | B minor    | i7–VImaj7–VII7–iv7, 16     | bass cutoff, lead tone, arp enters | 0.50 |
-| Low Sun     | Deep house          | 122 | C minor    | i7–iv7–VImaj7–VII7, 16     | bass cutoff, keys tone and hall    | 0.30 |
-| Undertone   | Dark melodic house  | 124 | G Phrygian | i7–IImaj7–iv7–IImaj7, 16   | growl cutoff, lead tone, choir     | 0.65 |
+| Track       | Genre               | BPM | Key        | Chords (bars per loop)     | Automated                           | Pump |
+| ----------- | ------------------- | --- | ---------- | -------------------------- | ----------------------------------- | ---- |
+| Cotton      | Progressive house   | 125 | F minor    | i7–VImaj7–IIImaj7–VII7, 16 | bass cutoff, pluck tone, pad tone   | 0.70 |
+| Skylark     | Progressive trance  | 134 | C♯ minor   | i7–VII7–VImaj7–v7, 16      | bass cutoff, lead tone, arp decay   | 0.70 |
+| Halflight   | Melodic house       | 122 | A Dorian   | i7–VIImaj7–IIImaj7–IV7, 16 | bass cutoff, arp decay and tone     | 0.30 |
+| Tidepool    | Melodic breaks      | 132 | D minor    | i7–iv7–VImaj7–v7, 16       | Reese cutoff, arp decay, choir      | 0.20 |
+| Hush        | Lo-fi house         | 122 | E♭ Dorian  | i7–IV7–IIImaj7–VIImaj7, 16 | bass cutoff, keys tone, vocal hall  | 0.25 |
+| Kite String | Future bass         | 150 | E major    | IVmaj7–vi7–V7–I/3, 8       | supersaw tone, bell tone            | 0.85 |
+| Hoshi       | Vocaloid trance pop | 168 | D major    | IVmaj7–V7–iii7–vi7, 8      | bass cutoff, voice tone, arp decay  | 0.40 |
+| Glasshouse  | Melodic progressive | 126 | E minor    | i7–VImaj7–iv7–VII7, 16     | riff tone and decay, pad level      | 0.40 |
+| Night Swim  | UK garage           | 132 | G minor    | i7–VImaj7–iv7–v7, 16       | bass cutoff, organ tone             | 0.20 |
+| Overpass    | Fast trance         | 142 | B minor    | i7–VImaj7–VII7–iv7, 16     | bass cutoff, lead tone, arp enters  | 0.50 |
+| Low Sun     | Deep house          | 122 | C minor    | i7–iv7–VImaj7–VII7, 16     | bass cutoff, keys tone and hall     | 0.30 |
+| Undertone   | Dark melodic house  | 124 | G Phrygian | i7–IImaj7–iv7–IImaj7, 16   | growl cutoff, lead tone, choir      | 0.65 |
+| Sodium      | UK breaks           | 136 | F♯ minor   | i7–iv7–VImaj7–VII7, 16     | bass cutoff, poly tone, hall clap   | 0.25 |
+| Slow Turn   | Hypnotic house      | 122 | B♭ minor   | i7–VImaj7–i7–iv7, 16       | pluck tone and decay, congas enter  | 0.35 |
+| Brickwork   | Lo-fi rave          | 140 | A minor    | i7–VImaj7–iv7–v7, 16       | bass cutoff, organ tone, keys enter | 0.75 |
+| Late Bus    | 2-step house        | 132 | F Dorian   | i7–IV7–VIImaj7–v7, 16      | bass cutoff, keys tone, bell        | 0.30 |
+| Parallax    | Melodic techno      | 126 | A♭ minor   | i7–VImaj7–IIImaj7–VII7, 16 | pad tone and shape, arp swell       | 0.45 |
 
 ## Look
 
@@ -123,7 +128,7 @@ Both modes lay one visualizer canvas over the whole page (fixed, full screen, no
 
 ## Verification and limits
 
-- `src/fluff-presets.test.ts` checks that all twelve tracks build, validate, stay in key and have 8-bar basslines and 8- or 16-bar chord loops, that leads play at most five notes a bar (4.5 on average), and that every track has a moving 16-bar automation curve whose non-volume lanes end where they start. The examples were rendered whole (the full 16-bar loop) and part by part and compared with measurements of reference club tracks: peaks −3.8 to −6.0 dBFS without clipping, integrated loudness −15.0 to −17.1 LUFS, crest factor 10.7–13.9 dB, 120–300 Hz at −7.4 to −12.8 dB (Undertone −15.9), 2–5 kHz at −18.7 to −24.1 dB, 5–8 kHz at −18.3 to −23 dB, 8 kHz and up at −20.5 to −24.6 dB (Hush's dusty hats −33.7), side/mid above 2 kHz −6.8 to −11.1 dB while below 150 Hz stays mono, hats 6.4–9.1 LU under the kick, leads 4.5–9.7 LU under the kick and vocals at or under the lead. On Cotton, Glasshouse, Halflight, Low Sun and Undertone the kick and sub are tuned to 41–49 Hz by the key, so 30–60 Hz still carries −1 to −2 dB of the power against about −4.5 dB in the references.
+- `src/fluff-presets.test.ts` checks that all seventeen tracks build, validate, stay in key and have 8-bar basslines and 8- or 16-bar chord loops, that leads play at most five notes a bar (4.5 on average), and that every track has a moving 16-bar automation curve whose non-volume lanes end where they start. The examples were rendered whole (the full 16-bar loop) and part by part and compared with measurements of reference club tracks: peaks −3.8 to −6.0 dBFS without clipping, integrated loudness −15.0 to −17.1 LUFS, crest factor 10.7–13.9 dB, 120–300 Hz at −7.4 to −12.8 dB (Undertone −15.9), 2–5 kHz at −18.7 to −24.1 dB, 5–8 kHz at −18.3 to −23 dB, 8 kHz and up at −20.5 to −24.6 dB (Hush's dusty hats −33.7), side/mid above 2 kHz −6.8 to −11.1 dB while below 150 Hz stays mono, hats 6.4–9.1 LU under the kick, leads 4.5–9.7 LU under the kick and vocals at or under the lead. On Cotton, Glasshouse, Halflight, Low Sun and Undertone the kick and sub are tuned to 41–49 Hz by the key, so 30–60 Hz still carries −1 to −2 dB of the power against about −4.5 dB in the references. Sodium, Slow Turn, Brickwork, Late Bus and Parallax were measured the same way: peaks −4.1 to −5.6 dBFS, −16.0 to −17.2 LUFS, crest factor 10.7–12.8 dB, 120–300 Hz at −11.0 to −14.0 dB, 2–5 kHz at −21.4 to −24.2 dB, side/mid above 2 kHz −6.6 to −9.2 dB, hats 6.1–9.4 LU and the Brickwork organ 9.5 LU under the kick. None of them uses a lead above the pad or a vocal, and none uses a sound from the Grain studio.
 - `src/fluff-drums.test.ts` checks that every Fluff drum slot maps to a bundled file (or is one of the two synthesized slots), that kick tuning stays in 40–70 Hz, Decay gating, the hat choke, which slots are stereo, render tails and the loader's caching, validation (including channel count) and retry. Every synthesized slot was checked on spectrograms and measured for decay, centroid, band balance and narrow resonances (`docs/samples.md`).
 - The Fluff master compressor is lower and faster than at first (−18 dB threshold, 2.5:1, 4 ms attack) so the mixes are denser; Grain's values are unchanged and Grain renders sample-identical (within 16-bit rounding, with a seeded random source) to the previous release.
 - Each track was rendered offline in headless Chrome (full mix, kick alone, bass alone, bass with the sidechain running) and measured for peak, integrated loudness, band balance against the targets above, low-frequency stereo correlation, bass ducking at each kick and recovery by the offbeat, and kick/bass summing. Nothing has been judged by ear.
