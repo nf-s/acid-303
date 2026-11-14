@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { FLUFF_PRESETS, createFluffPreset } from "./fluff-presets";
 import { projectBars, projectSchema, scaleNotes } from "./model";
 import type { Project } from "./model";
+import {
+  chordNotes,
+  progressionChordAtStep,
+  progressionChordScale,
+} from "./progression-model";
 import { defaultPresetId, presetsForMode } from "./presets";
 
 const ids = FLUFF_PRESETS.map((preset) => preset.id);
@@ -63,6 +68,47 @@ describe("Fluff examples", () => {
     ].map((note) => note % 12);
     expect(played.every((note) => allowed.has(note))).toBe(true);
   });
+
+  it.each(ids)(
+    "builds the %s chords from the key or a borrowed parallel scale",
+    (id) => {
+      const project = createFluffPreset(id);
+      const borrowed = project.progression.chords.filter(
+        (chord) => chord.borrow,
+      );
+      // At most one borrowed chord, so the colour stays a colour.
+      expect(borrowed.length).toBeLessThanOrEqual(1);
+      expect(project.pad.chords).toEqual(project.progression.chords);
+      for (const chord of project.progression.chords) {
+        const own = new Set(
+          scaleNotes(progressionChordScale(chord, project.scale), 0, 127).map(
+            (note) => note % 12,
+          ),
+        );
+        const notes = chordNotes(chord, project.scale);
+        expect(notes.length).toBeGreaterThanOrEqual(3);
+        expect(notes.every((note) => own.has(note % 12))).toBe(true);
+      }
+      // Bass and lead notes under a borrowed chord fit its scale as well.
+      for (let step = 0; step < projectBars(project) * 16; step++) {
+        const chord =
+          project.progression.chords[
+            progressionChordAtStep(project.progression, step)
+          ];
+        if (!chord?.borrow) continue;
+        const own = new Set(
+          scaleNotes(progressionChordScale(chord, project.scale), 0, 127).map(
+            (note) => note % 12,
+          ),
+        );
+        for (const track of [project.bass, project.keys]) {
+          const played = track.steps[step % track.steps.length];
+          if (!track.muted && played?.on)
+            expect(own.has(played.note % 12), `${id} step ${step}`).toBe(true);
+        }
+      }
+    },
+  );
 
   it.each(ids)(
     "gives %s an eight-bar bassline, a long chord loop and a kick",

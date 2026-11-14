@@ -98,17 +98,35 @@ describe("chord colours and borrowing", () => {
     const saved: unknown = JSON.parse(JSON.stringify(createProject()));
     expect(readProject(saved)).toEqual(saved);
   });
-  it("keeps every bundled example on the original seventh chords", () => {
+  it("keeps every earlier bundled example on the original seventh chords", () => {
+    // Only the five Fluff tracks written for the chord colours use them.
+    const coloured = new Set([
+      "fluff-sodium",
+      "fluff-slow-turn",
+      "fluff-brickwork",
+      "fluff-late-bus",
+      "fluff-parallax",
+    ]);
     for (const preset of PRESETS) {
       const project = createPreset(preset.id);
-      for (const chord of [
-        ...project.progression.chords,
-        ...project.pad.chords,
-      ]) {
-        expect(chord.quality).toBeUndefined();
-        expect(chord.borrow).toBeUndefined();
+      const chords = [...project.progression.chords, ...project.pad.chords];
+      if (coloured.has(preset.id)) {
+        expect(
+          chords.some((chord) => chord.quality ?? chord.borrow),
+          preset.id,
+        ).toBeTruthy();
+        continue;
+      }
+      for (const chord of chords) {
+        expect(chord.quality, preset.id).toBeUndefined();
+        expect(chord.borrow, preset.id).toBeUndefined();
       }
     }
+    expect(
+      PRESETS.filter((preset) => coloured.has(preset.id)).map(
+        (preset) => preset.id,
+      ),
+    ).toEqual([...coloured]);
   });
   it("rejects unknown chord types and borrowed scales", () => {
     const progression = createProgression();

@@ -17,6 +17,11 @@ import type {
 } from "./model";
 import type { ArpParameter, ArpTrack } from "./arp-model";
 import type { PadParameter } from "./pad-model";
+import type {
+  ChordBorrow,
+  ChordQuality,
+  ProgressionChord,
+} from "./progression-model";
 import type { VocalNote, VocalParameter } from "./vocal-model";
 import type { PadTiming, SequenceTiming, Timing } from "./timing";
 
@@ -135,6 +140,11 @@ interface VocalSpec {
   end?: number;
   curves?: Curves<VocalParameter>;
 }
+/** A chord type and a borrowed parallel scale; either may be left out. */
+interface ChordColour {
+  quality?: ChordQuality;
+  borrow?: ChordBorrow;
+}
 interface FluffPreset {
   id: string;
   name: string;
@@ -146,8 +156,14 @@ interface FluffPreset {
   pump: number;
   chords: {
     bars: 8 | 16;
-    /** Four [scale degree, inversion] pairs, each lasting a quarter of the loop. */
-    steps: ReadonlyArray<readonly [number, number]>;
+    /**
+     * Four [scale degree, inversion] pairs, each lasting a quarter of the
+     * loop, optionally with a chord colour; without one the chord is the
+     * plain diatonic seventh.
+     */
+    steps: ReadonlyArray<
+      readonly [number, number] | readonly [number, number, ChordColour]
+    >;
   };
   drums: Partial<Record<DrumId, DrumSpec>>;
   bass: BassSpec;
@@ -1532,9 +1548,10 @@ const TRACKS: readonly FluffPreset[] = [
   },
   {
     // A broken kick and shuffled hats under dark analog strings in a long
-    // hall. The bass follows the kick and holds F♯ under F♯m7 and Dmaj7, then
-    // E under Bm7 (heard as E9sus) and E7. A filtered poly synth answers each
-    // bar with three chord tones; its filter opens over ten bars.
+    // hall. The bass follows the kick and holds F♯ under F♯m9 and Dadd9,
+    // then E under Bm(add9) (heard as E9sus) and an unresolved Esus4. A
+    // filtered poly synth answers each bar with three chord tones; its
+    // filter opens over ten bars.
     id: "fluff-sodium",
     name: "Sodium",
     genre: "UK breaks",
@@ -1545,10 +1562,10 @@ const TRACKS: readonly FluffPreset[] = [
     chords: {
       bars: 16,
       steps: [
-        [0, 0],
-        [3, 0],
-        [5, 0],
-        [6, 0],
+        [0, 0, { quality: "ninth" }],
+        [3, 0, { quality: "add9" }],
+        [5, 0, { quality: "add9" }],
+        [6, 0, { quality: "sus4" }],
       ],
     },
     drums: {
@@ -1642,9 +1659,11 @@ const TRACKS: readonly FluffPreset[] = [
   },
   {
     // Percussion carries it: shaker sixteenths, a ghost rim and congas from
-    // bar 5. The bass repeats one two-note figure, B♭ falling to A♭, then
-    // E♭ to D♭ under G♭maj7 (heard as E♭m9) and E♭m7. A low pluck ostinato
-    // lengthens and opens over fourteen bars over a slow phased pad.
+    // bar 5. Minor ninths throughout, the last borrowed from Dorian (E♭9,
+    // with G natural). The bass repeats one two-note figure, B♭ falling to
+    // A♭ under B♭m9, then E♭ to D♭ under G♭maj9 (heard as E♭m11) and E♭9.
+    // A low pluck ostinato lengthens and opens over fourteen bars over a
+    // slow phased pad.
     id: "fluff-slow-turn",
     name: "Slow Turn",
     genre: "Hypnotic house",
@@ -1655,10 +1674,10 @@ const TRACKS: readonly FluffPreset[] = [
     chords: {
       bars: 16,
       steps: [
-        [0, 0],
-        [5, 0],
-        [0, 0],
-        [3, 0],
+        [0, 0, { quality: "ninth" }],
+        [5, 0, { quality: "ninth" }],
+        [0, 0, { quality: "ninth" }],
+        [3, 0, { quality: "ninth", borrow: "dorian" }],
       ],
     },
     drums: {
@@ -1744,8 +1763,9 @@ const TRACKS: readonly FluffPreset[] = [
   {
     // Fast and dusty: a lo-fi kick, open hats on the offbeat and an organ
     // stab motif (A minor, A minor, G over the first chords, C, C, G over
-    // the others) pumping hard. The offbeat bass holds A under Am7 and Dm7,
-    // then C under Fmaj7 and Em7 (heard as Cmaj9); tape keys join at bar 9.
+    // the others) pumping hard over plain triads. The offbeat bass holds A
+    // under Am and Dm, then C under F and Em (heard as Cmaj7); tape keys
+    // join at bar 9.
     id: "fluff-brickwork",
     name: "Brickwork",
     genre: "Lo-fi rave",
@@ -1756,10 +1776,10 @@ const TRACKS: readonly FluffPreset[] = [
     chords: {
       bars: 16,
       steps: [
-        [0, 0],
-        [5, 0],
-        [3, 0],
-        [4, 0],
+        [0, 0, { quality: "triad" }],
+        [5, 0, { quality: "triad" }],
+        [3, 0, { quality: "triad" }],
+        [4, 0, { quality: "triad" }],
       ],
     },
     drums: {
@@ -1845,8 +1865,8 @@ const TRACKS: readonly FluffPreset[] = [
   {
     // Swung two-step drums opening into a house kick every second bar, a
     // bouncing organ bass, chopped electric piano chord tones and a quiet
-    // bell answer from bar 9. The bass holds F under Fm7 and E♭maj7 (heard
-    // as F11), then B♭ under B♭7 and Cm7.
+    // bell answer from bar 9. The bass holds F under Fm9 and E♭add9 (heard
+    // as F11), then B♭ under B♭9 and Cm9.
     id: "fluff-late-bus",
     name: "Late Bus",
     genre: "2-step house",
@@ -1857,10 +1877,10 @@ const TRACKS: readonly FluffPreset[] = [
     chords: {
       bars: 16,
       steps: [
-        [0, 0],
-        [3, 0],
-        [6, 0],
-        [4, 0],
+        [0, 0, { quality: "ninth" }],
+        [3, 0, { quality: "ninth" }],
+        [6, 0, { quality: "add9" }],
+        [4, 0, { quality: "ninth" }],
       ],
     },
     drums: {
@@ -1968,8 +1988,9 @@ const TRACKS: readonly FluffPreset[] = [
   {
     // A steady kick, ticking sixteenths and a hall clap under a detuned pad
     // that brightens over twelve bars, with a two-bar bell figure swelling
-    // in and out of it. The sub holds A♭ under A♭m7 and C♭maj7 (heard as
-    // A♭m9), then D♭ under F♭maj7 (D♭m9) and G♭7.
+    // in and out of it. Open add9 and sus2 chords never resolve: the sub
+    // holds A♭ under A♭m(add9) and C♭sus2, then D♭ under F♭add9 (heard as
+    // D♭m11) and G♭sus2.
     id: "fluff-parallax",
     name: "Parallax",
     genre: "Melodic techno",
@@ -1980,10 +2001,10 @@ const TRACKS: readonly FluffPreset[] = [
     chords: {
       bars: 16,
       steps: [
-        [0, 0],
-        [5, 0],
-        [2, 0],
-        [6, 0],
+        [0, 0, { quality: "add9" }],
+        [5, 0, { quality: "add9" }],
+        [2, 0, { quality: "sus2" }],
+        [6, 0, { quality: "sus2" }],
       ],
     },
     drums: {
@@ -2383,10 +2404,14 @@ export function createFluffPreset(id: string): Project {
     meter: "4/4",
     grid: "straight",
   };
-  const chords = preset.chords.steps.map(([degree, inversion]) => ({
-    degree,
-    inversion,
-  }));
+  const chords = preset.chords.steps.map(
+    ([degree, inversion, colour]): ProgressionChord => ({
+      degree,
+      inversion,
+      ...(colour?.quality ? { quality: colour.quality } : {}),
+      ...(colour?.borrow ? { borrow: colour.borrow } : {}),
+    }),
+  );
   project.progression = { timing: chordTiming, chords };
 
   const pad = preset.pad;

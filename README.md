@@ -2,7 +2,7 @@
 
 A local-first drum machine, 303-inspired bass sequencer, percussion Texture instrument, arpeggiator, sustained pads, a vocal sampler, a granular Cloud instrument and a Tension resonator. Audio is generated in the browser using Web Audio. Solo projects are saved in this browser. Shared sessions synchronize musical state through Cloudflare; audio stays on the host device and is never streamed.
 
-The Grain / Fluff switch in the title bar selects a second, melodic voice for the same studio: trance, progressive house and melodic breaks instruments, a sidechain pump and twelve more examples. See [Fluff mode](docs/fluff.md).
+The Grain / Fluff switch in the title bar selects a second, melodic voice for the same studio: trance, progressive house and melodic breaks instruments, a sidechain pump and seventeen more examples. See [Fluff mode](docs/fluff.md).
 
 Every drum lane, Bass, Texture/Lead, Arpeggiator and Pads also offers the other studio's sounds, in a second labelled row drawn in that studio's style (square grey chips for Grain, lilac pills for Fluff). A track plays the voice of the sound it uses; the master and performance effects stay those of the project's mode. See [sounds from the other studio](docs/fluff.md#sounds-from-the-other-studio).
 
