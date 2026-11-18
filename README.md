@@ -71,3 +71,19 @@ npm run dev
 ```
 
 `npm test` runs unit checks and `npm run test:e2e` runs browser checks (requires Chrome). See [development](docs/development.md) for the code structure and [deployment](docs/deployment.md) for release steps.
+
+## Made with AI
+
+The code, documentation, example patterns and synthesized sounds in this repository were generated almost entirely by AI coding agents, directed by the author. They can contain errors.
+
+## Licence and credits
+
+Original work in this repository is dedicated to the public domain under [CC0 1.0](LICENSE), without warranty. Third-party material keeps its own terms:
+
+- **Drum samples**: the Sonic Pi sample library (recordings from freesound.org) and Virtuosity Drums by Versilian Studios and Karoryfer Samples, all CC0 1.0. [Per-file sources](docs/samples.md)
+- **Vocal samples**: Kenney's Voiceover Pack and Voiceover Pack (Fighter), performed by Giselle and Jeffrey M. Smith, and Producer Space's Soulful House Vocals, Euphoric Trance Vocals and Dance Vocal Shouts, all CC0 1.0. [Credits](public/vocals/README.txt) · [Licences](public/vocals/licenses)
+- **Typeface**: IBM Plex Mono, SIL Open Font License 1.1.
+- **Icons**: Lucide, ISC licence, with portions from Feather under the MIT licence.
+- **Wordmark**: the GRAIN wordmark is traced from a reference lettering image and is outside the dedication. [Title reference](docs/title-reference.md)
+- **Title-font studies**: cuts 21–30 in `design/title-font-studies/` derive from other typefaces and stay under the SIL Open Font License 1.1. [Credits](design/title-font-studies/ROUND-3-CREDITS.txt)
+- **npm dependencies** keep their own licences.
