@@ -32,16 +32,16 @@ Switch between **Grain** and **Fluff** in the title bar. Each has its own sounds
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/images/drums.jpg" alt="Drum sequencer"><br><b>Drums</b>: paint steps across kick, snare, hat, clap and rim, each with eight automatable controls.</td>
-    <td width="50%"><img src="docs/images/bass.jpg" alt="Acid bass pitch matrix"><br><b>Acid bass</b>: draw pitch, gate, accent and glide in scale.</td>
+    <td width="50%" valign="top"><img src="docs/images/drums.jpg" alt="Drum sequencer"><br><b>Drums</b>: paint steps across kick, snare, hat, clap and rim, each with eight automatable controls.</td>
+    <td width="50%" valign="top"><img src="docs/images/bass.jpg" alt="Acid bass pitch matrix"><br><b>Acid bass</b>: draw pitch, gate, accent and glide in scale.</td>
   </tr>
   <tr>
-    <td><img src="docs/images/vocals.jpg" alt="Vocal sampler"><br><b>Vocals</b>: trim a sung or chopped sample and draw notes of any length.</td>
-    <td><img src="docs/images/fluff-arp.jpg" alt="Arpeggiator in Fluff mode"><br><b>Arpeggiator</b>: pick notes, order, rate and octaves, or follow the chord progression.</td>
+    <td valign="top"><img src="docs/images/vocals.jpg" alt="Vocal sampler"><br><b>Vocals</b>: trim a sung or chopped sample and draw notes of any length.</td>
+    <td valign="top"><img src="docs/images/fluff-arp.jpg" alt="Arpeggiator in Fluff mode"><br><b>Arpeggiator</b>: pick notes, order, rate and octaves, or follow the chord progression.</td>
   </tr>
   <tr>
-    <td><img src="docs/images/cloud.jpg" alt="Cloud granular instrument"><br><b>Cloud</b>: drag to scan granular material and change pitch.</td>
-    <td><img src="docs/images/tension.jpg" alt="Tension string instrument"><br><b>Tension</b>: pull and release strings to strike tuned percussion.</td>
+    <td valign="top"><img src="docs/images/cloud.jpg" alt="Cloud granular instrument"><br><b>Cloud</b>: drag to scan granular material and change pitch.</td>
+    <td valign="top"><img src="docs/images/tension.jpg" alt="Tension string instrument"><br><b>Tension</b>: pull and release strings to strike tuned percussion.</td>
   </tr>
 </table>
 
